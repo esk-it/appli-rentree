@@ -81,9 +81,6 @@ pub fn run() {
         .expect("Erreur de construction de l'application Tauri")
         .run(|app_handle, event| {
             if let RunEvent::ExitRequested { .. } = event {
-                // Chaîne directe : tous les temporaires (State<_>, MutexGuard) meurent
-                // au point-virgule, on récupère un Option<CommandChild> owned.
-                // Évite les soucis de durée de vie du borrow checker.
                 let maybe_child = app_handle
                     .state::<BackendState>()
                     .child
@@ -91,8 +88,49 @@ pub fn run() {
                     .unwrap()
                     .take();
                 if let Some(child) = maybe_child {
-                    let _ = child.kill();
+                    arret_propre_du_backend(child);
                 }
             }
         });
+}
+
+/// Termine proprement le sidecar Python.
+///
+/// PyInstaller bundle `backend.exe` comme bootloader qui lance Python en
+/// sous-processus. Un simple `child.kill()` ne tue QUE le bootloader, pas le
+/// vrai uvicorn → backend.exe reste en mémoire avec le port 8020 occupé,
+/// bloquant la prochaine installation/mise à jour.
+///
+/// Solution Windows : `taskkill /F /T /PID <pid>` pour tuer l'arbre complet.
+fn arret_propre_du_backend(child: tauri_plugin_shell::process::CommandChild) {
+    let pid = child.pid();
+
+    // 1. Tente l'arrêt propre via l'endpoint /api/shutdown (timeout court).
+    //    Le backend fait os._exit(0) après un petit délai, ce qui libère le port.
+    std::thread::spawn(|| {
+        if let Ok(client) = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_millis(300))
+            .build()
+        {
+            let _ = client.post("http://127.0.0.1:8020/api/shutdown").send();
+        }
+    });
+    // Laisse 300 ms au backend pour faire son os._exit(0)
+    std::thread::sleep(std::time::Duration::from_millis(300));
+
+    // 2. Force-kill du process ET de ses enfants (le vrai Python derrière
+    //    le bootloader PyInstaller).
+    #[cfg(target_os = "windows")]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .output();
+        // Au cas où taskkill aurait raté quelque chose
+        let _ = child.kill();
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = pid; // évite warning unused
+        let _ = child.kill();
+    }
 }
