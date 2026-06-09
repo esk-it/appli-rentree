@@ -9,21 +9,28 @@
   import Globe from "@lucide/svelte/icons/globe";
   import IdCard from "@lucide/svelte/icons/id-card";
   import Settings from "@lucide/svelte/icons/settings";
+  import Download from "@lucide/svelte/icons/download";
+  import Sparkles from "@lucide/svelte/icons/sparkles";
   import Accueil from "./routes/Accueil.svelte";
   import { attendreBackend } from "$lib/api.js";
+  import { verifierMaj, installerMaj } from "$lib/updater.js";
 
   let backendOk = $state(/** @type {null | boolean} */ (null));
   let versionBackend = $state("");
   let messageDemarrage = $state("Démarrage du backend…");
   let erreurDemarrage = $state("");
 
+  // Mise à jour
+  let majDisponible = $state(/** @type {null | {version: string, update: any}} */ (null));
+  let majEnCours = $state(false);
+  let majProgression = $state({ phase: "", pourcentage: 0, version: "" });
+
   // Page courante (très simple pour l'instant — on basculera sur svelte-spa-router quand on aura plus de routes)
   let page = $state("accueil");
 
   onMount(async () => {
+    // 1. Connexion backend
     try {
-      // Le sidecar Python (PyInstaller) met quelques secondes à se lancer à froid.
-      // On retry jusqu'à ce qu'il réponde.
       const h = await attendreBackend({ maxTentatives: 30, baseDelai: 300 });
       backendOk = h.ok;
       versionBackend = h.version;
@@ -31,7 +38,27 @@
       backendOk = false;
       erreurDemarrage = e instanceof Error ? e.message : String(e);
     }
+
+    // 2. Vérification de mise à jour (en parallèle de l'app qui démarre)
+    const maj = await verifierMaj();
+    if (maj.disponible) {
+      majDisponible = { version: maj.version, update: maj.update };
+    }
   });
+
+  async function lancerMaj() {
+    if (!majDisponible) return;
+    majEnCours = true;
+    try {
+      await installerMaj(majDisponible.update, (p) => {
+        majProgression = p;
+      });
+    } catch (e) {
+      console.error("[updater] Échec :", e);
+      majEnCours = false;
+      alert(`Échec de la mise à jour : ${e?.message ?? e}`);
+    }
+  }
 
   const navItems = [
     { id: "accueil", label: "Accueil", icon: Home, dispo: true },
@@ -76,7 +103,44 @@
     </div>
   </div>
 {:else}
-<div class="flex h-screen overflow-hidden">
+<div class="flex h-screen flex-col overflow-hidden">
+  {#if majDisponible && !majEnCours}
+    <!-- Bannière nouvelle version dispo -->
+    <div class="flex items-center justify-between gap-3 border-b border-emerald-200 bg-emerald-50 px-4 py-2">
+      <div class="flex items-center gap-2 text-sm text-emerald-900">
+        <Sparkles class="h-4 w-4 text-emerald-700" />
+        <span>
+          Une nouvelle version <strong>v{majDisponible.version}</strong> est disponible.
+        </span>
+      </div>
+      <button class="btn-primary !py-1 !px-3 text-xs" onclick={lancerMaj}>
+        <Download class="h-3.5 w-3.5" />
+        Mettre à jour
+      </button>
+    </div>
+  {/if}
+  {#if majEnCours}
+    <div class="flex items-center gap-3 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">
+      <span>
+        Mise à jour vers <strong>v{majProgression.version}</strong> —
+        {majProgression.phase === "telechargement"
+          ? `téléchargement ${majProgression.pourcentage}%`
+          : majProgression.phase === "installation"
+            ? "installation…"
+            : majProgression.phase === "termine"
+              ? "redémarrage…"
+              : "préparation…"}
+      </span>
+      <div class="h-1.5 flex-1 overflow-hidden rounded-full bg-emerald-200">
+        <div
+          class="h-full bg-emerald-600 transition-all"
+          style="width: {majProgression.pourcentage}%"
+        ></div>
+      </div>
+    </div>
+  {/if}
+
+<div class="flex flex-1 overflow-hidden">
   <!-- Barre latérale -->
   <aside class="flex w-64 shrink-0 flex-col border-r border-stone-200 bg-white">
     <div class="flex items-center gap-2 border-b border-stone-200 px-5 py-4">
@@ -123,5 +187,6 @@
       {/if}
     </div>
   </main>
+</div>
 </div>
 {/if}
