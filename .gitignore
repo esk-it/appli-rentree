@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+
+# PyInstaller
+*.spec.bak
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/binaries/
+src-tauri/keys/
+
+# Frontend build output (généré par Vite)
+/dist/
+
+# Base de données et secrets
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.local
+.env.*.local
+
+# Données utilisateur (exports Charlemagne, fichiers générés, photos)
+data/input/*
+data/output/*
+!data/input/.gitkeep
+!data/output/.gitkeep
+
+# Fichiers d'exemple à la racine (exports anonymisés ou pas)
+/*.xlsx
+/*.xls
+/*.htm
+/*.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Claude Code — settings personnels (les permissions accordées ne se partagent pas)
+.claude/settings.local.json

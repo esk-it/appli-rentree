@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install npm dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Install PyInstaller
+        run: pip install pyinstaller
+
+      - name: Install Python backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build backend with PyInstaller
+        run: pyinstaller --noconfirm backend.spec
+
+      - name: Create sidecar directory and copy backend binary
+        run: |
+          New-Item -ItemType Directory -Path "src-tauri\binaries" -Force
+          Copy-Item "dist\backend.exe" "src-tauri\binaries\backend-x86_64-pc-windows-msvc.exe" -Force
+
+      - name: Build Tauri app (signed)
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          echo "=== ENV CHECK ==="
+          echo "TAURI_SIGNING_PRIVATE_KEY length: ${#TAURI_SIGNING_PRIVATE_KEY}"
+          npx tauri build
+
+          echo "=== BUILD OUTPUT ==="
+          ls -la src-tauri/target/release/bundle/nsis/ || echo "  (no nsis dir)"
+
+      - name: Sign bundle and create release
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="${GITHUB_REF_NAME}"
+          BUNDLE_DIR="src-tauri/target/release/bundle"
+
+          NSIS_EXE=$(find "$BUNDLE_DIR/nsis" -name "*.exe" 2>/dev/null | head -1)
+          if [ -z "$NSIS_EXE" ]; then
+            echo "FATAL: No .exe found in NSIS bundle dir!"
+            exit 1
+          fi
+
+          # Crée le zip avec compression Store (méthode 0) — seule lisible par le plugin updater
+          NSIS_DIR=$(dirname "$NSIS_EXE")
+          NSIS_EXE_NAME=$(basename "$NSIS_EXE")
+          NSIS_ZIP_NAME="${NSIS_EXE_NAME%.exe}.nsis.zip"
+          NSIS_ZIP="$NSIS_DIR/$NSIS_ZIP_NAME"
+          rm -f "$NSIS_ZIP"
+          pushd "$NSIS_DIR"
+          7z a -tzip -mx=0 "$NSIS_ZIP_NAME" "$NSIS_EXE_NAME"
+          popd
+
+          # Signe le zip
+          npx tauri signer sign "$NSIS_ZIP"
+          NSIS_ZIP_SIG=$(cat "${NSIS_ZIP}.sig")
+
+          # Génère latest.json pour l'auto-updater
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          REPO="${{ github.repository }}"
+          DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${TAG}/$(basename "$NSIS_ZIP")"
+
+          cat > latest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "notes": "Voir les notes de release sur GitHub.",
+            "pub_date": "${PUB_DATE}",
+            "platforms": {
+              "windows-x86_64": {
+                "signature": "${NSIS_ZIP_SIG}",
+                "url": "${DOWNLOAD_URL}"
+              }
+            }
+          }
+          EOF
+
+          # Crée la release et upload les fichiers
+          gh release create "${TAG}" \
+            --title "Appli Rentrée ${TAG}" \
+            --generate-notes \
+            "${NSIS_EXE}" \
+            "${NSIS_ZIP}" \
+            latest.json
