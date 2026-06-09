@@ -7,6 +7,7 @@
  */
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
 
 /**
  * @typedef {Object} ProgressionMaj
@@ -35,12 +36,27 @@ export async function verifierMaj() {
 
 /**
  * Télécharge et installe la mise à jour, puis relance l'app.
+ *
+ * IMPORTANT : on tue d'abord le sidecar Python avant de lancer l'installeur,
+ * sinon NSIS échoue avec "Error opening file for writing:
+ * appli-rentree-backend.exe" car le processus tient le fichier ouvert.
+ *
  * @param {any} update - objet retourné par check()
  * @param {(p: ProgressionMaj) => void} onProgress - callback de progression
  */
 export async function installerMaj(update, onProgress) {
   let totalOctets = 0;
   let octetsRecus = 0;
+
+  onProgress({ phase: "preparation", pourcentage: 0, version: update.version });
+  // Arrête le sidecar pour libérer appli-rentree-backend.exe
+  try {
+    await invoke("kill_backend");
+  } catch (e) {
+    console.warn("[updater] kill_backend a échoué :", e);
+  }
+  // Laisse Windows le temps de libérer le handle de fichier
+  await new Promise((r) => setTimeout(r, 600));
 
   await update.downloadAndInstall((event) => {
     if (event.event === "Started") {

@@ -17,6 +17,24 @@ struct BackendState {
 
 const BACKEND_PORT: u16 = 8020;
 
+/// Commande invocable depuis le frontend pour tuer proprement le sidecar.
+///
+/// Appelée par le code JS de mise à jour AVANT que l'installeur NSIS ne
+/// remplace les fichiers — sinon NSIS échoue avec "Error opening file for
+/// writing: appli-rentree-backend.exe".
+#[tauri::command]
+fn kill_backend(app: tauri::AppHandle) {
+    let maybe_child = app
+        .state::<BackendState>()
+        .child
+        .lock()
+        .unwrap()
+        .take();
+    if let Some(child) = maybe_child {
+        arret_propre_du_backend(child);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -25,6 +43,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .invoke_handler(tauri::generate_handler![kill_backend])
         .manage(BackendState::default())
         .setup(|_app| {
             // En dev, on n'embarque pas le sidecar : on suppose que `start_backend.ps1`
