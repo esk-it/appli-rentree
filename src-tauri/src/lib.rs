@@ -80,14 +80,15 @@ pub fn run() {
         .expect("Erreur de construction de l'application Tauri")
         .run(|app_handle, event| {
             if let RunEvent::ExitRequested { .. } = event {
-                // On extrait le child du Mutex dans un bloc isolé pour que le MutexGuard
-                // soit drop avant qu'on appelle .kill() — sinon le borrow checker rouspète
-                // parce que `state` (qui borrow `app_handle`) dépasserait la durée de vie
-                // du MutexGuard temporaire.
-                let maybe_child = {
-                    let state = app_handle.state::<BackendState>();
-                    state.child.lock().unwrap().take()
-                };
+                // Chaîne directe : tous les temporaires (State<_>, MutexGuard) meurent
+                // au point-virgule, on récupère un Option<CommandChild> owned.
+                // Évite les soucis de durée de vie du borrow checker.
+                let maybe_child = app_handle
+                    .state::<BackendState>()
+                    .child
+                    .lock()
+                    .unwrap()
+                    .take();
                 if let Some(child) = maybe_child {
                     let _ = child.kill();
                 }
