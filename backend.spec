@@ -1,8 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
 """PyInstaller spec pour bundler le backend FastAPI.
 
-Génère un seul exécutable autonome (`backend.exe`) que Tauri embarque comme
-sidecar binary. Construit en CI avec `pyinstaller --noconfirm backend.spec`.
+Génère un seul exécutable autonome (`appli-rentree-backend.exe`) que Tauri
+embarque comme sidecar binary. Le nom est explicite pour éviter toute confusion
+avec d'autres apps Tauri du même utilisateur (ex: Dashboard-Web) qui ont aussi
+un sidecar Python — éviter qu'un `taskkill /IM backend.exe` accidentel touche
+les deux.
+
+Construit en CI avec `pyinstaller --noconfirm backend.spec`.
 """
 
 block_cipher = None
@@ -60,7 +65,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="backend",
+    name="appli-rentree-backend",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

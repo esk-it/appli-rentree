@@ -1,7 +1,7 @@
 # Tue les processus uvicorn éventuellement restés en place (en cas de plantage Tauri).
 
 Get-Process | Where-Object {
-    $_.ProcessName -in @("python", "python3", "uvicorn", "backend") -and
+    $_.ProcessName -in @("python", "python3", "uvicorn", "appli-rentree-backend") -and
     $_.MainWindowTitle -notlike "*PowerShell*"
 } | ForEach-Object {
     try {

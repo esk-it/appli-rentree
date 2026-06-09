@@ -7,8 +7,8 @@
  * ce sidecar — il sait qu'on lance le backend séparément en uvicorn.
  *
  * En prod (GitHub Actions), le workflow remplace ce fichier par le vrai
- * backend.exe compilé par PyInstaller. Donc cette astuce n'a aucun effet
- * sur le binaire distribué.
+ * appli-rentree-backend.exe compilé par PyInstaller. Donc cette astuce n'a
+ * aucun effet sur le binaire distribué.
  *
  * Ce script tourne automatiquement après `npm install` (hook postinstall).
  */
@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const racine = join(__dirname, "..");
 const cibleDir = join(racine, "src-tauri", "binaries");
-const cible = join(cibleDir, "backend-x86_64-pc-windows-msvc.exe");
+const cible = join(cibleDir, "appli-rentree-backend-x86_64-pc-windows-msvc.exe");
 
 if (existsSync(cible)) {
   console.log("[dev-sidecar] Stub déjà présent — rien à faire.");
@@ -27,5 +27,5 @@ if (existsSync(cible)) {
 }
 
 mkdirSync(cibleDir, { recursive: true });
-writeFileSync(cible, "# Stub dev — remplacé par le vrai backend.exe en CI\n");
+writeFileSync(cible, "# Stub dev — remplacé par le vrai appli-rentree-backend.exe en CI\n");
 console.log(`[dev-sidecar] Stub créé : ${cible}`);

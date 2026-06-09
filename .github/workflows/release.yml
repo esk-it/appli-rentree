@@ -47,7 +47,7 @@ jobs:
       - name: Create sidecar directory and copy backend binary
         run: |
           New-Item -ItemType Directory -Path "src-tauri\binaries" -Force
-          Copy-Item "dist\backend.exe" "src-tauri\binaries\backend-x86_64-pc-windows-msvc.exe" -Force
+          Copy-Item "dist\appli-rentree-backend.exe" "src-tauri\binaries\appli-rentree-backend-x86_64-pc-windows-msvc.exe" -Force
 
       - name: Build Tauri app (signed)
         shell: bash

@@ -34,8 +34,8 @@ pub fn run() {
             {
                 let sidecar = _app
                     .shell()
-                    .sidecar("backend")
-                    .expect("Sidecar `backend` introuvable. Build PyInstaller manqué ?")
+                    .sidecar("appli-rentree-backend")
+                    .expect("Sidecar `appli-rentree-backend` introuvable. Build PyInstaller manqué ?")
                     .args(["--port", &BACKEND_PORT.to_string()]);
 
                 let (mut rx, child) = sidecar
@@ -96,9 +96,9 @@ pub fn run() {
 
 /// Termine proprement le sidecar Python.
 ///
-/// PyInstaller bundle `backend.exe` comme bootloader qui lance Python en
-/// sous-processus. Un simple `child.kill()` ne tue QUE le bootloader, pas le
-/// vrai uvicorn → backend.exe reste en mémoire avec le port 8020 occupé,
+/// PyInstaller bundle `appli-rentree-backend.exe` comme bootloader qui lance
+/// Python en sous-processus. Un simple `child.kill()` ne tue QUE le bootloader,
+/// pas le vrai uvicorn → le binaire reste en mémoire avec le port 8020 occupé,
 /// bloquant la prochaine installation/mise à jour.
 ///
 /// Solution Windows : `taskkill /F /T /PID <pid>` pour tuer l'arbre complet.
