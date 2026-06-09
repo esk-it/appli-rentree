@@ -53,5 +53,7 @@ data/output/*
 Thumbs.db
 .DS_Store
 
-# Claude Code — settings personnels (les permissions accordées ne se partagent pas)
+# Claude Code — settings personnels et artefacts de session
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks/

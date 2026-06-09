@@ -10,21 +10,26 @@
   import IdCard from "@lucide/svelte/icons/id-card";
   import Settings from "@lucide/svelte/icons/settings";
   import Accueil from "./routes/Accueil.svelte";
-  import { health } from "$lib/api.js";
+  import { attendreBackend } from "$lib/api.js";
 
   let backendOk = $state(/** @type {null | boolean} */ (null));
   let versionBackend = $state("");
+  let messageDemarrage = $state("Démarrage du backend…");
+  let erreurDemarrage = $state("");
 
   // Page courante (très simple pour l'instant — on basculera sur svelte-spa-router quand on aura plus de routes)
   let page = $state("accueil");
 
   onMount(async () => {
     try {
-      const h = await health();
+      // Le sidecar Python (PyInstaller) met quelques secondes à se lancer à froid.
+      // On retry jusqu'à ce qu'il réponde.
+      const h = await attendreBackend({ maxTentatives: 30, baseDelai: 300 });
       backendOk = h.ok;
       versionBackend = h.version;
-    } catch {
+    } catch (e) {
       backendOk = false;
+      erreurDemarrage = e instanceof Error ? e.message : String(e);
     }
   });
 
@@ -40,6 +45,37 @@
   ];
 </script>
 
+{#if backendOk === null}
+  <!-- Écran de démarrage : on attend que le sidecar Python soit prêt -->
+  <div class="flex h-screen items-center justify-center bg-stone-50">
+    <div class="flex flex-col items-center gap-4 text-center">
+      <div class="h-12 w-12 animate-spin rounded-full border-4 border-stone-200 border-t-emerald-700"></div>
+      <div>
+        <p class="text-lg font-semibold text-stone-900">Appli Rentrée</p>
+        <p class="mt-1 text-sm text-stone-500">{messageDemarrage}</p>
+      </div>
+    </div>
+  </div>
+{:else if backendOk === false}
+  <!-- Backend injoignable : on explique au lieu d'un écran blanc -->
+  <div class="flex h-screen items-center justify-center bg-stone-50 px-8">
+    <div class="card max-w-xl space-y-4 p-6">
+      <h2 class="text-xl font-semibold text-red-700">Backend injoignable</h2>
+      <p class="text-sm text-stone-700">
+        Le sidecar Python n'a pas répondu après plusieurs tentatives. Cela peut venir d'un
+        antivirus qui bloque <code>backend.exe</code>, du port 8020 déjà utilisé, ou d'un
+        plantage interne du backend.
+      </p>
+      {#if erreurDemarrage}
+        <pre class="overflow-x-auto rounded-lg bg-stone-100 p-3 text-xs text-stone-700 whitespace-pre-wrap">{erreurDemarrage}</pre>
+      {/if}
+      <p class="text-sm text-stone-700">
+        Vérifie qu'aucun autre programme n'utilise le port 8020, et relance l'application.
+      </p>
+      <button class="btn-primary" onclick={() => location.reload()}>Réessayer</button>
+    </div>
+  </div>
+{:else}
 <div class="flex h-screen overflow-hidden">
   <!-- Barre latérale -->
   <aside class="flex w-64 shrink-0 flex-col border-r border-stone-200 bg-white">
@@ -88,3 +124,4 @@
     </div>
   </main>
 </div>
+{/if}
