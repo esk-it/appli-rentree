@@ -122,8 +122,14 @@ fn arret_propre_du_backend(child: tauri_plugin_shell::process::CommandChild) {
     //    le bootloader PyInstaller).
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW : empêche le flash d'une fenêtre CMD quand on lance
+        // taskkill depuis notre app GUI. Sans ce flag, Windows ouvre une console
+        // qui clignote brièvement à la fermeture.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         let _ = std::process::Command::new("taskkill")
             .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
         // Au cas où taskkill aurait raté quelque chose
         let _ = child.kill();
