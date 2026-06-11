@@ -21,9 +21,18 @@ const BACKEND_PORT: u16 = 8020;
 ///
 /// Appelée par le code JS de mise à jour AVANT que l'installeur NSIS ne
 /// remplace les fichiers — sinon NSIS échoue avec "Error opening file for
-/// writing: appli-rentree-backend.exe".
+/// writing: appli-rentree-backend.exe" car Windows tient le fichier ouvert
+/// tant qu'un process l'utilise comme image.
+///
+/// Stratégie en 3 temps (inspirée de l'approche robuste du Dashboard) :
+/// 1. Kill via le handle CommandChild (le PID qu'on connaît)
+/// 2. Filet de sécurité : taskkill par nom d'image (sûr car nom unique
+///    depuis v0.1.5)
+/// 3. Polling de `tasklist` jusqu'à confirmation de disparition (max 3s)
+///    + délai supplémentaire pour laisser Windows libérer le file handle
 #[tauri::command]
-fn kill_backend(app: tauri::AppHandle) {
+fn kill_backend(app: tauri::AppHandle) -> Result<(), String> {
+    // 1. Kill via le handle qu'on a en mémoire (best path)
     let maybe_child = app
         .state::<BackendState>()
         .child
@@ -33,6 +42,55 @@ fn kill_backend(app: tauri::AppHandle) {
     if let Some(child) = maybe_child {
         arret_propre_du_backend(child);
     }
+
+    // 2. & 3. Sur Windows : safety net taskkill par nom + polling
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+        // Belt and suspenders : tue tout process appli-rentree-backend.exe
+        // résiduel (cas où le child handle aurait été None pour une raison X).
+        // Nom unique depuis v0.1.5 → aucun risque de toucher autre chose.
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/T", "/IM", "appli-rentree-backend.exe"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        // Polling : tant que tasklist voit encore le process, on attend.
+        // Max 30 itérations × 100ms = 3 secondes.
+        for _ in 0..30 {
+            let output = std::process::Command::new("tasklist")
+                .args([
+                    "/FI",
+                    "IMAGENAME eq appli-rentree-backend.exe",
+                    "/FO",
+                    "CSV",
+                    "/NH",
+                ])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+            if let Ok(out) = output {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if !stdout.contains("appli-rentree-backend.exe") {
+                    // Plus aucun process — on laisse Windows libérer le
+                    // handle de fichier (memory-mapped image), puis on rend
+                    // la main au JS pour lancer l'installeur.
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                    return Ok(());
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+
+        return Err(
+            "Le sidecar n'a pas pu être arrêté après 3 secondes — annuler la mise à jour"
+                .to_string(),
+        );
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

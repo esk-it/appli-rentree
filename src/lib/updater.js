@@ -49,14 +49,19 @@ export async function installerMaj(update, onProgress) {
   let octetsRecus = 0;
 
   onProgress({ phase: "preparation", pourcentage: 0, version: update.version });
-  // Arrête le sidecar pour libérer appli-rentree-backend.exe
+  // Arrête le sidecar pour libérer appli-rentree-backend.exe.
+  // Côté Rust, kill_backend fait taskkill + polling tasklist jusqu'à
+  // confirmation que le process est mort + délai pour libérer le file handle.
+  // Donc quand `invoke` retourne, on est sûrs que NSIS pourra écrire.
   try {
     await invoke("kill_backend");
   } catch (e) {
-    console.warn("[updater] kill_backend a échoué :", e);
+    // Le Rust nous remonte une erreur si le sidecar refuse de mourir en 3s.
+    // On stoppe la maj plutôt que de tenter un install qui va planter.
+    throw new Error(
+      `Impossible d'arrêter le backend pour la mise à jour : ${e}`,
+    );
   }
-  // Laisse Windows le temps de libérer le handle de fichier
-  await new Promise((r) => setTimeout(r, 600));
 
   await update.downloadAndInstall((event) => {
     if (event.event === "Started") {
