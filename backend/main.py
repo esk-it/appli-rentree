@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.database import init_db
-from backend.routers import annees, comparaison, etablissements, import_charlemagne
+from backend.routers import annees, comparaison, etablissements, exports, import_charlemagne
 
 
 @asynccontextmanager
@@ -31,7 +31,7 @@ app = FastAPI(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.3.0",
+    version="0.4.0",
     lifespan=lifespan,
 )
 
@@ -72,3 +72,4 @@ app.include_router(import_charlemagne.router)
 app.include_router(annees.router)
 app.include_router(etablissements.router)
 app.include_router(comparaison.router)
+app.include_router(exports.router)

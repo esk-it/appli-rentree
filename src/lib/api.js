@@ -129,3 +129,41 @@ export const comparaison = {
     return jsonOrThrow(await fetch(`${BASE}/comparaison?${params}`));
   },
 };
+
+export const exports = {
+  /**
+   * Génère les CSV KoXo pour l'année N (et N-1 optionnellement).
+   * @param {string} anneeN
+   * @param {string|null} anneeNMoinsUn
+   */
+  async koxo(anneeN, anneeNMoinsUn = null) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/koxo`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annee_n: anneeN,
+          annee_n_minus_1: anneeNMoinsUn,
+        }),
+      }),
+    );
+  },
+};
+
+/**
+ * Déclenche le téléchargement d'un fichier texte côté navigateur.
+ * @param {string} nom
+ * @param {string} contenu
+ * @param {string} [mime]
+ */
+export function telechargerFichier(nom, contenu, mime = "text/csv") {
+  const blob = new Blob([contenu], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nom;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
