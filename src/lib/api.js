@@ -114,3 +114,18 @@ export const etablissements = {
     return jsonOrThrow(await fetch(`${BASE}/etablissements`));
   },
 };
+
+export const comparaison = {
+  /**
+   * Compare deux snapshots et renvoie entrants/restants/sortants.
+   * @param {string} anneeN  ex. "2026-2027"
+   * @param {string} anneeNMoinsUn  ex. "2025-2026"
+   */
+  async comparer(anneeN, anneeNMoinsUn) {
+    const params = new URLSearchParams({
+      annee_n: anneeN,
+      annee_n_minus_1: anneeNMoinsUn,
+    });
+    return jsonOrThrow(await fetch(`${BASE}/comparaison?${params}`));
+  },
+};
