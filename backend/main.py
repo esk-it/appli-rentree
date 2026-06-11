@@ -6,11 +6,24 @@ en dev via `start_backend.ps1` / `uvicorn backend.main:app --reload --port 8020`
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.routers import import_charlemagne
+from backend.database import init_db
+from backend.routers import annees, etablissements, import_charlemagne
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Hook de démarrage / arrêt FastAPI.
+
+    Au démarrage : crée les tables SQLite manquantes (idempotent).
+    """
+    init_db()
+    yield
+
 
 app = FastAPI(
     title="Appli Rentrée — Backend",
@@ -18,12 +31,13 @@ app = FastAPI(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.1.0",
+    version="0.2.0",
+    lifespan=lifespan,
 )
 
-# CORS : le frontend Svelte tourne sur Vite dev (5173) ou en prod via Tauri.
-# En prod, le frontend est servi via le scheme tauri://, mais en dev il est
-# distinct du backend, donc on ouvre largement.
+# CORS : en dev le frontend Svelte tourne sur Vite (5173), en prod il est servi
+# par Tauri via le scheme tauri://. Dans tous les cas, le backend tourne sur
+# 127.0.0.1:8020 et n'est pas exposé sur le réseau, donc on ouvre largement.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -53,5 +67,7 @@ async def shutdown() -> dict:
     return {"ok": True}
 
 
-# Enregistrement des routeurs métier
+# Routeurs métier
 app.include_router(import_charlemagne.router)
+app.include_router(annees.router)
+app.include_router(etablissements.router)

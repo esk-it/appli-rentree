@@ -38,6 +38,9 @@ a = Analysis(
         "lxml",
         "lxml.html",
         "lxml.etree",
+        # SQLAlchemy (certains dialectes sont chargés dynamiquement)
+        "sqlalchemy.dialects.sqlite",
+        "sqlalchemy.sql.default_comparator",
     ],
     hookspath=[],
     hooksconfig={},

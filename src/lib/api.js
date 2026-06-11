@@ -77,4 +77,40 @@ export const charlemagne = {
       }),
     );
   },
+
+  /**
+   * Ingère un fichier déjà déposé dans data/input/ comme nouveau snapshot.
+   * @param {string} nomFichier
+   * @param {string} libelleAnnee  ex. "2025-2026"
+   * @param {boolean} [remplacerSiExiste=false]
+   */
+  async ingerer(nomFichier, libelleAnnee, remplacerSiExiste = false) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/charlemagne/ingerer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          nom_fichier: nomFichier,
+          libelle_annee: libelleAnnee,
+          remplacer_si_existe: remplacerSiExiste,
+        }),
+      }),
+    );
+  },
+};
+
+export const annees = {
+  async lister() {
+    return jsonOrThrow(await fetch(`${BASE}/annees`));
+  },
+
+  async supprimer(id) {
+    return jsonOrThrow(await fetch(`${BASE}/annees/${id}`, { method: "DELETE" }));
+  },
+};
+
+export const etablissements = {
+  async lister() {
+    return jsonOrThrow(await fetch(`${BASE}/etablissements`));
+  },
 };

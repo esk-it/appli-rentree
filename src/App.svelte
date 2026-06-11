@@ -12,6 +12,7 @@
   import Download from "@lucide/svelte/icons/download";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import Accueil from "./routes/Accueil.svelte";
+  import Snapshots from "./routes/Snapshots.svelte";
   import { attendreBackend } from "$lib/api.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
 
@@ -62,6 +63,7 @@
 
   const navItems = [
     { id: "accueil", label: "Accueil", icon: Home, dispo: true },
+    { id: "snapshots", label: "Snapshots d'années", icon: Database, dispo: true },
     { id: "comparaison", label: "Comparaison N vs N-1", icon: Database, dispo: false },
     { id: "koxo", label: "KoXo", icon: Key, dispo: false },
     { id: "google", label: "Google Workspace", icon: Globe, dispo: false },
@@ -184,6 +186,8 @@
     <div class="mx-auto max-w-7xl p-6">
       {#if page === "accueil"}
         <Accueil />
+      {:else if page === "snapshots"}
+        <Snapshots />
       {/if}
     </div>
   </main>

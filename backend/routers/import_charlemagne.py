@@ -3,12 +3,27 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from backend.config import DOSSIER_INPUT
+from backend.database import db_session
+from backend.services.ingestion import ingerer_export
 from backend.services.parser_charlemagne import lire_htm, lire_xlsx
 
 router = APIRouter(prefix="/api/charlemagne", tags=["charlemagne"])
+
+
+class IngererPayload(BaseModel):
+    """Payload pour l'endpoint /ingerer."""
+
+    nom_fichier: str = Field(..., description="Nom du fichier dans data/input/")
+    libelle_annee: str = Field(..., description='Ex: "2025-2026"')
+    remplacer_si_existe: bool = Field(
+        False,
+        description="Si True, vide les élèves de cette année avant de réimporter",
+    )
 
 
 @router.get("/fichiers")
@@ -66,6 +81,32 @@ def apercu_fichier(nom: str, limite: int = 200) -> dict:
         "lignes": df_extrait.to_dict(orient="records"),
         "stats": _stats_globales(df),
     }
+
+
+@router.post("/ingerer")
+def ingerer_fichier(
+    payload: IngererPayload,
+    session: Session = Depends(db_session),
+) -> dict:
+    """Ingère un export déjà déposé dans data/input/ comme nouveau snapshot.
+
+    Crée l'AnneeScolaire si elle n'existe pas, crée les Etablissements
+    inconnus, et insère un EleveSnapshot par ligne. Transactionnel : tout
+    ou rien.
+    """
+    chemin = DOSSIER_INPUT / payload.nom_fichier
+    if not chemin.exists():
+        raise HTTPException(404, f"Fichier introuvable : {payload.nom_fichier}")
+    try:
+        return ingerer_export(
+            session=session,
+            chemin_fichier=chemin,
+            libelle_annee=payload.libelle_annee,
+            remplacer_si_existe=payload.remplacer_si_existe,
+        )
+    except Exception as e:
+        session.rollback()
+        raise HTTPException(500, f"Échec de l'ingestion : {e}") from e
 
 
 def _stats_globales(df) -> dict:
