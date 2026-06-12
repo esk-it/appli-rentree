@@ -116,6 +116,26 @@ export const eleves = {
   },
 };
 
+export const adultes = {
+  async lister(libelleAnnee) {
+    const params = new URLSearchParams({ annee: libelleAnnee });
+    return jsonOrThrow(await fetch(`${BASE}/adultes?${params}`));
+  },
+  async ingerer(nomFichier, libelleAnnee, remplacerSiExiste = false) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/adultes/ingerer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          nom_fichier: nomFichier,
+          libelle_annee: libelleAnnee,
+          remplacer_si_existe: remplacerSiExiste,
+        }),
+      }),
+    );
+  },
+};
+
 export const etablissements = {
   async lister() {
     return jsonOrThrow(await fetch(`${BASE}/etablissements`));
@@ -233,6 +253,32 @@ export const exports = {
   async google(anneeN, anneeNMoinsUn = null) {
     return jsonOrThrow(
       await fetch(`${BASE}/exports/google`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annee_n: anneeN,
+          annee_n_minus_1: anneeNMoinsUn,
+        }),
+      }),
+    );
+  },
+
+  async koxoAdultes(anneeN, anneeNMoinsUn = null) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/koxo-adultes`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annee_n: anneeN,
+          annee_n_minus_1: anneeNMoinsUn,
+        }),
+      }),
+    );
+  },
+
+  async googleAdultes(anneeN, anneeNMoinsUn = null) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/google-adultes`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({

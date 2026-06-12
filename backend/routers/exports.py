@@ -15,7 +15,9 @@ from backend.database import db_session
 from backend.models import AnneeScolaire, EleveSnapshot
 from backend.services.exporters.cardstudio import generer_exports_cardstudio
 from backend.services.exporters.google import generer_exports_google
+from backend.services.exporters.google_adultes import generer_exports_google_adultes
 from backend.services.exporters.koxo import generer_exports_koxo
+from backend.services.exporters.koxo_adultes import generer_exports_koxo_adultes
 from backend.services.exporters.pmb import generer_exports_pmb
 from backend.services.exporters.smartair import (
     generer_exports_smartair,
@@ -217,6 +219,58 @@ def exporter_cardstudio(
 
     return {
         "annee_n": payload.annee_n,
+        "fichiers": [asdict(f) for f in fichiers],
+    }
+
+
+class ExportKoxoAdultesPayload(BaseModel):
+    annee_n: str = Field(...)
+    annee_n_minus_1: str | None = Field(None)
+
+
+@router.post("/koxo-adultes")
+def exporter_koxo_adultes(
+    payload: ExportKoxoAdultesPayload,
+    session: Session = Depends(db_session),
+) -> dict:
+    """Génère les CSV KoXo adultes (Tous, Nouveaux, Anciens si N-1)."""
+    try:
+        fichiers = generer_exports_koxo_adultes(
+            session=session,
+            libelle_n=payload.annee_n,
+            libelle_n_minus_1=payload.annee_n_minus_1,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {
+        "annee_n": payload.annee_n,
+        "annee_n_minus_1": payload.annee_n_minus_1,
+        "fichiers": [asdict(f) for f in fichiers],
+    }
+
+
+class ExportGoogleAdultesPayload(BaseModel):
+    annee_n: str = Field(...)
+    annee_n_minus_1: str | None = Field(None)
+
+
+@router.post("/google-adultes")
+def exporter_google_adultes(
+    payload: ExportGoogleAdultesPayload,
+    session: Session = Depends(db_session),
+) -> dict:
+    """Génère les CSV Google Workspace pour le personnel."""
+    try:
+        fichiers = generer_exports_google_adultes(
+            session=session,
+            libelle_n=payload.annee_n,
+            libelle_n_minus_1=payload.annee_n_minus_1,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    return {
+        "annee_n": payload.annee_n,
+        "annee_n_minus_1": payload.annee_n_minus_1,
         "fichiers": [asdict(f) for f in fichiers],
     }
 

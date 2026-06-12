@@ -36,7 +36,9 @@ from sqlalchemy.orm import Session
 from backend.models import AnneeScolaire, EleveSnapshot
 from backend.services.exporters.cardstudio import generer_exports_cardstudio
 from backend.services.exporters.google import generer_exports_google
+from backend.services.exporters.google_adultes import generer_exports_google_adultes
 from backend.services.exporters.koxo import generer_exports_koxo
+from backend.services.exporters.koxo_adultes import generer_exports_koxo_adultes
 from backend.services.exporters.pmb import generer_exports_pmb
 from backend.services.exporters.smartair import (
     generer_exports_smartair,
@@ -140,6 +142,9 @@ def generer_tout(
 
     # 1. Lancement parallèle (en série, c'est suffisamment rapide)
     koxo = generer_exports_koxo(session, libelle_n, libelle_n_minus_1)
+    koxo_adultes = generer_exports_koxo_adultes(
+        session, libelle_n, libelle_n_minus_1
+    )
     pmb = generer_exports_pmb(session, libelle_n)
     cardstudio = generer_exports_cardstudio(session, libelle_n)
     smartair = generer_exports_smartair(
@@ -151,14 +156,23 @@ def generer_tout(
     google = generer_exports_google(
         session, libelle_n, badges_n_minus_1=badges_n_1
     )
+    google_adultes = generer_exports_google_adultes(
+        session, libelle_n, libelle_n_minus_1
+    )
 
     # 2. Création du ZIP
     bio = io.BytesIO()
     fichiers_listes: list[ResumeFichier] = []
 
     with zipfile.ZipFile(bio, "w", zipfile.ZIP_DEFLATED) as zf:
-        # KoXo
+        # KoXo Élèves
         for f in koxo:
+            zf.writestr(f"KoXo/{f.nom}", f.contenu.encode("utf-8"))
+            fichiers_listes.append(
+                ResumeFichier(cible="KoXo", nom=f.nom, nb_lignes=f.nb_lignes)
+            )
+        # KoXo Adultes
+        for f in koxo_adultes:
             zf.writestr(f"KoXo/{f.nom}", f.contenu.encode("utf-8"))
             fichiers_listes.append(
                 ResumeFichier(cible="KoXo", nom=f.nom, nb_lignes=f.nb_lignes)
@@ -188,8 +202,14 @@ def generer_tout(
                     cible="SmartAir", nom=f.nom, nb_lignes=f.nb_lignes
                 )
             )
-        # Google
+        # Google Élèves
         for f in google:
+            zf.writestr(f"Google/{f.nom}", f.contenu.encode("utf-8"))
+            fichiers_listes.append(
+                ResumeFichier(cible="Google", nom=f.nom, nb_lignes=f.nb_lignes)
+            )
+        # Google Adultes
+        for f in google_adultes:
             zf.writestr(f"Google/{f.nom}", f.contenu.encode("utf-8"))
             fichiers_listes.append(
                 ResumeFichier(cible="Google", nom=f.nom, nb_lignes=f.nb_lignes)

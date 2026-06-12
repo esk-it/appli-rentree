@@ -24,6 +24,7 @@
   import Statistiques from "./routes/Statistiques.svelte";
   import Parametres from "./routes/Parametres.svelte";
   import Eleves from "./routes/Eleves.svelte";
+  import Adultes from "./routes/Adultes.svelte";
   import Aide from "./routes/Aide.svelte";
   import { attendreBackend } from "$lib/api.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
@@ -77,6 +78,7 @@
     { id: "accueil", label: "Accueil", icon: Home, dispo: true },
     { id: "snapshots", label: "Snapshots d'années", icon: Database, dispo: true },
     { id: "eleves", label: "Liste des élèves", icon: Users2, dispo: true },
+    { id: "adultes", label: "Personnel / Adultes", icon: Users2, dispo: true },
     { id: "comparaison", label: "Comparaison N vs N-1", icon: Database, dispo: true },
     { id: "statistiques", label: "Statistiques", icon: BarChart3, dispo: true },
     { id: "koxo", label: "KoXo", icon: Key, dispo: true },
@@ -205,6 +207,8 @@
         <Snapshots />
       {:else if page === "eleves"}
         <Eleves />
+      {:else if page === "adultes"}
+        <Adultes />
       {:else if page === "comparaison"}
         <Comparaison />
       {:else if page === "koxo"}
