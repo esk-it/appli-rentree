@@ -9,6 +9,7 @@
   import Globe from "@lucide/svelte/icons/globe";
   import IdCard from "@lucide/svelte/icons/id-card";
   import Settings from "@lucide/svelte/icons/settings";
+  import HelpCircle from "@lucide/svelte/icons/help-circle";
   import Download from "@lucide/svelte/icons/download";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import BarChart3 from "@lucide/svelte/icons/bar-chart-3";
@@ -23,6 +24,7 @@
   import Statistiques from "./routes/Statistiques.svelte";
   import Parametres from "./routes/Parametres.svelte";
   import Eleves from "./routes/Eleves.svelte";
+  import Aide from "./routes/Aide.svelte";
   import { attendreBackend } from "$lib/api.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
 
@@ -83,6 +85,7 @@
     { id: "smartair", label: "SmartAir (accès)", icon: IdCard, dispo: true },
     { id: "cardstudio", label: "CardStudio (badges)", icon: Users2, dispo: true },
     { id: "parametres", label: "Paramètres", icon: Settings, dispo: true },
+    { id: "aide", label: "Aide", icon: HelpCircle, dispo: true },
   ];
 </script>
 
@@ -218,6 +221,8 @@
         <Statistiques />
       {:else if page === "parametres"}
         <Parametres />
+      {:else if page === "aide"}
+        <Aide />
       {/if}
     </div>
   </main>
