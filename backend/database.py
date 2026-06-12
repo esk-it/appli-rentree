@@ -54,6 +54,7 @@ def init_db() -> None:
         annee_scolaire,
         eleve_snapshot,
         etablissement,
+        generation,
         parametre,
     )
 

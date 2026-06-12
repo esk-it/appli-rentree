@@ -14,6 +14,7 @@
   import Download from "@lucide/svelte/icons/download";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import BarChart3 from "@lucide/svelte/icons/bar-chart-3";
+  import History from "@lucide/svelte/icons/history";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
   import Comparaison from "./routes/Comparaison.svelte";
@@ -26,6 +27,7 @@
   import Parametres from "./routes/Parametres.svelte";
   import Eleves from "./routes/Eleves.svelte";
   import Adultes from "./routes/Adultes.svelte";
+  import Historique from "./routes/Historique.svelte";
   import Aide from "./routes/Aide.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import { attendreBackend } from "$lib/api.js";
@@ -97,6 +99,7 @@
     { id: "adultes", label: "Personnel / Adultes", icon: Users2, dispo: true },
     { id: "comparaison", label: "Comparaison N vs N-1", icon: Database, dispo: true },
     { id: "statistiques", label: "Statistiques", icon: BarChart3, dispo: true },
+    { id: "historique", label: "Historique", icon: History, dispo: true },
     { id: "koxo", label: "KoXo", icon: Key, dispo: true },
     { id: "google", label: "Google Workspace", icon: Globe, dispo: true },
     { id: "pmb", label: "PMB (CDI)", icon: BookOpen, dispo: true },
@@ -252,6 +255,8 @@
         <Google />
       {:else if page === "statistiques"}
         <Statistiques />
+      {:else if page === "historique"}
+        <Historique />
       {:else if page === "parametres"}
         <Parametres />
       {:else if page === "aide"}

@@ -116,6 +116,19 @@ export const eleves = {
   },
 };
 
+export const historique = {
+  async lister(limite = 100, cible = null) {
+    const params = new URLSearchParams({ limite: String(limite) });
+    if (cible) params.set("cible", cible);
+    return jsonOrThrow(await fetch(`${BASE}/historique?${params}`));
+  },
+  async supprimer(id) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/historique/${id}`, { method: "DELETE" }),
+    );
+  },
+};
+
 export const recherche = {
   async rechercher(terme, limite = 30) {
     const params = new URLSearchParams({ q: terme, limite: String(limite) });

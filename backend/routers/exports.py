@@ -24,6 +24,7 @@ from backend.services.exporters.smartair import (
     parser_export_smartair_n_minus_1,
 )
 from backend.services.exporters.tout import generer_tout
+from backend.services.historique import logger_generation
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])
 
@@ -68,6 +69,9 @@ def exporter_koxo(
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
+    logger_generation(
+        session, "koxo", payload.annee_n, fichiers, payload.annee_n_minus_1
+    )
     return {
         "annee_n": payload.annee_n,
         "annee_n_minus_1": payload.annee_n_minus_1,
@@ -94,6 +98,7 @@ def exporter_pmb(
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
+    logger_generation(session, "pmb", payload.annee_n, fichiers)
     return {
         "annee_n": payload.annee_n,
         "fichiers": [asdict(f) for f in fichiers],
@@ -141,6 +146,8 @@ def exporter_smartair(
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
+    notes = "Avec export SmartAir N-1" if payload.contenu_smartair_n_minus_1 else None
+    logger_generation(session, "smartair", payload.annee_n, fichiers, notes=notes)
     return {
         "annee_n": payload.annee_n,
         "a_utilise_n_minus_1": bool(payload.contenu_smartair_n_minus_1),
@@ -193,6 +200,9 @@ def exporter_google(
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
+    logger_generation(
+        session, "google", payload.annee_n, fichiers, payload.annee_n_minus_1
+    )
     return {
         "annee_n": payload.annee_n,
         "annee_n_minus_1": payload.annee_n_minus_1,
@@ -217,6 +227,7 @@ def exporter_cardstudio(
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 
+    logger_generation(session, "cardstudio", payload.annee_n, fichiers)
     return {
         "annee_n": payload.annee_n,
         "fichiers": [asdict(f) for f in fichiers],
@@ -242,6 +253,9 @@ def exporter_koxo_adultes(
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+    logger_generation(
+        session, "koxo-adultes", payload.annee_n, fichiers, payload.annee_n_minus_1
+    )
     return {
         "annee_n": payload.annee_n,
         "annee_n_minus_1": payload.annee_n_minus_1,
@@ -261,17 +275,24 @@ def exporter_google_adultes(
 ) -> dict:
     """Génère les CSV Google Workspace pour le personnel."""
     try:
-        fichiers = generer_exports_google_adultes(
+        fichiers_g = generer_exports_google_adultes(
             session=session,
             libelle_n=payload.annee_n,
             libelle_n_minus_1=payload.annee_n_minus_1,
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+    logger_generation(
+        session,
+        "google-adultes",
+        payload.annee_n,
+        fichiers_g,
+        payload.annee_n_minus_1,
+    )
     return {
         "annee_n": payload.annee_n,
         "annee_n_minus_1": payload.annee_n_minus_1,
-        "fichiers": [asdict(f) for f in fichiers],
+        "fichiers": [asdict(f) for f in fichiers_g],
     }
 
 
@@ -300,5 +321,18 @@ def exporter_tout(
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
+
+    # Log la génération "tout"
+    notes_parts = []
+    if payload.contenu_smartair_n_minus_1:
+        notes_parts.append("SmartAir N-1 fourni")
+    logger_generation(
+        session,
+        "tout",
+        payload.annee_n,
+        res.fichiers,  # list of ResumeFichier (a nb_lignes)
+        payload.annee_n_minus_1,
+        notes=" · ".join(notes_parts) if notes_parts else None,
+    )
 
     return asdict(res)
