@@ -109,6 +109,13 @@ export const annees = {
   },
 };
 
+export const eleves = {
+  async lister(libelleAnnee) {
+    const params = new URLSearchParams({ annee: libelleAnnee });
+    return jsonOrThrow(await fetch(`${BASE}/eleves?${params}`));
+  },
+};
+
 export const etablissements = {
   async lister() {
     return jsonOrThrow(await fetch(`${BASE}/etablissements`));
