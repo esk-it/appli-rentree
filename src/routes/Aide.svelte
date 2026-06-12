@@ -18,11 +18,16 @@
       contenu: `
         <ol class="list-decimal space-y-2 pl-5 text-sm">
           <li>Dans <strong>Snapshots d'années</strong>, importe ton dernier export Charlemagne (HTM ou XLSX) avec un libellé comme "2025-2026"</li>
+          <li>Optionnel : importe aussi un export adultes via <strong>Personnel / Adultes</strong> → Importer</li>
           <li>Vérifie dans <strong>Statistiques</strong> que les nombres correspondent à ce que tu attends</li>
           <li>Va sur le <strong>Tableau de bord</strong> → bouton <strong>Générer tout (ZIP)</strong></li>
-          <li>Télécharge le ZIP — il contient les fichiers pour KoXo, PMB, CardStudio, SmartAir et Google</li>
+          <li>Télécharge le ZIP — il contient les fichiers pour KoXo, PMB, CardStudio, SmartAir et Google (élèves + adultes)</li>
           <li>Importe chaque fichier dans son logiciel cible (procédure détaillée sur chaque page d'export)</li>
         </ol>
+        <p class="mt-3 rounded-lg bg-emerald-50 p-2 text-xs text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">
+          💡 Raccourci : <kbd class="rounded border px-1">Ctrl+K</kbd> ouvre la recherche globale cross-snapshot
+          depuis n'importe quelle page.
+        </p>
       `,
     },
     {
@@ -144,6 +149,66 @@
       `,
     },
     {
+      id: "adultes",
+      titre: "Personnel / Adultes (profs, AESH, surveillants)",
+      icone: FileSpreadsheet,
+      contenu: `
+        <p class="text-sm">Pipeline parallèle à celui des élèves. Import d'un export Charlemagne adultes
+        (auto-détection du format selon la présence de colonnes fonction/civilité/discipline).</p>
+        <p class="mt-2 text-sm">Génère ses propres CSV :</p>
+        <ul class="list-disc space-y-1 pl-5 text-sm">
+          <li><strong>KoXo</strong> : groupe primaire "Professeurs", groupe secondaire = fonction</li>
+          <li><strong>Google Workspace</strong> : Org Unit dédié <code>/Personnel/{"{fonction}"}</code></li>
+        </ul>
+        <p class="mt-2 text-sm">Inclus dans le ZIP "Tout générer" si des adultes sont importés.</p>
+      `,
+    },
+    {
+      id: "chambres",
+      titre: "Chambres internat",
+      icone: FileSpreadsheet,
+      contenu: `
+        <p class="text-sm">Déclare les chambres physiques (numéro, bâtiment, étage, capacité) et affecte les
+        élèves internes (régime "P"). La colonne <em>Chambres</em> du fichier CardStudio est ensuite
+        renseignée automatiquement à partir de ces affectations.</p>
+        <p class="mt-2 text-sm">L'app indique les chambres en surcapacité (en rouge) et liste les internes
+        non encore affectés pour chaque chambre sélectionnée.</p>
+      `,
+    },
+    {
+      id: "recherche",
+      titre: "Recherche globale (Ctrl+K)",
+      icone: HelpCircle,
+      contenu: `
+        <p class="text-sm">Raccourci <kbd class="rounded border border-stone-300 px-1">Ctrl</kbd> +
+        <kbd class="rounded border border-stone-300 px-1">K</kbd> depuis n'importe quelle page.</p>
+        <p class="mt-2 text-sm">Cherche simultanément dans tous les snapshots, élèves et personnel, par
+        nom, prénom, numéro de badge ou numéro de personnel. Regroupe les apparitions multi-année
+        pour voir l'historique d'une personne.</p>
+      `,
+    },
+    {
+      id: "historique",
+      titre: "Historique des générations",
+      icone: HelpCircle,
+      contenu: `
+        <p class="text-sm">Chaque génération d'export (depuis n'importe quelle page) est enregistrée
+        en base avec sa date, sa cible, l'année N et N-1, le nombre de fichiers et de lignes produites.</p>
+        <p class="mt-2 text-sm">Pratique pour savoir ce qui a déjà été fait dans la préparation
+        de la rentrée et éviter les doubles imports côté logiciels métier.</p>
+      `,
+    },
+    {
+      id: "mode-sombre",
+      titre: "Mode sombre",
+      icone: HelpCircle,
+      contenu: `
+        <p class="text-sm">Bouton soleil/lune dans le coin haut-droit de la sidebar.
+        Suit la préférence système au premier lancement, puis mémorise ton choix
+        en local pour les lancements suivants.</p>
+      `,
+    },
+    {
       id: "depannage",
       titre: "Dépannage / FAQ",
       icone: HelpCircle,
@@ -212,16 +277,19 @@
     {/each}
   </div>
 
-  <div class="card border-emerald-200 bg-emerald-50/30 p-4 text-sm">
-    <p class="font-medium text-emerald-900">À propos</p>
-    <p class="mt-1 text-stone-700">
+  <div class="card border-emerald-200 bg-emerald-50/30 p-4 text-sm dark:border-emerald-800 dark:bg-emerald-900/20">
+    <p class="font-medium text-emerald-900 dark:text-emerald-200">À propos</p>
+    <p class="mt-1 text-stone-700 dark:text-stone-300">
       Appli Rentrée est une application interne de l'Ensemble Scolaire du Kreisker (ESK).
       Code source : <a
         href="https://github.com/esk-it/appli-rentree"
         target="_blank"
         rel="noopener"
-        class="text-emerald-700 underline">esk-it/appli-rentree</a
+        class="text-emerald-700 underline dark:text-emerald-400">esk-it/appli-rentree</a
       >. Mises à jour automatiques via la bannière en haut de la fenêtre.
+    </p>
+    <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">
+      Backend FastAPI + SQLite · Frontend Svelte 5 + Tailwind 4 · Shell Tauri 2 · 51 tests automatisés
     </p>
   </div>
 </section>
