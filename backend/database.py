@@ -49,7 +49,7 @@ def init_db() -> None:
     Pour des migrations plus complexes plus tard, on passera à Alembic.
     """
     # Imports nécessaires pour que les modèles s'enregistrent dans Base.metadata
-    from backend.models import etablissement, annee_scolaire, eleve_snapshot  # noqa: F401
+    from backend.models import etablissement, annee_scolaire, eleve_snapshot, parametre  # noqa: F401
 
     Base.metadata.create_all(bind=_engine)
 

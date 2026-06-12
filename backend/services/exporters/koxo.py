@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from backend.models import AnneeScolaire, EleveSnapshot, Etablissement
 from backend.services.comparaison import comparer_annees
+from backend.services.configuration import get_param
 from backend.services.regles_metier import (
     email_lekreisker,
     generer_mot_de_passe,
@@ -63,6 +64,7 @@ def _ligne_koxo(
     eleve: EleveSnapshot,
     avec_mdp: bool,
     rng: random.Random,
+    domaine_email: str = "lekreisker.fr",
 ) -> dict[str, str]:
     """Construit une ligne CSV KoXo à partir d'un EleveSnapshot."""
     return {
@@ -75,7 +77,7 @@ def _ligne_koxo(
         "ID unique": str(eleve.num_badge) if eleve.num_badge is not None else "",
         "Mot de passe": generer_mot_de_passe(rng) if avec_mdp else "",
         "Date de naissance": "",
-        "Email": email_lekreisker(eleve.prenom or "", eleve.nom or ""),
+        "Email": email_lekreisker(eleve.prenom or "", eleve.nom or "", domaine=domaine_email),
     }
 
 
@@ -110,6 +112,7 @@ def generer_exports_koxo(
         au téléchargement côté UI.
     """
     rng = random.Random(seed) if seed is not None else random.Random()
+    domaine_email = get_param(session, "email.domaine", "lekreisker.fr")
 
     # Snapshot N
     annee_n = (
@@ -140,7 +143,7 @@ def generer_exports_koxo(
     # 2. Fichier "Tous" par groupe KoXo
     for groupe, liste in par_groupe_koxo.items():
         liste_triee = sorted(liste, key=lambda e: (e.nom or "", e.prenom or ""))
-        lignes = [_ligne_koxo(e, avec_mdp=False, rng=rng) for e in liste_triee]
+        lignes = [_ligne_koxo(e, avec_mdp=False, rng=rng, domaine_email=domaine_email) for e in liste_triee]
         fichiers.append(
             FichierGenere(
                 nom=f"KoXo_{groupe}_Eleves_Tous_{libelle_n}.csv",
@@ -182,7 +185,7 @@ def generer_exports_koxo(
 
     for groupe, liste in entrants_par_groupe.items():
         liste_triee = sorted(liste, key=lambda e: (e.nom or "", e.prenom or ""))
-        lignes = [_ligne_koxo(e, avec_mdp=True, rng=rng) for e in liste_triee]
+        lignes = [_ligne_koxo(e, avec_mdp=True, rng=rng, domaine_email=domaine_email) for e in liste_triee]
         fichiers.append(
             FichierGenere(
                 nom=f"KoXo_{groupe}_Eleves_Nouveaux_{libelle_n}.csv",
@@ -204,7 +207,7 @@ def generer_exports_koxo(
 
     for groupe, liste in sortants_par_groupe.items():
         liste_triee = sorted(liste, key=lambda e: (e.nom or "", e.prenom or ""))
-        lignes = [_ligne_koxo(e, avec_mdp=False, rng=rng) for e in liste_triee]
+        lignes = [_ligne_koxo(e, avec_mdp=False, rng=rng, domaine_email=domaine_email) for e in liste_triee]
         fichiers.append(
             FichierGenere(
                 nom=f"KoXo_{groupe}_Eleves_Anciens_{libelle_n}.csv",

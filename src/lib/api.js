@@ -115,6 +115,21 @@ export const etablissements = {
   },
 };
 
+export const parametres = {
+  async lister() {
+    return jsonOrThrow(await fetch(`${BASE}/parametres`));
+  },
+  async mettreAJour(cle, valeur) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parametres/${encodeURIComponent(cle)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ valeur }),
+      }),
+    );
+  },
+};
+
 export const statistiques = {
   async annee(libelleAnnee) {
     const params = new URLSearchParams({ annee: libelleAnnee });

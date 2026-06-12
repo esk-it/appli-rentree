@@ -1,0 +1,140 @@
+<script>
+  import { onMount } from "svelte";
+  import Settings from "@lucide/svelte/icons/settings";
+  import Check from "@lucide/svelte/icons/check";
+  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import { parametres } from "$lib/api.js";
+
+  let liste = $state(/** @type {any[]} */ ([]));
+  let valeursEnEdition = $state(/** @type {Record<string, any>} */ ({}));
+  let messagesSucces = $state(/** @type {Record<string, boolean>} */ ({}));
+  let erreur = $state("");
+  let chargement = $state(true);
+
+  onMount(rafraichir);
+
+  async function rafraichir() {
+    chargement = true;
+    try {
+      liste = await parametres.lister();
+      valeursEnEdition = Object.fromEntries(liste.map((p) => [p.cle, p.valeur]));
+    } catch (e) {
+      erreur = String(e);
+    } finally {
+      chargement = false;
+    }
+  }
+
+  async function sauvegarder(p) {
+    erreur = "";
+    try {
+      await parametres.mettreAJour(p.cle, valeursEnEdition[p.cle]);
+      messagesSucces = { ...messagesSucces, [p.cle]: true };
+      setTimeout(() => {
+        messagesSucces = { ...messagesSucces, [p.cle]: false };
+      }, 1500);
+    } catch (e) {
+      erreur = `${p.cle} : ${e}`;
+    }
+  }
+
+  async function reinitialiser(p) {
+    valeursEnEdition[p.cle] = p.defaut;
+    await sauvegarder(p);
+  }
+
+  let parametresGroupes = $derived.by(() => {
+    const groupes = {};
+    for (const p of liste) {
+      (groupes[p.categorie] = groupes[p.categorie] || []).push(p);
+    }
+    return Object.entries(groupes);
+  });
+</script>
+
+<section class="space-y-5">
+  <header>
+    <h1 class="text-2xl font-semibold text-stone-900">Paramètres</h1>
+    <p class="mt-1 text-sm text-stone-600">
+      Configuration des règles métier de l'application. Les modifications
+      s'appliquent immédiatement aux prochaines générations d'exports.
+    </p>
+  </header>
+
+  {#if erreur}
+    <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{erreur}</p>
+  {/if}
+
+  {#if chargement}
+    <div class="card p-8 text-center text-stone-500">Chargement…</div>
+  {:else}
+    {#each parametresGroupes as [categorie, params] (categorie)}
+      <div class="card p-5">
+        <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-stone-600">
+          <Settings class="h-4 w-4" />
+          {categorie}
+        </h2>
+        <div class="space-y-4">
+          {#each params as p (p.cle)}
+            <div class="border-b border-stone-100 pb-4 last:border-0 last:pb-0">
+              <div class="flex items-start justify-between gap-3">
+                <div class="flex-1">
+                  <label for={p.cle} class="block text-sm font-medium text-stone-900">
+                    {p.libelle}
+                  </label>
+                  <p class="mt-0.5 text-xs text-stone-500">{p.description}</p>
+                  <p class="mt-0.5 font-mono text-[10px] text-stone-400">
+                    {p.cle}
+                  </p>
+                </div>
+                <div class="flex items-center gap-2">
+                  {#if p.type === "int"}
+                    <input
+                      id={p.cle}
+                      type="number"
+                      bind:value={valeursEnEdition[p.cle]}
+                      class="w-24 rounded-lg border border-stone-300 px-3 py-1.5 text-sm focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                    />
+                  {:else if p.type === "bool"}
+                    <input
+                      id={p.cle}
+                      type="checkbox"
+                      bind:checked={valeursEnEdition[p.cle]}
+                      class="h-4 w-4 rounded border-stone-300 text-emerald-700 focus:ring-emerald-500"
+                    />
+                  {:else}
+                    <input
+                      id={p.cle}
+                      type="text"
+                      bind:value={valeursEnEdition[p.cle]}
+                      class="w-72 rounded-lg border border-stone-300 px-3 py-1.5 text-sm focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                    />
+                  {/if}
+                  <button
+                    class="btn-primary !py-1.5 !px-3 text-xs"
+                    onclick={() => sauvegarder(p)}
+                    title="Enregistrer"
+                  >
+                    {#if messagesSucces[p.cle]}
+                      <Check class="h-3.5 w-3.5" />
+                      OK
+                    {:else}
+                      Enregistrer
+                    {/if}
+                  </button>
+                  <button
+                    class="rounded-md p-1.5 text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+                    title="Réinitialiser au défaut : {p.defaut}"
+                    onclick={() => reinitialiser(p)}
+                  >
+                    <RotateCcw class="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          {/each}
+        </div>
+      </div>
+    {/each}
+  {/if}
+</section>

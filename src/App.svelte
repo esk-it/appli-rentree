@@ -21,6 +21,7 @@
   import SmartAir from "./routes/SmartAir.svelte";
   import Google from "./routes/Google.svelte";
   import Statistiques from "./routes/Statistiques.svelte";
+  import Parametres from "./routes/Parametres.svelte";
   import { attendreBackend } from "$lib/api.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
 
@@ -79,7 +80,7 @@
     { id: "pmb", label: "PMB (CDI)", icon: BookOpen, dispo: true },
     { id: "smartair", label: "SmartAir (accès)", icon: IdCard, dispo: true },
     { id: "cardstudio", label: "CardStudio (badges)", icon: Users2, dispo: true },
-    { id: "parametres", label: "Paramètres", icon: Settings, dispo: false },
+    { id: "parametres", label: "Paramètres", icon: Settings, dispo: true },
   ];
 </script>
 
@@ -211,6 +212,8 @@
         <Google />
       {:else if page === "statistiques"}
         <Statistiques />
+      {:else if page === "parametres"}
+        <Parametres />
       {/if}
     </div>
   </main>

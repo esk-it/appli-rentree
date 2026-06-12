@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from backend.models import AnneeScolaire, EleveSnapshot, Etablissement
+from backend.services.configuration import get_param
 from backend.services.regles_metier import email_lekreisker
 
 # Mapping code_court d'établissement → instance PMB cible
@@ -70,13 +71,13 @@ class FichierGenere:
     description: str
 
 
-def _ligne_pmb(eleve: EleveSnapshot) -> dict[str, str]:
+def _ligne_pmb(eleve: EleveSnapshot, domaine_email: str = "lekreisker.fr") -> dict[str, str]:
     """Construit une ligne CSV PMB à partir d'un EleveSnapshot."""
     return {
         "cb": str(eleve.num_badge) if eleve.num_badge is not None else "",
         "nom": eleve.nom or "",
         "prenom": eleve.prenom or "",
-        "email": email_lekreisker(eleve.prenom or "", eleve.nom or ""),
+        "email": email_lekreisker(eleve.prenom or "", eleve.nom or "", domaine=domaine_email),
         "classe": eleve.code_classe or "",
         "categ": "Élève",
         "codestat": eleve.code_niveau or "",
@@ -131,6 +132,7 @@ def generer_exports_pmb(
         session.query(EleveSnapshot).filter_by(annee_scolaire_id=annee_n.id).all()
     )
 
+    domaine_email = get_param(session, "email.domaine", "lekreisker.fr")
     fichiers: list[FichierGenere] = []
     for instance_code, instance in PMB_INSTANCES.items():
         eleves_instance = [
@@ -144,7 +146,7 @@ def generer_exports_pmb(
         eleves_tries = sorted(
             eleves_instance, key=lambda e: (e.nom or "", e.prenom or "")
         )
-        lignes = [_ligne_pmb(e) for e in eleves_tries]
+        lignes = [_ligne_pmb(e, domaine_email=domaine_email) for e in eleves_tries]
         fichiers.append(
             FichierGenere(
                 nom=f"PMB_{instance_code}_Lecteurs_{libelle_n}.csv",

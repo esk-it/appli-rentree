@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from backend.models import AnneeScolaire, EleveSnapshot, Etablissement
+from backend.services.configuration import get_param
 from backend.services.regles_metier import email_lekreisker, generer_mot_de_passe
 
 # Mapping code_court d'établissement → segment d'OU Google
@@ -64,13 +65,20 @@ def _annee_compact(libelle: str) -> str:
     return libelle
 
 
-def _ou_path(site: str, libelle_annee: str, code_classe: str | None) -> str:
-    """Construit l'Org Unit Path Google."""
+def _ou_path(
+    site: str,
+    libelle_annee: str,
+    code_classe: str | None,
+    template: str = "/{site}/{site}{annee_compact}/{classe}",
+) -> str:
+    """Construit l'Org Unit Path Google selon le template configuré."""
     seg_site = MAPPING_SITE_OU.get(site, site)
-    seg_annee = f"{seg_site}{_annee_compact(libelle_annee)}"
-    if code_classe:
-        return f"/{seg_site}/{seg_annee}/{code_classe}"
-    return f"/{seg_site}/{seg_annee}"
+    seg_annee = _annee_compact(libelle_annee)
+    return template.format(
+        site=seg_site,
+        annee_compact=seg_annee,
+        classe=code_classe or "",
+    )
 
 
 def _ligne_google(
@@ -79,16 +87,18 @@ def _ligne_google(
     libelle_annee: str,
     avec_mdp: bool,
     rng: random.Random,
+    domaine_email: str = "lekreisker.fr",
+    ou_template: str = "/{site}/{site}{annee_compact}/{classe}",
 ) -> dict[str, str]:
     return {
         "First Name [Required]": eleve.prenom or "",
         "Last Name [Required]": eleve.nom or "",
         "Email Address [Required]": email_lekreisker(
-            eleve.prenom or "", eleve.nom or ""
+            eleve.prenom or "", eleve.nom or "", domaine=domaine_email
         ),
         "Password [Required]": generer_mot_de_passe(rng) if avec_mdp else "",
         "Org Unit Path [Required]": _ou_path(
-            etab.code_court, libelle_annee, eleve.code_classe
+            etab.code_court, libelle_annee, eleve.code_classe, template=ou_template
         ),
         "New Primary Email": "",
         "Recovery Email": "",
@@ -127,6 +137,10 @@ def generer_exports_google(
                           comparaison.
     """
     rng = random.Random(seed) if seed is not None else random.Random()
+    domaine_email = get_param(session, "email.domaine", "lekreisker.fr")
+    ou_template = get_param(
+        session, "google.ou_template", "/{site}/{site}{annee_compact}/{classe}"
+    )
 
     annee_n = (
         session.query(AnneeScolaire).filter_by(libelle=libelle_n).one_or_none()
@@ -155,7 +169,7 @@ def generer_exports_google(
         if not etab:
             continue
         lignes_tous.append(
-            _ligne_google(e, etab, libelle_n, avec_mdp=False, rng=rng)
+            _ligne_google(e, etab, libelle_n, avec_mdp=False, rng=rng, domaine_email=domaine_email, ou_template=ou_template)
         )
     fichiers.append(
         FichierGenere(
@@ -179,7 +193,7 @@ def generer_exports_google(
             if not etab:
                 continue
             lignes_nouv.append(
-                _ligne_google(e, etab, libelle_n, avec_mdp=True, rng=rng)
+                _ligne_google(e, etab, libelle_n, avec_mdp=True, rng=rng, domaine_email=domaine_email, ou_template=ou_template)
             )
         fichiers.append(
             FichierGenere(
