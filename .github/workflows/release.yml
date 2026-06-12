@@ -41,6 +41,11 @@ jobs:
       - name: Install Python backend dependencies
         run: pip install -r requirements.txt
 
+      - name: Run backend tests
+        run: python -m pytest tests/ --tb=short
+        env:
+          PYTHONIOENCODING: utf-8
+
       - name: Build backend with PyInstaller
         run: pyinstaller --noconfirm backend.spec
 
