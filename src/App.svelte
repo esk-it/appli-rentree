@@ -10,6 +10,7 @@
   import IdCard from "@lucide/svelte/icons/id-card";
   import Settings from "@lucide/svelte/icons/settings";
   import HelpCircle from "@lucide/svelte/icons/help-circle";
+  import Search from "@lucide/svelte/icons/search";
   import Download from "@lucide/svelte/icons/download";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import BarChart3 from "@lucide/svelte/icons/bar-chart-3";
@@ -26,11 +27,23 @@
   import Eleves from "./routes/Eleves.svelte";
   import Adultes from "./routes/Adultes.svelte";
   import Aide from "./routes/Aide.svelte";
+  import CommandPalette from "$lib/components/CommandPalette.svelte";
   import { attendreBackend } from "$lib/api.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
 
   let backendOk = $state(/** @type {null | boolean} */ (null));
   let versionBackend = $state("");
+
+  // Command Palette (Ctrl+K / Cmd+K)
+  let paletteOuverte = $state(false);
+
+  function gererTouchesGlobales(e) {
+    // Ctrl+K ou Cmd+K
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      paletteOuverte = !paletteOuverte;
+    }
+  }
   let messageDemarrage = $state("Démarrage du backend…");
   let erreurDemarrage = $state("");
 
@@ -43,6 +56,9 @@
   let page = $state("accueil");
 
   onMount(async () => {
+    // Raccourci Ctrl+K global
+    window.addEventListener("keydown", gererTouchesGlobales);
+
     // 1. Connexion backend
     try {
       const h = await attendreBackend({ maxTentatives: 30, baseDelai: 300 });
@@ -170,6 +186,19 @@
       </div>
     </div>
 
+    <div class="px-3 pt-3">
+      <button
+        class="flex w-full items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-sm text-stone-600 transition hover:border-emerald-300 hover:bg-emerald-50"
+        onclick={() => (paletteOuverte = true)}
+      >
+        <Search class="h-4 w-4" />
+        <span class="flex-1 text-left">Rechercher…</span>
+        <kbd class="rounded border border-stone-300 bg-white px-1 py-0 text-[10px] font-medium text-stone-500">
+          Ctrl K
+        </kbd>
+      </button>
+    </div>
+
     <nav class="flex-1 space-y-0.5 p-3">
       {#each navItems as item (item.id)}
         <button
@@ -232,4 +261,6 @@
   </main>
 </div>
 </div>
+
+<CommandPalette bind:ouvert={paletteOuverte} onFermer={() => (paletteOuverte = false)} />
 {/if}

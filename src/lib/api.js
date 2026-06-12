@@ -116,6 +116,13 @@ export const eleves = {
   },
 };
 
+export const recherche = {
+  async rechercher(terme, limite = 30) {
+    const params = new URLSearchParams({ q: terme, limite: String(limite) });
+    return jsonOrThrow(await fetch(`${BASE}/recherche?${params}`));
+  },
+};
+
 export const adultes = {
   async lister(libelleAnnee) {
     const params = new URLSearchParams({ annee: libelleAnnee });
