@@ -21,6 +21,7 @@ from backend.services.exporters.smartair import (
     generer_exports_smartair,
     parser_export_smartair_n_minus_1,
 )
+from backend.services.exporters.tout import generer_tout
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])
 
@@ -218,3 +219,32 @@ def exporter_cardstudio(
         "annee_n": payload.annee_n,
         "fichiers": [asdict(f) for f in fichiers],
     }
+
+
+class ExportToutPayload(BaseModel):
+    annee_n: str = Field(..., description='Libellé de l\'année N')
+    annee_n_minus_1: str | None = Field(
+        None, description="Libellé année N-1 (active Nouveaux/Anciens)"
+    )
+    contenu_smartair_n_minus_1: str | None = Field(
+        None, description="Contenu CSV SmartAir N-1 (optionnel)"
+    )
+
+
+@router.post("/tout")
+def exporter_tout(
+    payload: ExportToutPayload,
+    session: Session = Depends(db_session),
+) -> dict:
+    """Lance tous les générateurs et bundle dans un ZIP unique."""
+    try:
+        res = generer_tout(
+            session=session,
+            libelle_n=payload.annee_n,
+            libelle_n_minus_1=payload.annee_n_minus_1,
+            contenu_smartair_n_minus_1=payload.contenu_smartair_n_minus_1,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    return asdict(res)

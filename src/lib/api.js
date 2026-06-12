@@ -213,6 +213,26 @@ export const exports = {
       }),
     );
   },
+
+  /**
+   * Lance tous les générateurs et retourne un ZIP unique organisé par cible.
+   * @param {string} anneeN
+   * @param {string|null} anneeNMoinsUn
+   * @param {string|null} contenuSmartairNMoinsUn
+   */
+  async tout(anneeN, anneeNMoinsUn = null, contenuSmartairNMoinsUn = null) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/tout`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annee_n: anneeN,
+          annee_n_minus_1: anneeNMoinsUn,
+          contenu_smartair_n_minus_1: contenuSmartairNMoinsUn,
+        }),
+      }),
+    );
+  },
 };
 
 /**

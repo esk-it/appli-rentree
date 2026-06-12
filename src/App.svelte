@@ -11,7 +11,7 @@
   import Settings from "@lucide/svelte/icons/settings";
   import Download from "@lucide/svelte/icons/download";
   import Sparkles from "@lucide/svelte/icons/sparkles";
-  import Accueil from "./routes/Accueil.svelte";
+  import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
   import Comparaison from "./routes/Comparaison.svelte";
   import Koxo from "./routes/Koxo.svelte";
@@ -191,7 +191,7 @@
   <main class="flex-1 overflow-auto bg-stone-50">
     <div class="mx-auto max-w-7xl p-6">
       {#if page === "accueil"}
-        <Accueil />
+        <TableauDeBord />
       {:else if page === "snapshots"}
         <Snapshots />
       {:else if page === "comparaison"}
