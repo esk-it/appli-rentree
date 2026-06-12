@@ -17,6 +17,7 @@
   import Koxo from "./routes/Koxo.svelte";
   import Pmb from "./routes/Pmb.svelte";
   import CardStudio from "./routes/CardStudio.svelte";
+  import SmartAir from "./routes/SmartAir.svelte";
   import { attendreBackend } from "$lib/api.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
 
@@ -72,7 +73,7 @@
     { id: "koxo", label: "KoXo", icon: Key, dispo: true },
     { id: "google", label: "Google Workspace", icon: Globe, dispo: false },
     { id: "pmb", label: "PMB (CDI)", icon: BookOpen, dispo: true },
-    { id: "smartair", label: "SmartAir (accès)", icon: IdCard, dispo: false },
+    { id: "smartair", label: "SmartAir (accès)", icon: IdCard, dispo: true },
     { id: "cardstudio", label: "CardStudio (badges)", icon: Users2, dispo: true },
     { id: "parametres", label: "Paramètres", icon: Settings, dispo: false },
   ];
@@ -200,6 +201,8 @@
         <Pmb />
       {:else if page === "cardstudio"}
         <CardStudio />
+      {:else if page === "smartair"}
+        <SmartAir />
       {/if}
     </div>
   </main>

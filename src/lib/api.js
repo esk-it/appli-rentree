@@ -177,6 +177,24 @@ export const exports = {
       }),
     );
   },
+
+  /**
+   * Génère le CSV SmartAir pour l'année N.
+   * @param {string} anneeN
+   * @param {string|null} contenuSmartairNMoinsUn  Contenu CSV d'un précédent export SmartAir (optionnel)
+   */
+  async smartair(anneeN, contenuSmartairNMoinsUn = null) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/smartair`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annee_n: anneeN,
+          contenu_smartair_n_minus_1: contenuSmartairNMoinsUn,
+        }),
+      }),
+    );
+  },
 };
 
 /**

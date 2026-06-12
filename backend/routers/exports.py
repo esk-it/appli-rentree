@@ -15,6 +15,10 @@ from backend.database import db_session
 from backend.services.exporters.cardstudio import generer_exports_cardstudio
 from backend.services.exporters.koxo import generer_exports_koxo
 from backend.services.exporters.pmb import generer_exports_pmb
+from backend.services.exporters.smartair import (
+    generer_exports_smartair,
+    parser_export_smartair_n_minus_1,
+)
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])
 
@@ -87,6 +91,54 @@ def exporter_pmb(
 
     return {
         "annee_n": payload.annee_n,
+        "fichiers": [asdict(f) for f in fichiers],
+    }
+
+
+class ExportSmartAirPayload(BaseModel):
+    annee_n: str = Field(..., description='Libellé de l\'année N, ex. "2026-2027"')
+    contenu_smartair_n_minus_1: str | None = Field(
+        None,
+        description=(
+            "Optionnel — contenu CSV d'un précédent export SmartAir. "
+            "Permet de préserver les CardId hex et de calculer les Op a/b/m."
+        ),
+    )
+
+
+@router.post("/smartair")
+def exporter_smartair(
+    payload: ExportSmartAirPayload,
+    session: Session = Depends(db_session),
+) -> dict:
+    """Génère le CSV SmartAir pour l'année N.
+
+    Si un export SmartAir N-1 est fourni (en contenu CSV brut), les CardId
+    hexa sont préservés et les Op sont calculées (a/b/m).
+    """
+    card_ids: dict[int, str] | None = None
+    badges_n_1: set[int] | None = None
+    if payload.contenu_smartair_n_minus_1:
+        try:
+            card_ids, badges_n_1 = parser_export_smartair_n_minus_1(
+                payload.contenu_smartair_n_minus_1
+            )
+        except Exception as e:
+            raise HTTPException(400, f"Export SmartAir N-1 illisible : {e}") from e
+
+    try:
+        fichiers = generer_exports_smartair(
+            session=session,
+            libelle_n=payload.annee_n,
+            card_ids_existants=card_ids,
+            badges_n_minus_1=badges_n_1,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    return {
+        "annee_n": payload.annee_n,
+        "a_utilise_n_minus_1": bool(payload.contenu_smartair_n_minus_1),
         "fichiers": [asdict(f) for f in fichiers],
     }
 
