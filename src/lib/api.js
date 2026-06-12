@@ -195,6 +195,24 @@ export const exports = {
       }),
     );
   },
+
+  /**
+   * Génère les CSV Google Workspace bulk-import pour l'année N.
+   * @param {string} anneeN
+   * @param {string|null} anneeNMoinsUn  Si fourni, génère aussi "Nouveaux".
+   */
+  async google(anneeN, anneeNMoinsUn = null) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/google`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annee_n: anneeN,
+          annee_n_minus_1: anneeNMoinsUn,
+        }),
+      }),
+    );
+  },
 };
 
 /**

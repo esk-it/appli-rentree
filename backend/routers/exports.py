@@ -12,7 +12,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
+from backend.models import AnneeScolaire, EleveSnapshot
 from backend.services.exporters.cardstudio import generer_exports_cardstudio
+from backend.services.exporters.google import generer_exports_google
 from backend.services.exporters.koxo import generer_exports_koxo
 from backend.services.exporters.pmb import generer_exports_pmb
 from backend.services.exporters.smartair import (
@@ -139,6 +141,58 @@ def exporter_smartair(
     return {
         "annee_n": payload.annee_n,
         "a_utilise_n_minus_1": bool(payload.contenu_smartair_n_minus_1),
+        "fichiers": [asdict(f) for f in fichiers],
+    }
+
+
+class ExportGooglePayload(BaseModel):
+    annee_n: str = Field(..., description='Libellé de l\'année N, ex. "2026-2027"')
+    annee_n_minus_1: str | None = Field(
+        None,
+        description=(
+            "Optionnel — libellé de l'année précédente. Si fourni, on génère "
+            "aussi le fichier Nouveaux (entrants avec MDP)."
+        ),
+    )
+
+
+@router.post("/google")
+def exporter_google(
+    payload: ExportGooglePayload,
+    session: Session = Depends(db_session),
+) -> dict:
+    """Génère les CSV bulk-import Google Workspace pour l'année N."""
+    badges_n_1: set[int] | None = None
+    if payload.annee_n_minus_1:
+        annee_n_1 = (
+            session.query(AnneeScolaire)
+            .filter_by(libelle=payload.annee_n_minus_1)
+            .one_or_none()
+        )
+        if annee_n_1 is None:
+            raise HTTPException(
+                400, f"Snapshot N-1 introuvable : {payload.annee_n_minus_1}"
+            )
+        badges_n_1 = {
+            e.num_badge
+            for e in session.query(EleveSnapshot).filter_by(
+                annee_scolaire_id=annee_n_1.id
+            )
+            if e.num_badge is not None
+        }
+
+    try:
+        fichiers = generer_exports_google(
+            session=session,
+            libelle_n=payload.annee_n,
+            badges_n_minus_1=badges_n_1,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    return {
+        "annee_n": payload.annee_n,
+        "annee_n_minus_1": payload.annee_n_minus_1,
         "fichiers": [asdict(f) for f in fichiers],
     }
 
