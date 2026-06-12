@@ -32,6 +32,8 @@
   import Chambres from "./routes/Chambres.svelte";
   import Aide from "./routes/Aide.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
+  import ToasterContainer from "$lib/components/ToasterContainer.svelte";
+  import { notify } from "$lib/toasts.js";
   import { attendreBackend } from "$lib/api.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
 
@@ -90,7 +92,9 @@
     } catch (e) {
       console.error("[updater] Échec :", e);
       majEnCours = false;
-      alert(`Échec de la mise à jour : ${e?.message ?? e}`);
+      notify.erreur(`Échec de la mise à jour : ${e?.message ?? e}`, {
+        duree: 8000,
+      });
     }
   }
 
@@ -273,4 +277,5 @@
 </div>
 
 <CommandPalette bind:ouvert={paletteOuverte} onFermer={() => (paletteOuverte = false)} />
+<ToasterContainer />
 {/if}

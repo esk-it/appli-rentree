@@ -14,6 +14,7 @@
     exports as exportsApi,
     telechargerFichierBase64,
   } from "$lib/api.js";
+  import { notify } from "$lib/toasts.js";
 
   let listeAnnees = $state(/** @type {any[]} */ ([]));
   let listeEtabs = $state(/** @type {any[]} */ ([]));
@@ -76,8 +77,12 @@
         anneeNMoinsUn && anneeNMoinsUn !== anneeN ? anneeNMoinsUn : null,
         contenuSmartairNMoinsUn,
       );
+      notify.succes(
+        `ZIP prêt : ${resultat.nb_fichiers} fichiers (${(resultat.taille_octets / 1024).toFixed(0)} Ko)`,
+      );
     } catch (e) {
       erreur = String(e);
+      notify.erreur(`Échec de la génération : ${e}`);
     } finally {
       chargement = false;
     }

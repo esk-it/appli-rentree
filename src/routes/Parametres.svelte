@@ -4,6 +4,7 @@
   import Check from "@lucide/svelte/icons/check";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import { parametres } from "$lib/api.js";
+  import { notify } from "$lib/toasts.js";
 
   let liste = $state(/** @type {any[]} */ ([]));
   let valeursEnEdition = $state(/** @type {Record<string, any>} */ ({}));
@@ -30,11 +31,13 @@
     try {
       await parametres.mettreAJour(p.cle, valeursEnEdition[p.cle]);
       messagesSucces = { ...messagesSucces, [p.cle]: true };
+      notify.succes(`${p.libelle} enregistré`);
       setTimeout(() => {
         messagesSucces = { ...messagesSucces, [p.cle]: false };
       }, 1500);
     } catch (e) {
       erreur = `${p.cle} : ${e}`;
+      notify.erreur(`Échec sauvegarde ${p.libelle} : ${e}`);
     }
   }
 

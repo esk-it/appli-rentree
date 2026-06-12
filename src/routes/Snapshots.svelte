@@ -6,6 +6,7 @@
   import FileSpreadsheet from "@lucide/svelte/icons/file-spreadsheet";
   import Building2 from "@lucide/svelte/icons/building-2";
   import { annees, charlemagne, etablissements } from "$lib/api.js";
+  import { notify } from "$lib/toasts.js";
 
   let listeAnnees = $state(/** @type {Array<{id:number,libelle:string,date_creation:string,est_active:boolean,nb_eleves:number}>} */ ([]));
   let listeEtabs = $state(/** @type {Array<{id:number,code_court:string,nom_long:string,type:string}>} */ ([]));
@@ -69,6 +70,9 @@
         remplacerSiExiste,
       );
       messageIngestion = `${res.nb_eleves_inseres} élève(s) importé(s) pour ${res.libelle}.`;
+      notify.succes(
+        `Snapshot ${res.libelle} importé : ${res.nb_eleves_inseres} élèves`,
+      );
       await rafraichir();
       // Petite pause pour voir le succès, puis fermeture
       setTimeout(() => (modaleOuverte = false), 1500);
