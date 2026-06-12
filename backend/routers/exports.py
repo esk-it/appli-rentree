@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import db_session
 from backend.services.exporters.koxo import generer_exports_koxo
+from backend.services.exporters.pmb import generer_exports_pmb
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])
 
@@ -60,5 +61,30 @@ def exporter_koxo(
     return {
         "annee_n": payload.annee_n,
         "annee_n_minus_1": payload.annee_n_minus_1,
+        "fichiers": [asdict(f) for f in fichiers],
+    }
+
+
+class ExportPmbPayload(BaseModel):
+    annee_n: str = Field(..., description='Libellé de l\'année N, ex. "2026-2027"')
+
+
+@router.post("/pmb")
+def exporter_pmb(
+    payload: ExportPmbPayload,
+    session: Session = Depends(db_session),
+) -> dict:
+    """Génère les CSV d'import PMB (une par instance : SU et NDK).
+
+    PMB ne gère pas vraiment de Nouveaux/Anciens — on importe juste l'état
+    complet. L'archivage des anciens emprunteurs reste manuel côté PMB.
+    """
+    try:
+        fichiers = generer_exports_pmb(session=session, libelle_n=payload.annee_n)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    return {
+        "annee_n": payload.annee_n,
         "fichiers": [asdict(f) for f in fichiers],
     }

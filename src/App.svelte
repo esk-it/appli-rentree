@@ -15,6 +15,7 @@
   import Snapshots from "./routes/Snapshots.svelte";
   import Comparaison from "./routes/Comparaison.svelte";
   import Koxo from "./routes/Koxo.svelte";
+  import Pmb from "./routes/Pmb.svelte";
   import { attendreBackend } from "$lib/api.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
 
@@ -69,7 +70,7 @@
     { id: "comparaison", label: "Comparaison N vs N-1", icon: Database, dispo: true },
     { id: "koxo", label: "KoXo", icon: Key, dispo: true },
     { id: "google", label: "Google Workspace", icon: Globe, dispo: false },
-    { id: "pmb", label: "PMB (CDI)", icon: BookOpen, dispo: false },
+    { id: "pmb", label: "PMB (CDI)", icon: BookOpen, dispo: true },
     { id: "smartair", label: "SmartAir (accès)", icon: IdCard, dispo: false },
     { id: "cardstudio", label: "CardStudio (badges)", icon: Users2, dispo: false },
     { id: "parametres", label: "Paramètres", icon: Settings, dispo: false },
@@ -194,6 +195,8 @@
         <Comparaison />
       {:else if page === "koxo"}
         <Koxo />
+      {:else if page === "pmb"}
+        <Pmb />
       {/if}
     </div>
   </main>

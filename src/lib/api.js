@@ -148,6 +148,20 @@ export const exports = {
       }),
     );
   },
+
+  /**
+   * Génère les CSV PMB pour l'année N (un par instance PMB : SU et NDK).
+   * @param {string} anneeN
+   */
+  async pmb(anneeN) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/pmb`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ annee_n: anneeN }),
+      }),
+    );
+  },
 };
 
 /**
