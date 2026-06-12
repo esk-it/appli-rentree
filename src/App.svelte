@@ -34,6 +34,9 @@
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import ToasterContainer from "$lib/components/ToasterContainer.svelte";
   import { notify } from "$lib/toasts.js";
+  import { theme, basculerTheme } from "$lib/theme.js";
+  import Sun from "@lucide/svelte/icons/sun";
+  import Moon from "@lucide/svelte/icons/moon";
   import { attendreBackend } from "$lib/api.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
 
@@ -187,18 +190,29 @@
 
 <div class="flex flex-1 overflow-hidden">
   <!-- Barre latérale -->
-  <aside class="flex w-64 shrink-0 flex-col border-r border-stone-200 bg-white">
-    <div class="flex items-center gap-2 border-b border-stone-200 px-5 py-4">
-      <GraduationCap class="h-7 w-7 text-emerald-700" />
-      <div class="flex flex-col leading-tight">
-        <span class="text-sm font-semibold text-stone-900">Appli Rentrée</span>
-        <span class="text-xs text-stone-500">Ensemble Scolaire du Kreisker</span>
+  <aside class="flex w-64 shrink-0 flex-col border-r border-stone-200 bg-white dark:border-stone-700 dark:bg-stone-800">
+    <div class="flex items-center gap-2 border-b border-stone-200 px-5 py-4 dark:border-stone-700">
+      <GraduationCap class="h-7 w-7 text-emerald-700 dark:text-emerald-400" />
+      <div class="flex flex-1 flex-col leading-tight">
+        <span class="text-sm font-semibold text-stone-900 dark:text-stone-100">Appli Rentrée</span>
+        <span class="text-xs text-stone-500 dark:text-stone-400">Ensemble Scolaire du Kreisker</span>
       </div>
+      <button
+        class="rounded-md p-1.5 text-stone-500 transition hover:bg-stone-100 hover:text-stone-800 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
+        title={$theme === "clair" ? "Passer en mode sombre" : "Passer en mode clair"}
+        onclick={basculerTheme}
+      >
+        {#if $theme === "clair"}
+          <Moon class="h-4 w-4" />
+        {:else}
+          <Sun class="h-4 w-4" />
+        {/if}
+      </button>
     </div>
 
     <div class="px-3 pt-3">
       <button
-        class="flex w-full items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-sm text-stone-600 transition hover:border-emerald-300 hover:bg-emerald-50"
+        class="flex w-full items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-sm text-stone-600 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400 dark:hover:border-emerald-600 dark:hover:bg-stone-700"
         onclick={() => (paletteOuverte = true)}
       >
         <Search class="h-4 w-4" />
@@ -213,7 +227,7 @@
       {#each navItems as item (item.id)}
         <button
           class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition
-                 {page === item.id ? 'bg-emerald-50 text-emerald-800' : 'text-stone-700 hover:bg-stone-50'}
+                 {page === item.id ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300' : 'text-stone-700 hover:bg-stone-50 dark:text-stone-300 dark:hover:bg-stone-700/50'}
                  {!item.dispo ? 'opacity-40 cursor-not-allowed' : ''}"
           disabled={!item.dispo}
           onclick={() => item.dispo && (page = item.id)}
@@ -227,7 +241,7 @@
       {/each}
     </nav>
 
-    <div class="border-t border-stone-200 p-3 text-xs text-stone-500">
+    <div class="border-t border-stone-200 p-3 text-xs text-stone-500 dark:border-stone-700 dark:text-stone-400">
       <div class="flex items-center gap-2">
         <span
           class="inline-block h-2 w-2 rounded-full {backendOk === true ? 'bg-emerald-500' : backendOk === false ? 'bg-red-500' : 'bg-stone-300'}"
@@ -238,7 +252,7 @@
   </aside>
 
   <!-- Zone principale -->
-  <main class="flex-1 overflow-auto bg-stone-50">
+  <main class="flex-1 overflow-auto bg-stone-50 dark:bg-stone-900">
     <div class="mx-auto max-w-7xl p-6">
       {#if page === "accueil"}
         <TableauDeBord />
