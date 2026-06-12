@@ -162,6 +162,21 @@ export const exports = {
       }),
     );
   },
+
+  /**
+   * Génère les XLSX CardStudio pour l'année N (un par groupe).
+   * Les contenus sont en base64 dans la réponse.
+   * @param {string} anneeN
+   */
+  async cardstudio(anneeN) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/cardstudio`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ annee_n: anneeN }),
+      }),
+    );
+  },
 };
 
 /**
@@ -172,6 +187,26 @@ export const exports = {
  */
 export function telechargerFichier(nom, contenu, mime = "text/csv") {
   const blob = new Blob([contenu], { type: `${mime};charset=utf-8` });
+  declencherDownload(nom, blob);
+}
+
+/**
+ * Déclenche le téléchargement d'un fichier binaire à partir d'un base64.
+ * @param {string} nom
+ * @param {string} contenuBase64
+ * @param {string} [mime]
+ */
+export function telechargerFichierBase64(nom, contenuBase64, mime) {
+  const binaire = atob(contenuBase64);
+  const octets = new Uint8Array(binaire.length);
+  for (let i = 0; i < binaire.length; i++) octets[i] = binaire.charCodeAt(i);
+  const blob = new Blob([octets], {
+    type: mime ?? "application/octet-stream",
+  });
+  declencherDownload(nom, blob);
+}
+
+function declencherDownload(nom, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

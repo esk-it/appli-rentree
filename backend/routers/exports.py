@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
+from backend.services.exporters.cardstudio import generer_exports_cardstudio
 from backend.services.exporters.koxo import generer_exports_koxo
 from backend.services.exporters.pmb import generer_exports_pmb
 
@@ -81,6 +82,29 @@ def exporter_pmb(
     """
     try:
         fichiers = generer_exports_pmb(session=session, libelle_n=payload.annee_n)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    return {
+        "annee_n": payload.annee_n,
+        "fichiers": [asdict(f) for f in fichiers],
+    }
+
+
+class ExportCardStudioPayload(BaseModel):
+    annee_n: str = Field(..., description='Libellé de l\'année N, ex. "2026-2027"')
+
+
+@router.post("/cardstudio")
+def exporter_cardstudio(
+    payload: ExportCardStudioPayload,
+    session: Session = Depends(db_session),
+) -> dict:
+    """Génère les XLSX d'import CardStudio (un par groupe : KREISKER, SU…)."""
+    try:
+        fichiers = generer_exports_cardstudio(
+            session=session, libelle_n=payload.annee_n
+        )
     except ValueError as e:
         raise HTTPException(400, str(e)) from e
 

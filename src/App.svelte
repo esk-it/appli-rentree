@@ -16,6 +16,7 @@
   import Comparaison from "./routes/Comparaison.svelte";
   import Koxo from "./routes/Koxo.svelte";
   import Pmb from "./routes/Pmb.svelte";
+  import CardStudio from "./routes/CardStudio.svelte";
   import { attendreBackend } from "$lib/api.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
 
@@ -72,7 +73,7 @@
     { id: "google", label: "Google Workspace", icon: Globe, dispo: false },
     { id: "pmb", label: "PMB (CDI)", icon: BookOpen, dispo: true },
     { id: "smartair", label: "SmartAir (accès)", icon: IdCard, dispo: false },
-    { id: "cardstudio", label: "CardStudio (badges)", icon: Users2, dispo: false },
+    { id: "cardstudio", label: "CardStudio (badges)", icon: Users2, dispo: true },
     { id: "parametres", label: "Paramètres", icon: Settings, dispo: false },
   ];
 </script>
@@ -197,6 +198,8 @@
         <Koxo />
       {:else if page === "pmb"}
         <Pmb />
+      {:else if page === "cardstudio"}
+        <CardStudio />
       {/if}
     </div>
   </main>
