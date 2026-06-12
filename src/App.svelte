@@ -11,6 +11,7 @@
   import Settings from "@lucide/svelte/icons/settings";
   import Download from "@lucide/svelte/icons/download";
   import Sparkles from "@lucide/svelte/icons/sparkles";
+  import BarChart3 from "@lucide/svelte/icons/bar-chart-3";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
   import Comparaison from "./routes/Comparaison.svelte";
@@ -19,6 +20,7 @@
   import CardStudio from "./routes/CardStudio.svelte";
   import SmartAir from "./routes/SmartAir.svelte";
   import Google from "./routes/Google.svelte";
+  import Statistiques from "./routes/Statistiques.svelte";
   import { attendreBackend } from "$lib/api.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
 
@@ -71,6 +73,7 @@
     { id: "accueil", label: "Accueil", icon: Home, dispo: true },
     { id: "snapshots", label: "Snapshots d'années", icon: Database, dispo: true },
     { id: "comparaison", label: "Comparaison N vs N-1", icon: Database, dispo: true },
+    { id: "statistiques", label: "Statistiques", icon: BarChart3, dispo: true },
     { id: "koxo", label: "KoXo", icon: Key, dispo: true },
     { id: "google", label: "Google Workspace", icon: Globe, dispo: true },
     { id: "pmb", label: "PMB (CDI)", icon: BookOpen, dispo: true },
@@ -206,6 +209,8 @@
         <SmartAir />
       {:else if page === "google"}
         <Google />
+      {:else if page === "statistiques"}
+        <Statistiques />
       {/if}
     </div>
   </main>

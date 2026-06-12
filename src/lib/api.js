@@ -115,6 +115,13 @@ export const etablissements = {
   },
 };
 
+export const statistiques = {
+  async annee(libelleAnnee) {
+    const params = new URLSearchParams({ annee: libelleAnnee });
+    return jsonOrThrow(await fetch(`${BASE}/statistiques?${params}`));
+  },
+};
+
 export const comparaison = {
   /**
    * Compare deux snapshots et renvoie entrants/restants/sortants.
