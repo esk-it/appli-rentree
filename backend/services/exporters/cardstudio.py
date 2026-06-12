@@ -33,7 +33,13 @@ from io import BytesIO
 from openpyxl import Workbook
 from sqlalchemy.orm import Session
 
-from backend.models import AnneeScolaire, EleveSnapshot, Etablissement
+from backend.models import (
+    AffectationChambre,
+    AnneeScolaire,
+    Chambre,
+    EleveSnapshot,
+    Etablissement,
+)
 
 # Mapping code_court d'établissement → nom du groupe CardStudio cible.
 # Calqué sur le BadgesESK historique : "KREISKER" regroupait LY et LP.
@@ -86,7 +92,10 @@ def _date_pour_tri(date_obj) -> str:
 
 
 def _ligne_cardstudio(
-    eleve: EleveSnapshot, etab: Etablissement, groupe: str
+    eleve: EleveSnapshot,
+    etab: Etablissement,
+    groupe: str,
+    chambre_numero: str = "",
 ) -> list:
     return [
         groupe,  # Etablissement (nom court du groupe)
@@ -101,7 +110,7 @@ def _ligne_cardstudio(
         eleve.photo_chemin or "",  # Photo (UNC complet)
         _date_pour_tri(eleve.date_entree),
         _nom_fichier_photo(eleve.photo_chemin),  # NomFichierPhoto
-        "",  # Chambres : pas encore dans nos données
+        chambre_numero,  # Chambres : renseigné si affecté
     ]
 
 
@@ -127,6 +136,22 @@ def generer_exports_cardstudio(
     eleves = (
         session.query(EleveSnapshot).filter_by(annee_scolaire_id=annee_n.id).all()
     )
+
+    # Chambres affectées (best effort — silencieux si tables vides)
+    chambres_par_id: dict[int, Chambre] = {
+        c.id: c for c in session.query(Chambre).all()
+    }
+    affectation_par_eleve: dict[int, str] = {}
+    ids_eleves = {e.id for e in eleves}
+    if ids_eleves and chambres_par_id:
+        for aff in (
+            session.query(AffectationChambre)
+            .filter(AffectationChambre.eleve_snapshot_id.in_(ids_eleves))
+            .all()
+        ):
+            c = chambres_par_id.get(aff.chambre_id)
+            if c:
+                affectation_par_eleve[aff.eleve_snapshot_id] = c.numero
 
     # Groupement par groupe CardStudio
     par_groupe: dict[str, list[tuple[EleveSnapshot, Etablissement]]] = {}
@@ -154,7 +179,8 @@ def generer_exports_cardstudio(
         ws.title = "Badges"
         ws.append(COLONNES_CARDSTUDIO)
         for eleve, etab in paires_triees:
-            ws.append(_ligne_cardstudio(eleve, etab, groupe))
+            chambre_num = affectation_par_eleve.get(eleve.id, "")
+            ws.append(_ligne_cardstudio(eleve, etab, groupe, chambre_num))
 
         # Largeurs auto-ajustées (approximatif mais suffisant pour la lisibilité)
         for col_idx, col_name in enumerate(COLONNES_CARDSTUDIO, start=1):

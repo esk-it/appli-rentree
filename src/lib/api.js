@@ -116,6 +116,55 @@ export const eleves = {
   },
 };
 
+export const chambres = {
+  async lister(libelleAnnee = null) {
+    const params = new URLSearchParams();
+    if (libelleAnnee) params.set("annee", libelleAnnee);
+    return jsonOrThrow(await fetch(`${BASE}/chambres?${params}`));
+  },
+  async creer(payload) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/chambres`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    );
+  },
+  async modifier(id, payload) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/chambres/${id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    );
+  },
+  async supprimer(id) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/chambres/${id}`, { method: "DELETE" }),
+    );
+  },
+  async affecter(eleveSnapshotId, chambreId) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/chambres/affectations`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          eleve_snapshot_id: eleveSnapshotId,
+          chambre_id: chambreId,
+        }),
+      }),
+    );
+  },
+  async listerAffectations(libelleAnnee) {
+    const params = new URLSearchParams({ annee: libelleAnnee });
+    return jsonOrThrow(
+      await fetch(`${BASE}/chambres/affectations?${params}`),
+    );
+  },
+};
+
 export const historique = {
   async lister(limite = 100, cible = null) {
     const params = new URLSearchParams({ limite: String(limite) });

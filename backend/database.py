@@ -52,6 +52,7 @@ def init_db() -> None:
     from backend.models import (  # noqa: F401
         adulte_snapshot,
         annee_scolaire,
+        chambre,
         eleve_snapshot,
         etablissement,
         generation,

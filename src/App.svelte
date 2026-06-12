@@ -15,6 +15,7 @@
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import BarChart3 from "@lucide/svelte/icons/bar-chart-3";
   import History from "@lucide/svelte/icons/history";
+  import BedDouble from "@lucide/svelte/icons/bed-double";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
   import Comparaison from "./routes/Comparaison.svelte";
@@ -28,6 +29,7 @@
   import Eleves from "./routes/Eleves.svelte";
   import Adultes from "./routes/Adultes.svelte";
   import Historique from "./routes/Historique.svelte";
+  import Chambres from "./routes/Chambres.svelte";
   import Aide from "./routes/Aide.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import { attendreBackend } from "$lib/api.js";
@@ -97,6 +99,7 @@
     { id: "snapshots", label: "Snapshots d'années", icon: Database, dispo: true },
     { id: "eleves", label: "Liste des élèves", icon: Users2, dispo: true },
     { id: "adultes", label: "Personnel / Adultes", icon: Users2, dispo: true },
+    { id: "chambres", label: "Chambres internat", icon: BedDouble, dispo: true },
     { id: "comparaison", label: "Comparaison N vs N-1", icon: Database, dispo: true },
     { id: "statistiques", label: "Statistiques", icon: BarChart3, dispo: true },
     { id: "historique", label: "Historique", icon: History, dispo: true },
@@ -241,6 +244,8 @@
         <Eleves />
       {:else if page === "adultes"}
         <Adultes />
+      {:else if page === "chambres"}
+        <Chambres />
       {:else if page === "comparaison"}
         <Comparaison />
       {:else if page === "koxo"}
