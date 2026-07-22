@@ -3,17 +3,15 @@
  *
  * - En dev (`npm run dev` / `tauri dev`) : `/api` relatif, Vite proxy vers 127.0.0.1:8020
  * - En prod (binaire Tauri) : URL absolue car il n'y a plus de proxy Vite
+ *
+ * Depuis la refonte identité (v0.22.0), le client expose uniquement les
+ * endpoints du Lot 1 : personnes, sites, table de correspondance, années,
+ * établissements, paramètres. Les modules de traitement seront ajoutés lot
+ * par lot.
  */
 
-const BASE = import.meta.env.PROD
-  ? "http://127.0.0.1:8020/api"
-  : "/api";
+const BASE = import.meta.env.PROD ? "http://127.0.0.1:8020/api" : "/api";
 
-/**
- * Parse la réponse en JSON, ou lève une erreur lisible si le serveur renvoie
- * du HTML (signe que le backend ne tourne pas et que Tauri sert l'index.html
- * en fallback).
- */
 async function jsonOrThrow(response) {
   const contentType = response.headers.get("content-type") || "";
   if (!response.ok) {
@@ -43,7 +41,6 @@ export async function attendreBackend({ maxTentatives = 20, baseDelai = 250 } = 
     } catch (e) {
       derniereErreur = e;
     }
-    // Backoff : 250, 500, 750, ... plafonné à 2s
     const delai = Math.min(baseDelai * (i + 1), 2000);
     await new Promise((r) => setTimeout(r, delai));
   }
@@ -57,74 +54,35 @@ export async function health() {
   return jsonOrThrow(await fetch(`${BASE}/health`));
 }
 
-export const charlemagne = {
-  async listerFichiers() {
-    return jsonOrThrow(await fetch(`${BASE}/charlemagne/fichiers`));
+// ---------------------------------------------------------------------------
+// Personnes — référentiel d'identité
+// ---------------------------------------------------------------------------
+export const personnes = {
+  async lister({ type = null, site = null } = {}) {
+    const p = new URLSearchParams();
+    if (type) p.set("type", type);
+    if (site) p.set("site", site);
+    const qs = p.toString();
+    return jsonOrThrow(await fetch(`${BASE}/personnes${qs ? `?${qs}` : ""}`));
   },
-
-  async apercu(nom, limite = 200) {
-    const params = new URLSearchParams({ nom, limite: String(limite) });
-    return jsonOrThrow(await fetch(`${BASE}/charlemagne/apercu?${params}`));
+  async obtenir(id) {
+    return jsonOrThrow(await fetch(`${BASE}/personnes/${id}`));
   },
-
-  async upload(fichier) {
-    const form = new FormData();
-    form.append("fichier", fichier);
-    return jsonOrThrow(
-      await fetch(`${BASE}/charlemagne/upload`, {
-        method: "POST",
-        body: form,
-      }),
-    );
-  },
-
-  /**
-   * Ingère un fichier déjà déposé dans data/input/ comme nouveau snapshot.
-   * @param {string} nomFichier
-   * @param {string} libelleAnnee  ex. "2025-2026"
-   * @param {boolean} [remplacerSiExiste=false]
-   */
-  async ingerer(nomFichier, libelleAnnee, remplacerSiExiste = false) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/charlemagne/ingerer`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          nom_fichier: nomFichier,
-          libelle_annee: libelleAnnee,
-          remplacer_si_existe: remplacerSiExiste,
-        }),
-      }),
-    );
+  async parClePivot(cle) {
+    return jsonOrThrow(await fetch(`${BASE}/personnes/par-cle-pivot/${encodeURIComponent(cle)}`));
   },
 };
 
-export const annees = {
+// ---------------------------------------------------------------------------
+// Sites
+// ---------------------------------------------------------------------------
+export const sites = {
   async lister() {
-    return jsonOrThrow(await fetch(`${BASE}/annees`));
-  },
-
-  async supprimer(id) {
-    return jsonOrThrow(await fetch(`${BASE}/annees/${id}`, { method: "DELETE" }));
-  },
-};
-
-export const eleves = {
-  async lister(libelleAnnee) {
-    const params = new URLSearchParams({ annee: libelleAnnee });
-    return jsonOrThrow(await fetch(`${BASE}/eleves?${params}`));
-  },
-};
-
-export const chambres = {
-  async lister(libelleAnnee = null) {
-    const params = new URLSearchParams();
-    if (libelleAnnee) params.set("annee", libelleAnnee);
-    return jsonOrThrow(await fetch(`${BASE}/chambres?${params}`));
+    return jsonOrThrow(await fetch(`${BASE}/sites`));
   },
   async creer(payload) {
     return jsonOrThrow(
-      await fetch(`${BASE}/chambres`, {
+      await fetch(`${BASE}/sites`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
@@ -133,7 +91,40 @@ export const chambres = {
   },
   async modifier(id, payload) {
     return jsonOrThrow(
-      await fetch(`${BASE}/chambres/${id}`, {
+      await fetch(`${BASE}/sites/${id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    );
+  },
+  async supprimer(id) {
+    return jsonOrThrow(await fetch(`${BASE}/sites/${id}`, { method: "DELETE" }));
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Table de correspondance classe → OU/Groupe Google
+// ---------------------------------------------------------------------------
+export const tableCorrespondance = {
+  async lister({ site = null } = {}) {
+    const p = new URLSearchParams();
+    if (site) p.set("site", site);
+    const qs = p.toString();
+    return jsonOrThrow(await fetch(`${BASE}/table-correspondance${qs ? `?${qs}` : ""}`));
+  },
+  async creer(payload) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/table-correspondance`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
+    );
+  },
+  async modifier(id, payload) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/table-correspondance/${id}`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
@@ -142,75 +133,35 @@ export const chambres = {
   },
   async supprimer(id) {
     return jsonOrThrow(
-      await fetch(`${BASE}/chambres/${id}`, { method: "DELETE" }),
-    );
-  },
-  async affecter(eleveSnapshotId, chambreId) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/chambres/affectations`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          eleve_snapshot_id: eleveSnapshotId,
-          chambre_id: chambreId,
-        }),
-      }),
-    );
-  },
-  async listerAffectations(libelleAnnee) {
-    const params = new URLSearchParams({ annee: libelleAnnee });
-    return jsonOrThrow(
-      await fetch(`${BASE}/chambres/affectations?${params}`),
+      await fetch(`${BASE}/table-correspondance/${id}`, { method: "DELETE" }),
     );
   },
 };
 
-export const historique = {
-  async lister(limite = 100, cible = null) {
-    const params = new URLSearchParams({ limite: String(limite) });
-    if (cible) params.set("cible", cible);
-    return jsonOrThrow(await fetch(`${BASE}/historique?${params}`));
+// ---------------------------------------------------------------------------
+// Années scolaires
+// ---------------------------------------------------------------------------
+export const annees = {
+  async lister() {
+    return jsonOrThrow(await fetch(`${BASE}/annees`));
   },
   async supprimer(id) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/historique/${id}`, { method: "DELETE" }),
-    );
+    return jsonOrThrow(await fetch(`${BASE}/annees/${id}`, { method: "DELETE" }));
   },
 };
 
-export const recherche = {
-  async rechercher(terme, limite = 30) {
-    const params = new URLSearchParams({ q: terme, limite: String(limite) });
-    return jsonOrThrow(await fetch(`${BASE}/recherche?${params}`));
-  },
-};
-
-export const adultes = {
-  async lister(libelleAnnee) {
-    const params = new URLSearchParams({ annee: libelleAnnee });
-    return jsonOrThrow(await fetch(`${BASE}/adultes?${params}`));
-  },
-  async ingerer(nomFichier, libelleAnnee, remplacerSiExiste = false) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/adultes/ingerer`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          nom_fichier: nomFichier,
-          libelle_annee: libelleAnnee,
-          remplacer_si_existe: remplacerSiExiste,
-        }),
-      }),
-    );
-  },
-};
-
+// ---------------------------------------------------------------------------
+// Établissements (côté Charlemagne — 02-COL, 03-LY, 04-LP)
+// ---------------------------------------------------------------------------
 export const etablissements = {
   async lister() {
     return jsonOrThrow(await fetch(`${BASE}/etablissements`));
   },
 };
 
+// ---------------------------------------------------------------------------
+// Paramètres
+// ---------------------------------------------------------------------------
 export const parametres = {
   async lister() {
     return jsonOrThrow(await fetch(`${BASE}/parametres`));
@@ -226,183 +177,19 @@ export const parametres = {
   },
 };
 
-export const statistiques = {
-  async annee(libelleAnnee) {
-    const params = new URLSearchParams({ annee: libelleAnnee });
-    return jsonOrThrow(await fetch(`${BASE}/statistiques?${params}`));
-  },
-};
-
-export const comparaison = {
-  /**
-   * Compare deux snapshots et renvoie entrants/restants/sortants.
-   * @param {string} anneeN  ex. "2026-2027"
-   * @param {string} anneeNMoinsUn  ex. "2025-2026"
-   */
-  async comparer(anneeN, anneeNMoinsUn) {
-    const params = new URLSearchParams({
-      annee_n: anneeN,
-      annee_n_minus_1: anneeNMoinsUn,
-    });
-    return jsonOrThrow(await fetch(`${BASE}/comparaison?${params}`));
-  },
-};
-
-export const exports = {
-  /**
-   * Génère les CSV KoXo pour l'année N (et N-1 optionnellement).
-   * @param {string} anneeN
-   * @param {string|null} anneeNMoinsUn
-   */
-  async koxo(anneeN, anneeNMoinsUn = null) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/exports/koxo`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          annee_n: anneeN,
-          annee_n_minus_1: anneeNMoinsUn,
-        }),
-      }),
-    );
-  },
-
-  /**
-   * Génère les CSV PMB pour l'année N (un par instance PMB : SU et NDK).
-   * @param {string} anneeN
-   */
-  async pmb(anneeN) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/exports/pmb`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ annee_n: anneeN }),
-      }),
-    );
-  },
-
-  /**
-   * Génère les XLSX CardStudio pour l'année N (un par groupe).
-   * Les contenus sont en base64 dans la réponse.
-   * @param {string} anneeN
-   */
-  async cardstudio(anneeN) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/exports/cardstudio`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ annee_n: anneeN }),
-      }),
-    );
-  },
-
-  /**
-   * Génère le CSV SmartAir pour l'année N.
-   * @param {string} anneeN
-   * @param {string|null} contenuSmartairNMoinsUn  Contenu CSV d'un précédent export SmartAir (optionnel)
-   */
-  async smartair(anneeN, contenuSmartairNMoinsUn = null) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/exports/smartair`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          annee_n: anneeN,
-          contenu_smartair_n_minus_1: contenuSmartairNMoinsUn,
-        }),
-      }),
-    );
-  },
-
-  /**
-   * Génère les CSV Google Workspace bulk-import pour l'année N.
-   * @param {string} anneeN
-   * @param {string|null} anneeNMoinsUn  Si fourni, génère aussi "Nouveaux".
-   */
-  async google(anneeN, anneeNMoinsUn = null) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/exports/google`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          annee_n: anneeN,
-          annee_n_minus_1: anneeNMoinsUn,
-        }),
-      }),
-    );
-  },
-
-  async koxoAdultes(anneeN, anneeNMoinsUn = null) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/exports/koxo-adultes`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          annee_n: anneeN,
-          annee_n_minus_1: anneeNMoinsUn,
-        }),
-      }),
-    );
-  },
-
-  async googleAdultes(anneeN, anneeNMoinsUn = null) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/exports/google-adultes`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          annee_n: anneeN,
-          annee_n_minus_1: anneeNMoinsUn,
-        }),
-      }),
-    );
-  },
-
-  /**
-   * Lance tous les générateurs et retourne un ZIP unique organisé par cible.
-   * @param {string} anneeN
-   * @param {string|null} anneeNMoinsUn
-   * @param {string|null} contenuSmartairNMoinsUn
-   */
-  async tout(anneeN, anneeNMoinsUn = null, contenuSmartairNMoinsUn = null) {
-    return jsonOrThrow(
-      await fetch(`${BASE}/exports/tout`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          annee_n: anneeN,
-          annee_n_minus_1: anneeNMoinsUn,
-          contenu_smartair_n_minus_1: contenuSmartairNMoinsUn,
-        }),
-      }),
-    );
-  },
-};
-
-/**
- * Déclenche le téléchargement d'un fichier texte côté navigateur.
- * @param {string} nom
- * @param {string} contenu
- * @param {string} [mime]
- */
+// ---------------------------------------------------------------------------
+// Helpers de téléchargement — utiles pour les futurs exports
+// ---------------------------------------------------------------------------
 export function telechargerFichier(nom, contenu, mime = "text/csv") {
   const blob = new Blob([contenu], { type: `${mime};charset=utf-8` });
   declencherDownload(nom, blob);
 }
 
-/**
- * Déclenche le téléchargement d'un fichier binaire à partir d'un base64.
- * @param {string} nom
- * @param {string} contenuBase64
- * @param {string} [mime]
- */
 export function telechargerFichierBase64(nom, contenuBase64, mime) {
   const binaire = atob(contenuBase64);
   const octets = new Uint8Array(binaire.length);
   for (let i = 0; i < binaire.length; i++) octets[i] = binaire.charCodeAt(i);
-  const blob = new Blob([octets], {
-    type: mime ?? "application/octet-stream",
-  });
+  const blob = new Blob([octets], { type: mime ?? "application/octet-stream" });
   declencherDownload(nom, blob);
 }
 

@@ -4,32 +4,21 @@
   import Home from "@lucide/svelte/icons/home";
   import Database from "@lucide/svelte/icons/database";
   import Users2 from "@lucide/svelte/icons/users-2";
-  import Key from "@lucide/svelte/icons/key";
-  import BookOpen from "@lucide/svelte/icons/book-open";
-  import Globe from "@lucide/svelte/icons/globe";
-  import IdCard from "@lucide/svelte/icons/id-card";
   import Settings from "@lucide/svelte/icons/settings";
   import HelpCircle from "@lucide/svelte/icons/help-circle";
   import Search from "@lucide/svelte/icons/search";
   import Download from "@lucide/svelte/icons/download";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import BarChart3 from "@lucide/svelte/icons/bar-chart-3";
-  import History from "@lucide/svelte/icons/history";
-  import BedDouble from "@lucide/svelte/icons/bed-double";
+  import Building2 from "@lucide/svelte/icons/building-2";
+  import TableIcon from "@lucide/svelte/icons/table";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
+  import Personnes from "./routes/Personnes.svelte";
+  import Sites from "./routes/Sites.svelte";
+  import TableCorrespondance from "./routes/TableCorrespondance.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
-  import Comparaison from "./routes/Comparaison.svelte";
-  import Koxo from "./routes/Koxo.svelte";
-  import Pmb from "./routes/Pmb.svelte";
-  import CardStudio from "./routes/CardStudio.svelte";
-  import SmartAir from "./routes/SmartAir.svelte";
-  import Google from "./routes/Google.svelte";
   import Statistiques from "./routes/Statistiques.svelte";
   import Parametres from "./routes/Parametres.svelte";
-  import Eleves from "./routes/Eleves.svelte";
-  import Adultes from "./routes/Adultes.svelte";
-  import Historique from "./routes/Historique.svelte";
-  import Chambres from "./routes/Chambres.svelte";
   import Aide from "./routes/Aide.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
   import ToasterContainer from "$lib/components/ToasterContainer.svelte";
@@ -102,19 +91,12 @@
   }
 
   const navItems = [
-    { id: "accueil", label: "Accueil", icon: Home, dispo: true },
+    { id: "accueil", label: "Tableau de bord", icon: Home, dispo: true },
+    { id: "personnes", label: "Référentiel", icon: Users2, dispo: true },
+    { id: "sites", label: "Sites", icon: Building2, dispo: true },
+    { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon, dispo: true },
     { id: "snapshots", label: "Snapshots d'années", icon: Database, dispo: true },
-    { id: "eleves", label: "Liste des élèves", icon: Users2, dispo: true },
-    { id: "adultes", label: "Personnel / Adultes", icon: Users2, dispo: true },
-    { id: "chambres", label: "Chambres internat", icon: BedDouble, dispo: true },
-    { id: "comparaison", label: "Comparaison N vs N-1", icon: Database, dispo: true },
     { id: "statistiques", label: "Statistiques", icon: BarChart3, dispo: true },
-    { id: "historique", label: "Historique", icon: History, dispo: true },
-    { id: "koxo", label: "KoXo", icon: Key, dispo: true },
-    { id: "google", label: "Google Workspace", icon: Globe, dispo: true },
-    { id: "pmb", label: "PMB (CDI)", icon: BookOpen, dispo: true },
-    { id: "smartair", label: "SmartAir (accès)", icon: IdCard, dispo: true },
-    { id: "cardstudio", label: "CardStudio (badges)", icon: Users2, dispo: true },
     { id: "parametres", label: "Paramètres", icon: Settings, dispo: true },
     { id: "aide", label: "Aide", icon: HelpCircle, dispo: true },
   ];
@@ -256,30 +238,16 @@
     <div class="mx-auto max-w-7xl p-6">
       {#if page === "accueil"}
         <TableauDeBord />
+      {:else if page === "personnes"}
+        <Personnes />
+      {:else if page === "sites"}
+        <Sites />
+      {:else if page === "table_correspondance"}
+        <TableCorrespondance />
       {:else if page === "snapshots"}
         <Snapshots />
-      {:else if page === "eleves"}
-        <Eleves />
-      {:else if page === "adultes"}
-        <Adultes />
-      {:else if page === "chambres"}
-        <Chambres />
-      {:else if page === "comparaison"}
-        <Comparaison />
-      {:else if page === "koxo"}
-        <Koxo />
-      {:else if page === "pmb"}
-        <Pmb />
-      {:else if page === "cardstudio"}
-        <CardStudio />
-      {:else if page === "smartair"}
-        <SmartAir />
-      {:else if page === "google"}
-        <Google />
       {:else if page === "statistiques"}
         <Statistiques />
-      {:else if page === "historique"}
-        <Historique />
       {:else if page === "parametres"}
         <Parametres />
       {:else if page === "aide"}

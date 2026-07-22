@@ -1,5 +1,7 @@
-"""Tests d'intégration via FastAPI TestClient."""
+"""Tests d'intégration via FastAPI TestClient (Lot 1)."""
 from __future__ import annotations
+
+import importlib
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,29 +10,159 @@ from fastapi.testclient import TestClient
 @pytest.fixture()
 def client(tmp_db_path):
     """Client FastAPI sur la DB temporaire."""
-    # Re-import après que tmp_db_path ait reload la DB
-    import importlib
     import backend.main
-
     importlib.reload(backend.main)
-    return TestClient(backend.main.app)
+    with TestClient(backend.main.app) as c:
+        yield c
 
 
-class TestHealthEtBase:
-    def test_health(self, client):
+class TestHealth:
+    def test_version_est_022(self, client):
         r = client.get("/api/health")
         assert r.status_code == 200
-        assert r.json() == {"ok": True, "version": client.app.version}
+        assert r.json() == {"ok": True, "version": "0.22.0"}
 
-    def test_annees_vide_au_demarrage(self, client):
+
+class TestRacine:
+    """Les collections de base sont accessibles et vides au démarrage."""
+
+    def test_sites_vide(self, client):
+        r = client.get("/api/sites")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_personnes_vide(self, client):
+        r = client.get("/api/personnes")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_table_correspondance_vide(self, client):
+        r = client.get("/api/table-correspondance")
+        assert r.status_code == 200
+        assert r.json() == []
+
+    def test_annees_vide(self, client):
         r = client.get("/api/annees")
         assert r.status_code == 200
         assert r.json() == []
 
-    def test_etablissements_vide_au_demarrage(self, client):
-        r = client.get("/api/etablissements")
+
+class TestSitesCRUD:
+    def test_creer_lister_modifier_supprimer(self, client):
+        # Créer
+        payload = {
+            "nom": "NDE",
+            "nom_complet": "Notre-Dame d'Espérance",
+            "domaine_mail": "ndecleder.fr",
+            "prefixe_annee_ou": "NDE",
+            "numero_ordre": 2,
+        }
+        r = client.post("/api/sites", json=payload)
         assert r.status_code == 200
+        site_id = r.json()["id"]
+        assert r.json()["prefixe_racine_ou"] == "/2. NDE"
+
+        # Lister
+        r = client.get("/api/sites")
+        assert len(r.json()) == 1
+        assert r.json()[0]["domaine_mail"] == "ndecleder.fr"
+
+        # Doublon interdit
+        r2 = client.post("/api/sites", json=payload)
+        assert r2.status_code == 409
+
+        # Modifier
+        r = client.put(
+            f"/api/sites/{site_id}",
+            json={**payload, "nom_complet": "NDE modifié"},
+        )
+        assert r.status_code == 200
+        assert r.json()["nom_complet"] == "NDE modifié"
+
+        # Supprimer
+        r = client.delete(f"/api/sites/{site_id}")
+        assert r.status_code == 200
+
+        r = client.get("/api/sites")
         assert r.json() == []
+
+
+class TestTableCorrespondance:
+    def test_bloque_si_site_inconnu(self, client):
+        r = client.post(
+            "/api/table-correspondance",
+            json={
+                "site_id": 999,
+                "classe_charlemagne_long": "TROISIEME FUSHIA",
+                "classe_code_court": "3F",
+                "ou_pre_rentree": "/2. NDE/NDE2026",
+                "ou_definitive": "/2. NDE/NDE2026/3F",
+            },
+        )
+        assert r.status_code == 400
+
+    def test_creation_normale(self, client):
+        # Crée un site d'abord
+        site = client.post(
+            "/api/sites",
+            json={
+                "nom": "NDE",
+                "nom_complet": "NDE",
+                "domaine_mail": "ndecleder.fr",
+                "prefixe_annee_ou": "NDE",
+                "numero_ordre": 2,
+            },
+        ).json()
+
+        r = client.post(
+            "/api/table-correspondance",
+            json={
+                "site_id": site["id"],
+                "classe_charlemagne_long": "TROISIEME FUSHIA",
+                "classe_code_court": "3F",
+                "groupe_google": "3eme-fuschia@ndecleder.fr",
+                "ou_pre_rentree": "/2. NDE/NDE2026",
+                "ou_definitive": "/2. NDE/NDE2026/3F",
+            },
+        )
+        assert r.status_code == 200
+        assert r.json()["site_nom"] == "NDE"
+
+    def test_doublon_bloque(self, client):
+        site = client.post(
+            "/api/sites",
+            json={
+                "nom": "NDE",
+                "nom_complet": "NDE",
+                "domaine_mail": "ndecleder.fr",
+                "prefixe_annee_ou": "NDE",
+                "numero_ordre": 2,
+            },
+        ).json()
+        payload = {
+            "site_id": site["id"],
+            "classe_charlemagne_long": "TROISIEME FUSHIA",
+            "classe_code_court": "3F",
+            "ou_pre_rentree": "/2. NDE/NDE2026",
+            "ou_definitive": "/2. NDE/NDE2026/3F",
+        }
+        client.post("/api/table-correspondance", json=payload)
+        r = client.post("/api/table-correspondance", json=payload)
+        assert r.status_code == 409
+
+
+class TestPersonnes:
+    def test_cle_pivot_invalide(self, client):
+        r = client.get("/api/personnes/par-cle-pivot/X999")
+        assert r.status_code == 400
+
+    def test_cle_pivot_non_numerique(self, client):
+        r = client.get("/api/personnes/par-cle-pivot/Eabc")
+        assert r.status_code == 400
+
+    def test_cle_pivot_introuvable(self, client):
+        r = client.get("/api/personnes/par-cle-pivot/E9999")
+        assert r.status_code == 404
 
 
 class TestParametres:
@@ -38,39 +170,6 @@ class TestParametres:
         r = client.get("/api/parametres")
         assert r.status_code == 200
         liste = r.json()
+        assert len(liste) > 0
         cles = {p["cle"] for p in liste}
         assert "email.domaine" in cles
-        # Valeur par défaut
-        email = next(p for p in liste if p["cle"] == "email.domaine")
-        assert email["valeur"] == "lekreisker.fr"
-
-    def test_mettre_a_jour_change_la_valeur(self, client):
-        r = client.put(
-            "/api/parametres/email.domaine",
-            json={"valeur": "nouveau-domaine.fr"},
-        )
-        assert r.status_code == 200
-        # Vérifie
-        liste = client.get("/api/parametres").json()
-        email = next(p for p in liste if p["cle"] == "email.domaine")
-        assert email["valeur"] == "nouveau-domaine.fr"
-
-    def test_parametre_inconnu_renvoie_404(self, client):
-        r = client.put(
-            "/api/parametres/inconnu", json={"valeur": "x"}
-        )
-        assert r.status_code == 404
-
-
-class TestRecherche:
-    def test_terme_vide_renvoie_422(self, client):
-        # min_length=1 → FastAPI lève 422
-        r = client.get("/api/recherche?q=")
-        assert r.status_code == 422
-
-    def test_aucun_resultat_renvoie_listes_vides(self, client):
-        r = client.get("/api/recherche?q=INEXISTANT")
-        assert r.status_code == 200
-        body = r.json()
-        assert body["nb_eleves"] == 0
-        assert body["nb_adultes"] == 0

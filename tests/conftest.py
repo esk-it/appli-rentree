@@ -1,15 +1,10 @@
 """Configuration partagée pour pytest.
 
-Fixtures :
-- `tmp_db_path` : crée un fichier SQLite temporaire isolé par test
-- `session` : ouvre une session SQLAlchemy sur cette DB temporaire
-- `eleve_factory` : helper pour créer un EleveSnapshot rapidement
-- `etablissement_factory` : helper pour créer un Etablissement
-- `annee_factory` : helper pour créer une AnneeScolaire
+Depuis la refonte identité (v0.22.0), les fixtures créent des `Site`,
+`Personne`, `Snapshot`, `CompteCible` sur une DB temporaire isolée.
 """
 from __future__ import annotations
 
-import os
 from collections.abc import Iterator
 
 import pytest
@@ -18,12 +13,7 @@ import pytest
 @pytest.fixture()
 def tmp_db_path(tmp_path, monkeypatch) -> str:
     """Isole chaque test sur sa propre DB SQLite (jamais de pollution croisée)."""
-    db_file = tmp_path / "test.db"
     monkeypatch.setenv("APPLI_RENTREE_DATA_DIR", str(tmp_path))
-    # On force aussi sys.frozen pour que la config aille chercher l'env
-    # Note : on ne touche pas sys.frozen mais on importe config après pour
-    # qu'il lise APPLI_RENTREE_DATA_DIR — mais en réalité config.py lit ça
-    # uniquement si frozen. Trick : monkeypatch sys.frozen avant import.
     monkeypatch.setattr("sys.frozen", True, raising=False)
 
     # Force re-import de config et database avec la nouvelle DB
@@ -36,23 +26,23 @@ def tmp_db_path(tmp_path, monkeypatch) -> str:
     # Réimporte les modèles pour qu'ils s'enregistrent contre la nouvelle Base
     import backend.models
     importlib.reload(backend.models)
-    import backend.models.etablissement as m_etab
-    importlib.reload(m_etab)
-    import backend.models.annee_scolaire as m_annee
-    importlib.reload(m_annee)
-    import backend.models.eleve_snapshot as m_eleve
-    importlib.reload(m_eleve)
-    import backend.models.adulte_snapshot as m_adulte
-    importlib.reload(m_adulte)
-    import backend.models.parametre as m_param
-    importlib.reload(m_param)
-    import backend.models.generation as m_gen
-    importlib.reload(m_gen)
-    import backend.models.chambre as m_chambre
-    importlib.reload(m_chambre)
+    for m in (
+        "annee_scolaire",
+        "arbitrage",
+        "compte_cible",
+        "etablissement",
+        "generation",
+        "parametre",
+        "personne",
+        "site",
+        "snapshot",
+        "table_correspondance",
+    ):
+        mod = importlib.import_module(f"backend.models.{m}")
+        importlib.reload(mod)
 
     backend.database.init_db()
-    yield str(db_file)
+    yield str(tmp_path / "appli_rentree.db")
 
 
 @pytest.fixture()
@@ -64,28 +54,30 @@ def session(tmp_db_path) -> Iterator:
 
 
 @pytest.fixture()
-def etablissement_factory(session):
-    """Factory pour créer rapidement un Etablissement."""
-    from backend.models import Etablissement
+def site_factory(session):
+    """Factory pour créer un Site."""
+    from backend.models import Site
 
     compteur = {"n": 0}
+    defauts = {
+        "NDE": ("Notre-Dame d'Espérance", "ndecleder.fr", "NDE", 2),
+        "NDK": ("Notre-Dame du Kreisker", "lekreisker.fr", "NDK", 3),
+        "SU": ("Sainte-Ursule", "lekreisker.fr", "SU", 4),
+    }
 
-    def _creer(
-        code_charlemagne: str = "02-COL",
-        code_court: str = "SU",
-        nom_long: str = "Collège Sainte-Ursule",
-        type: str = "college",
-    ):
+    def _creer(nom: str = "NDK", **overrides):
         compteur["n"] += 1
-        e = Etablissement(
-            code_charlemagne=code_charlemagne,
-            code_court=code_court,
-            nom_long=nom_long,
-            type=type,
+        d = defauts.get(nom, ("Test", "test.fr", nom, 10 + compteur["n"]))
+        s = Site(
+            nom=nom,
+            nom_complet=overrides.get("nom_complet", d[0]),
+            domaine_mail=overrides.get("domaine_mail", d[1]),
+            prefixe_annee_ou=overrides.get("prefixe_annee_ou", d[2]),
+            numero_ordre=overrides.get("numero_ordre", d[3]),
         )
-        session.add(e)
+        session.add(s)
         session.commit()
-        return e
+        return s
 
     return _creer
 
@@ -104,46 +96,43 @@ def annee_factory(session):
 
 
 @pytest.fixture()
-def eleve_factory(session):
-    from backend.models import EleveSnapshot
+def personne_factory(session):
+    """Factory pour créer une Personne (avec badge auto-calculé)."""
+    from backend.models import Personne
 
-    compteur = {"n": 0}
-
-    # Sentinel pour distinguer "non spécifié" de "explicitement None"
-    _NON_SPECIFIE = object()
+    compteur = {"eleve": 0, "adulte": 0}
 
     def _creer(
-        annee_id: int,
-        etablissement_id: int,
+        type: str = "eleve",
+        id_charlemagne: int | None = None,
         nom: str | None = None,
         prenom: str | None = None,
-        num_badge=_NON_SPECIFIE,
-        code_classe: str | None = "31",
-        code_niveau: str | None = "3EMES",
-        code_regime: str | None = "D",
-        est_nouveau_charlemagne: bool = False,
+        login: str | None = None,
+        site_id: int | None = None,
+        **kwargs,
     ):
-        compteur["n"] += 1
-        # Si num_badge n'est pas passé, on en génère un. Si None est passé, on
-        # respecte (pour tester le fallback nom+prenom).
-        badge = (
-            10000 + compteur["n"]
-            if num_badge is _NON_SPECIFIE
-            else num_badge
+        compteur[type] += 1
+        if id_charlemagne is None:
+            id_charlemagne = 5000 + compteur[type] if type == "eleve" else 100 + compteur[type]
+        badge = Personne.calculer_badge(type, id_charlemagne)
+        if nom is None:
+            nom = f"NOM{compteur[type]:03d}"
+        if prenom is None:
+            prenom = f"Prenom{compteur[type]:03d}"
+        if login is None:
+            login = f"{prenom[0].lower()}{nom.lower()}"[:10]
+        p = Personne(
+            type=type,
+            id_charlemagne=id_charlemagne,
+            badge=badge,
+            login=login,
+            nom=nom,
+            prenom=prenom,
+            site_id=site_id,
+            **kwargs,
         )
-        e = EleveSnapshot(
-            annee_scolaire_id=annee_id,
-            etablissement_id=etablissement_id,
-            nom=nom or f"NOM{compteur['n']:03d}",
-            prenom=prenom or f"Prenom{compteur['n']:03d}",
-            num_badge=badge,
-            code_classe=code_classe,
-            code_niveau=code_niveau,
-            code_regime=code_regime,
-            est_nouveau_charlemagne=est_nouveau_charlemagne,
-        )
-        session.add(e)
+        session.add(p)
         session.commit()
-        return e
+        return p
 
     return _creer

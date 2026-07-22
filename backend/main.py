@@ -13,18 +13,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.database import init_db
 from backend.routers import (
-    adultes,
     annees,
-    chambres,
-    comparaison,
-    eleves,
     etablissements,
-    exports,
-    historique,
-    import_charlemagne,
     parametres,
-    recherche,
-    statistiques,
+    personnes,
+    sites,
+    table_correspondance,
 )
 
 
@@ -32,7 +26,8 @@ from backend.routers import (
 async def lifespan(app: FastAPI):
     """Hook de démarrage / arrêt FastAPI.
 
-    Au démarrage : crée les tables SQLite manquantes (idempotent).
+    Au démarrage : détecte l'ancien schéma pré-v0.22, wipe le cas échéant,
+    puis crée les tables manquantes.
     """
     init_db()
     yield
@@ -44,13 +39,13 @@ app = FastAPI(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.21.0",
+    version="0.22.0",
     lifespan=lifespan,
 )
 
 # CORS : en dev le frontend Svelte tourne sur Vite (5173), en prod il est servi
-# par Tauri via le scheme tauri://. Dans tous les cas, le backend tourne sur
-# 127.0.0.1:8020 et n'est pas exposé sur le réseau, donc on ouvre largement.
+# par Tauri via le scheme tauri://. Le backend n'est jamais exposé sur le
+# réseau (bind sur 127.0.0.1), donc on ouvre largement.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -80,16 +75,10 @@ async def shutdown() -> dict:
     return {"ok": True}
 
 
-# Routeurs métier
-app.include_router(import_charlemagne.router)
+# Routeurs métier — Lot 1 : identité + config
+app.include_router(personnes.router)
+app.include_router(sites.router)
+app.include_router(table_correspondance.router)
 app.include_router(annees.router)
 app.include_router(etablissements.router)
-app.include_router(comparaison.router)
-app.include_router(exports.router)
-app.include_router(statistiques.router)
 app.include_router(parametres.router)
-app.include_router(eleves.router)
-app.include_router(adultes.router)
-app.include_router(recherche.router)
-app.include_router(historique.router)
-app.include_router(chambres.router)
