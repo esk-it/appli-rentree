@@ -1,8 +1,4 @@
-"""Tests des règles métier (login KoXo, email, mot de passe).
-
-Cas alignés sur le XLSX historique de l'ESK pour garantir qu'on ne
-casse pas la compat des comptes existants.
-"""
+"""Tests des règles métier — login normalisé, email, homonymes."""
 from __future__ import annotations
 
 import random
@@ -10,107 +6,184 @@ import random
 import pytest
 
 from backend.services.regles_metier import (
-    email_lekreisker,
+    calculer_email,
+    calculer_login_base,
+    detecter_homonymes_ingestion,
     generer_mot_de_passe,
-    groupe_primaire_koxo,
-    login_koxo,
+    normaliser_nom,
     normaliser_pour_email,
-    normaliser_pour_login,
 )
 
 
-class TestLoginKoxo:
-    """Vérifie l'algorithme de login : première lettre prénom + nom (max 10)."""
+class TestLoginBase:
+    """Cas alignés sur le XLSX historique pour garantir la compat des comptes."""
 
     @pytest.mark.parametrize(
         "prenom,nom,attendu",
         [
-            ("Tifenn", "ARGOUARC'H", "targouarch"),  # apostrophe retirée
-            ("Nawel", "BACH HAMBA", "nbachhamba"),  # espace retiré
+            ("Tifenn", "ARGOUARC'H", "targouarch"),
+            ("Nawel", "BACH HAMBA", "nbachhamba"),
             ("Loris", "BEN HAMOU--PEPIN", "lbenhamoup"),  # tronqué à 10
-            ("Mia", "BELLEC--ILY", "mbellecily"),  # double tiret compacté
-            ("Raphaël", "TROADEC", "rtroadec"),  # accent retiré
-            ("Léanne", "ABGRALL", "labgrall"),  # accent retiré
-            ("Alexandre", "DOUGUET", "adouguet"),  # cas simple
+            ("Mia", "BELLEC--ILY", "mbellecily"),
+            ("Raphaël", "TROADEC", "rtroadec"),
+            ("Léanne", "ABGRALL", "labgrall"),
+            ("Alexandre", "DOUGUET", "adouguet"),
+            ("Jean", "BARS", "jbars"),
         ],
     )
     def test_cas_du_xlsx_historique(self, prenom, nom, attendu):
-        assert login_koxo(prenom, nom) == attendu
-
-    def test_prenom_vide_donne_juste_le_nom(self):
-        assert login_koxo("", "DUPONT") == "dupont"
-
-    def test_nom_tres_long_est_tronque(self):
-        assert len(login_koxo("Jean", "ABCDEFGHIJKLMNOPQRSTUVWXYZ")) == 10
-
-    def test_caracteres_speciaux_supprimes(self):
-        # Anciennement des bugs sur les chars non-ASCII
-        assert "?" not in login_koxo("Jérémie", "MAR&IN-LE/CLERC")
-
-
-class TestEmailLekreisker:
-    """Vérifie le format email standard."""
-
-    @pytest.mark.parametrize(
-        "prenom,nom,attendu",
-        [
-            ("Tifenn", "ARGOUARC'H", "tifenn.argouarch@lekreisker.fr"),
-            ("Nawel", "BACH HAMBA", "nawel.bach.hamba@lekreisker.fr"),
-            ("Loris", "BEN HAMOU--PEPIN", "loris.ben.hamou-pepin@lekreisker.fr"),
-            ("Mia", "BELLEC--ILY", "mia.bellec-ily@lekreisker.fr"),
-            ("Raphaël", "TROADEC", "raphael.troadec@lekreisker.fr"),
-            ("Léanne", "ABGRALL", "leanne.abgrall@lekreisker.fr"),
-        ],
-    )
-    def test_cas_du_xlsx_historique(self, prenom, nom, attendu):
-        assert email_lekreisker(prenom, nom) == attendu
-
-    def test_domaine_custom(self):
-        assert email_lekreisker("Jean", "DUPONT", domaine="autre.fr") == (
-            "jean.dupont@autre.fr"
-        )
+        assert calculer_login_base(prenom, nom) == attendu
 
     def test_prenom_vide(self):
-        assert email_lekreisker("", "DUPONT") == "dupont@lekreisker.fr"
+        assert calculer_login_base("", "DUPONT") == "dupont"
+
+    def test_nom_vide(self):
+        assert calculer_login_base("Jean", "") == "jean"
+
+    def test_les_deux_vides(self):
+        assert calculer_login_base("", "") == ""
+        assert calculer_login_base(None, None) == ""
+
+    def test_troncature_par_defaut_10(self):
+        assert len(calculer_login_base("Jean", "A" * 30)) == 10
+
+    def test_longueur_max_personnalisable(self):
+        assert calculer_login_base("Jean", "ABCDEFGHIJKLMNO", longueur_max=15) == "jabcdefghijklmn"
 
 
-class TestMotDePasse:
-    def test_format_par_defaut(self):
+class TestNormaliserNom:
+    def test_accents_retires(self):
+        assert normaliser_nom("Éléonore") == "eleonore"
+
+    def test_apostrophes_retirees(self):
+        assert normaliser_nom("ARGOUARC'H") == "argouarch"
+
+    def test_tirets_retires(self):
+        assert normaliser_nom("BEN-HAMOU") == "benhamou"
+
+    def test_espaces_retires(self):
+        assert normaliser_nom("BACH HAMBA") == "bachhamba"
+
+    def test_seulement_a_z(self):
+        assert normaliser_nom("Jean42-Marc!D'O") == "jeanmarcdo"
+
+
+class TestEmail:
+    """Format `prenom.nom@domaine` avec normalisation."""
+
+    @pytest.mark.parametrize(
+        "prenom,nom,domaine,attendu",
+        [
+            ("Tifenn", "ARGOUARC'H", "lekreisker.fr", "tifenn.argouarch@lekreisker.fr"),
+            ("Nawel", "BACH HAMBA", "lekreisker.fr", "nawel.bach.hamba@lekreisker.fr"),
+            (
+                "Loris",
+                "BEN HAMOU--PEPIN",
+                "lekreisker.fr",
+                "loris.ben.hamou-pepin@lekreisker.fr",
+            ),
+            (
+                "Mia",
+                "BELLEC--ILY",
+                "lekreisker.fr",
+                "mia.bellec-ily@lekreisker.fr",
+            ),
+            ("Raphaël", "TROADEC", "ndecleder.fr", "raphael.troadec@ndecleder.fr"),
+            ("Léanne", "ABGRALL", "lekreisker.fr", "leanne.abgrall@lekreisker.fr"),
+        ],
+    )
+    def test_cas_du_xlsx_historique(self, prenom, nom, domaine, attendu):
+        assert calculer_email(prenom, nom, domaine) == attendu
+
+    def test_domaine_change(self):
+        assert calculer_email("Jean", "DUPONT", "test.fr") == "jean.dupont@test.fr"
+
+    def test_prenom_vide(self):
+        assert calculer_email("", "DUPONT", "lekreisker.fr") == "dupont@lekreisker.fr"
+
+    def test_les_deux_vides(self):
+        assert calculer_email("", "", "lekreisker.fr") == ""
+
+
+class TestNormaliserPourEmail:
+    def test_espaces_deviennent_points(self):
+        assert normaliser_pour_email("Bach Hamba") == "bach.hamba"
+
+    def test_doubles_tirets_compactes(self):
+        assert normaliser_pour_email("Bellec--Ily") == "bellec-ily"
+
+    def test_apostrophes_retirees(self):
+        assert normaliser_pour_email("ARGOUARC'H") == "argouarch"
+
+
+class TestMotDePasseUtilitaire:
+    """Fonction utilitaire — non appelée en prod, mais utile pour tests."""
+
+    def test_format(self):
         rng = random.Random(42)
         mdp = generer_mot_de_passe(rng)
-        assert len(mdp) == 8  # 6 lettres + 2 chiffres
-        # Première lettre en majuscule
+        assert len(mdp) == 8
         assert mdp[0].isupper()
-        # Le reste : 5 lettres minuscules + 2 chiffres
         assert mdp[1:6].islower()
         assert mdp[6:].isdigit()
 
     def test_reproductibilite_avec_seed(self):
-        """Même seed = même MDP, pour faciliter le débogage."""
-        rng1 = random.Random(42)
-        rng2 = random.Random(42)
-        assert generer_mot_de_passe(rng1) == generer_mot_de_passe(rng2)
+        assert generer_mot_de_passe(random.Random(1)) == generer_mot_de_passe(random.Random(1))
 
     def test_diversite_sans_seed(self):
-        """Sans seed, on doit avoir des MDP variés."""
         mdps = {generer_mot_de_passe() for _ in range(20)}
-        assert len(mdps) >= 15  # forte diversité attendue
+        assert len(mdps) >= 15
 
 
-class TestGroupePrimaire:
-    def test_eleve(self):
-        assert groupe_primaire_koxo(est_adulte=False) == "Elèves"
+class TestDetecterHomonymesIngestion:
+    """Deux lignes de mêmes nom+prénom (normalisés) dans un même export."""
 
-    def test_adulte(self):
-        assert groupe_primaire_koxo(est_adulte=True) == "Professeurs"
+    def test_pas_de_paire_quand_unique(self):
+        lignes = [
+            {"nom": "MARTIN", "prenom": "Pierre"},
+            {"nom": "DUPONT", "prenom": "Léa"},
+        ]
+        assert detecter_homonymes_ingestion(lignes) == []
 
+    def test_paire_simple_detectee(self):
+        lignes = [
+            {"nom": "MARTIN", "prenom": "Pierre", "id_ch": 1},
+            {"nom": "DUPONT", "prenom": "Léa", "id_ch": 2},
+            {"nom": "MARTIN", "prenom": "Pierre", "id_ch": 3},
+        ]
+        paires = detecter_homonymes_ingestion(lignes)
+        assert len(paires) == 1
+        assert paires[0].cle_normalisee == ("MARTIN", "PIERRE")
+        assert {l["id_ch"] for l in paires[0].lignes} == {1, 3}
 
-class TestNormalisation:
-    def test_login_ne_garde_que_az(self):
-        assert normaliser_pour_login("Jean-Marc D'O") == "jeanmarcdo"
+    def test_triplet_donne_un_groupe(self):
+        lignes = [
+            {"nom": "MARTIN", "prenom": "Léa", "id_ch": 1},
+            {"nom": "MARTIN", "prenom": "Léa", "id_ch": 2},
+            {"nom": "MARTIN", "prenom": "Léa", "id_ch": 3},
+        ]
+        paires = detecter_homonymes_ingestion(lignes)
+        assert len(paires) == 1
+        assert len(paires[0].lignes) == 3
 
-    def test_email_respecte_separateurs(self):
-        # Espaces → points par défaut
-        assert normaliser_pour_email("Bach Hamba") == "bach.hamba"
-        # Tirets doubles → simples
-        assert normaliser_pour_email("Bellec--Ily") == "bellec-ily"
+    def test_accents_ignores_dans_la_cle(self):
+        """`Léa` et `Lea` sont détectés comme homonymes."""
+        lignes = [
+            {"nom": "MARTIN", "prenom": "Léa", "id_ch": 1},
+            {"nom": "MARTIN", "prenom": "Lea", "id_ch": 2},
+        ]
+        assert len(detecter_homonymes_ingestion(lignes)) == 1
+
+    def test_casse_ignoree(self):
+        lignes = [
+            {"nom": "Martin", "prenom": "Léa"},
+            {"nom": "MARTIN", "prenom": "léa"},
+        ]
+        assert len(detecter_homonymes_ingestion(lignes)) == 1
+
+    def test_lignes_sans_nom_ni_prenom_ignorees(self):
+        lignes = [
+            {"nom": None, "prenom": None},
+            {"nom": "", "prenom": ""},
+        ]
+        assert detecter_homonymes_ingestion(lignes) == []

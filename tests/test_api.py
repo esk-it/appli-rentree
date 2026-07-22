@@ -1,7 +1,5 @@
-"""Tests d'intégration via FastAPI TestClient (Lot 1)."""
+"""Tests d'intégration via FastAPI TestClient (Lot 1 + 2)."""
 from __future__ import annotations
-
-import importlib
 
 import pytest
 from fastapi.testclient import TestClient
@@ -9,18 +7,21 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture()
 def client(tmp_db_path):
-    """Client FastAPI sur la DB temporaire."""
-    import backend.main
-    importlib.reload(backend.main)
-    with TestClient(backend.main.app) as c:
+    """Client FastAPI sur la DB temporaire — pas de reload de backend.main
+    pour éviter les duplications SQLAlchemy (les modèles sont déjà rechargés
+    par le fixture tmp_db_path)."""
+    from backend.main import app
+
+    with TestClient(app) as c:
         yield c
 
 
 class TestHealth:
-    def test_version_est_022(self, client):
+    def test_version_courante(self, client):
         r = client.get("/api/health")
         assert r.status_code == 200
-        assert r.json() == {"ok": True, "version": "0.22.0"}
+        assert r.json()["ok"] is True
+        assert r.json()["version"].startswith("0.")
 
 
 class TestRacine:

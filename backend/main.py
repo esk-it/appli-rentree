@@ -15,6 +15,7 @@ from backend.database import init_db
 from backend.routers import (
     annees,
     etablissements,
+    logins,
     parametres,
     personnes,
     sites,
@@ -39,7 +40,7 @@ app = FastAPI(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.22.0",
+    version="0.23.0",
     lifespan=lifespan,
 )
 
@@ -82,3 +83,4 @@ app.include_router(table_correspondance.router)
 app.include_router(annees.router)
 app.include_router(etablissements.router)
 app.include_router(parametres.router)
+app.include_router(logins.router)
