@@ -17,21 +17,45 @@ from unidecode import unidecode
 # Mapping libellé Charlemagne → nom de colonne normalisé.
 # Si Charlemagne ajoute/renomme une colonne, on adapte ici uniquement.
 COLONNES_NORMALISEES = {
+    # -- Communs / élèves (export HTM et export "Gestion de bases") --
     "nom etablissement": "nom_etablissement",
     "code etablissement": "code_etablissement",
     "etablissement": "code_etablissement_court",  # BadgesESK utilise "Etablissement" = "KREISKER"
     "code niveau": "code_niveau",
     "code classe": "code_classe",
+    "code classe prec.": "code_classe_precedente",
+    "code classe prec": "code_classe_precedente",
+    "code classe an prochain": "code_classe_an_prochain",
     "num badge": "num_badge",
+    "badge": "num_badge",
+    "id": "id_charlemagne",
     "code regime": "code_regime",
+    "regime": "code_regime",
     "nom et prenom": "nom_et_prenom",
     "nom": "nom",
     "prenom": "prenom",
+    "email": "email",
     "photo": "photo_chemin",
     "nouvel eleve": "nouvel_eleve",
     "date entree pour tri": "date_entree",
     "nomfichierphoto": "nom_fichier_photo",
     "chambres": "chambre",
+    # -- Adultes (export "Import Adultes Charlemagne N") --
+    "identifiant": "id_charlemagne",
+    "poste occupe": "poste_occupe",
+    "liste des matieres": "matieres",
+    "liste des classes (prof principal)": "classes_prof_principal",
+    "date de naissance": "date_naissance",
+    "civilite": "civilite",
+    "adresse 1": "adresse_1",
+    "adresse 2": "adresse_2",
+    "code postal": "code_postal",
+    "ville": "ville",
+    "tel. domicile (avec lr)": "telephone",
+    "tel. domicile": "telephone",
+    "telephone": "telephone",
+    "email professionnel": "email_professionnel",
+    "email personnel": "email_personnel",
 }
 
 
@@ -88,12 +112,20 @@ def _normaliser_colonnes(df: pd.DataFrame) -> pd.DataFrame:
     # Conversions de types utiles
     if "num_badge" in df.columns:
         df["num_badge"] = pd.to_numeric(df["num_badge"], errors="coerce").astype("Int64")
+    if "id_charlemagne" in df.columns:
+        df["id_charlemagne"] = pd.to_numeric(
+            df["id_charlemagne"], errors="coerce"
+        ).astype("Int64")
     if "date_entree" in df.columns:
         # Format YYYYMMDD → date
         df["date_entree"] = pd.to_datetime(
             df["date_entree"].astype(str).str.replace(r"\.0$", "", regex=True),
             format="%Y%m%d",
             errors="coerce",
+        )
+    if "date_naissance" in df.columns:
+        df["date_naissance"] = pd.to_datetime(
+            df["date_naissance"], errors="coerce"
         )
     if "nouvel_eleve" in df.columns:
         # "O" → True, vide / NaN → False

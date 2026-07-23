@@ -139,6 +139,39 @@ export const tableCorrespondance = {
 };
 
 // ---------------------------------------------------------------------------
+// Ingestion Charlemagne
+// ---------------------------------------------------------------------------
+export const ingestion = {
+  async fichiersDispo() {
+    return jsonOrThrow(await fetch(`${BASE}/ingestion/fichiers-dispo`));
+  },
+  /**
+   * Ingère un export (élèves ou adultes) en mode simulation ou réel.
+   * @param {FormData|object} params
+   */
+  async ingerer({
+    fichier = null,
+    nomFichier = null,
+    libelleAnnee,
+    typePersonne = "auto",
+    mode = "simulation",
+  }) {
+    const form = new FormData();
+    form.append("libelle_annee", libelleAnnee);
+    form.append("type_personne", typePersonne);
+    form.append("mode", mode);
+    if (fichier) form.append("fichier", fichier);
+    if (nomFichier) form.append("nom_fichier", nomFichier);
+    return jsonOrThrow(
+      await fetch(`${BASE}/ingestion`, {
+        method: "POST",
+        body: form,
+      }),
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Années scolaires
 // ---------------------------------------------------------------------------
 export const annees = {
