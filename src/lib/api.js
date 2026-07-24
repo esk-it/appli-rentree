@@ -136,6 +136,28 @@ export const tableCorrespondance = {
       await fetch(`${BASE}/table-correspondance/${id}`, { method: "DELETE" }),
     );
   },
+  async importerXlsx({ fichier, mode = "simulation", nomOnglet = null }) {
+    const form = new FormData();
+    form.append("fichier", fichier);
+    form.append("mode", mode);
+    if (nomOnglet) form.append("nom_onglet", nomOnglet);
+    return jsonOrThrow(
+      await fetch(`${BASE}/table-correspondance/import`, {
+        method: "POST",
+        body: form,
+      }),
+    );
+  },
+  async apercuXlsx({ fichier }) {
+    const form = new FormData();
+    form.append("fichier", fichier);
+    return jsonOrThrow(
+      await fetch(`${BASE}/table-correspondance/import/apercu`, {
+        method: "POST",
+        body: form,
+      }),
+    );
+  },
 };
 
 // ---------------------------------------------------------------------------

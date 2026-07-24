@@ -1,17 +1,25 @@
 """Endpoints CRUD de la table de correspondance classe → OU/groupe Google.
 
 C'est la configuration métier centrale. Éditable dans l'interface, elle
-sera enrichie/importée automatiquement au Lot 6. Ce routeur expose ce
-qu'il faut pour l'écran d'édition manuel.
+est aussi importable en masse depuis un XLSX historique (endpoint `/import`).
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from dataclasses import asdict
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
 from backend.models import Site, TableCorrespondance
+from backend.services.import_table import (
+    RapportImportTable,
+    apercu_onglets,
+    importer_table,
+)
 
 router = APIRouter(prefix="/api/table-correspondance", tags=["table_correspondance"])
 
@@ -113,3 +121,106 @@ def supprimer(ligne_id: int, session: Session = Depends(db_session)) -> dict:
     session.delete(l)
     session.commit()
     return {"ok": True, "supprime": ligne_id}
+
+
+# ---------------------------------------------------------------------------
+# Import automatique depuis un XLSX historique (Lot 6)
+# ---------------------------------------------------------------------------
+
+
+class RapportOut(BaseModel):
+    mode: str
+    onglet_utilise: str
+    nb_lignes_lues: int
+    nb_lignes_ingerees: int
+    nb_creations: int
+    nb_mises_a_jour: int
+    nb_identiques: int
+    lignes_importees: list[dict]
+    lignes_rejetees: list[dict]
+    sites_inconnus: list[str]
+    erreurs: list[str]
+    est_bloque: bool
+
+
+def _rapport_to_out(r: RapportImportTable) -> RapportOut:
+    return RapportOut(
+        mode=r.mode,
+        onglet_utilise=r.onglet_utilise,
+        nb_lignes_lues=r.nb_lignes_lues,
+        nb_lignes_ingerees=r.nb_lignes_ingerees,
+        nb_creations=r.nb_creations,
+        nb_mises_a_jour=r.nb_mises_a_jour,
+        nb_identiques=r.nb_identiques,
+        lignes_importees=[asdict(li) for li in r.lignes_importees],
+        lignes_rejetees=[asdict(lr) for lr in r.lignes_rejetees],
+        sites_inconnus=r.sites_inconnus,
+        erreurs=r.erreurs,
+        est_bloque=r.est_bloque,
+    )
+
+
+@router.post("/import", response_model=RapportOut)
+async def importer(
+    fichier: UploadFile = File(...),
+    mode: str = Form("simulation"),
+    nom_onglet: str | None = Form(None),
+    session: Session = Depends(db_session),
+) -> RapportOut:
+    """Importe la Table depuis un XLSX historique.
+
+    - `mode=simulation` (défaut) : lit, mappe, produit le rapport sans commit.
+    - `mode=reel` : idem + commit.
+    """
+    if mode not in ("simulation", "reel"):
+        raise HTTPException(400, f"mode doit être 'simulation' ou 'reel', reçu : {mode!r}")
+
+    contenu = await fichier.read()
+    if not contenu:
+        raise HTTPException(400, "Fichier vide")
+
+    with NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        tmp.write(contenu)
+        chemin_tmp = Path(tmp.name)
+
+    try:
+        rapport = importer_table(
+            session=session,
+            chemin_fichier=chemin_tmp,
+            mode=mode,
+            nom_onglet=nom_onglet,
+        )
+    finally:
+        try:
+            chemin_tmp.unlink()
+        except OSError:
+            pass
+
+    return _rapport_to_out(rapport)
+
+
+class OngletsApercuOut(BaseModel):
+    onglets: dict[str, list[str]]
+
+
+@router.post("/import/apercu", response_model=OngletsApercuOut)
+async def apercu_import(fichier: UploadFile = File(...)) -> OngletsApercuOut:
+    """Retourne les 3 premières lignes de chaque onglet — aide l'utilisateur
+    à choisir le bon onglet si l'auto-détection est douteuse."""
+    contenu = await fichier.read()
+    if not contenu:
+        raise HTTPException(400, "Fichier vide")
+
+    with NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        tmp.write(contenu)
+        chemin_tmp = Path(tmp.name)
+
+    try:
+        onglets = apercu_onglets(chemin_tmp)
+    finally:
+        try:
+            chemin_tmp.unlink()
+        except OSError:
+            pass
+
+    return OngletsApercuOut(onglets=onglets)
