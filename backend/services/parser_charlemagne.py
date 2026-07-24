@@ -29,6 +29,7 @@ COLONNES_NORMALISEES = {
     "num badge": "num_badge",
     "badge": "num_badge",
     "id": "id_charlemagne",
+    "identifiant eleve": "id_charlemagne",
     "code regime": "code_regime",
     "regime": "code_regime",
     "nom et prenom": "nom_et_prenom",
