@@ -163,31 +163,48 @@ export const tableCorrespondance = {
 // ---------------------------------------------------------------------------
 // Ingestion Charlemagne
 // ---------------------------------------------------------------------------
+
+/** Encode un ArrayBuffer en base64 en évitant l'overflow de String.fromCharCode(...). */
+function arrayBufferEnBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(
+      null,
+      /** @type {any} */ (bytes.subarray(i, i + chunk)),
+    );
+  }
+  return btoa(binary);
+}
+
 export const ingestion = {
   async fichiersDispo() {
     return jsonOrThrow(await fetch(`${BASE}/ingestion/fichiers-dispo`));
   },
   /**
    * Ingère un export (élèves ou adultes) en mode simulation ou réel.
-   * @param {FormData|object} params
+   *
+   * Utilise l'endpoint `/ingestion/base64` (JSON) — le multipart natif du
+   * webview Tauri échoue silencieusement sur certains fichiers .htm
+   * (« TypeError: failed to fetch »). Encoder en base64 dans le JSON
+   * contourne le problème et fonctionne aussi bien en dev qu'en prod.
    */
-  async ingerer({
-    fichier = null,
-    nomFichier = null,
-    libelleAnnee,
-    typePersonne = "auto",
-    mode = "simulation",
-  }) {
-    const form = new FormData();
-    form.append("libelle_annee", libelleAnnee);
-    form.append("type_personne", typePersonne);
-    form.append("mode", mode);
-    if (fichier) form.append("fichier", fichier);
-    if (nomFichier) form.append("nom_fichier", nomFichier);
+  async ingerer({ fichier, libelleAnnee, typePersonne = "auto", mode = "simulation" }) {
+    if (!fichier) throw new Error("Aucun fichier fourni à l'ingestion");
+    const buffer = await fichier.arrayBuffer();
+    const fichier_base64 = arrayBufferEnBase64(buffer);
     return jsonOrThrow(
-      await fetch(`${BASE}/ingestion`, {
+      await fetch(`${BASE}/ingestion/base64`, {
         method: "POST",
-        body: form,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          fichier_base64,
+          nom_fichier: fichier.name,
+          libelle_annee: libelleAnnee,
+          type_personne: typePersonne,
+          mode,
+        }),
       }),
     );
   },

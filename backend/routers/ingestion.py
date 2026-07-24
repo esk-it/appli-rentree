@@ -5,14 +5,19 @@ Un seul endpoint, deux modes :
 - `mode=simulation` (défaut) : lit, évalue, retourne le rapport sans commit.
 - `mode=reel` : idem + commit — bloqué si des classes sont hors table.
 
-Le fichier peut être fourni par upload (multipart) ou déjà présent dans
-`data/input/` (paramètre `nom_fichier`).
+Deux voies d'envoi :
+
+- `POST /api/ingestion` (multipart) : upload direct du fichier.
+- `POST /api/ingestion/base64` (JSON) : contenu en base64. Fallback quand le
+  webview Tauri filtre le multipart (bug observé sur certaines
+  combinaisons WebView2 + fichier .htm).
 """
 from __future__ import annotations
 
+import base64
 from dataclasses import asdict
 from pathlib import Path
-from typing import Literal
+from tempfile import NamedTemporaryFile
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
@@ -53,36 +58,27 @@ def _rapport_vers_out(r: RapportIngestion) -> RapportOut:
     return RapportOut(**asdict(r))
 
 
-def _resoudre_fichier(nom_fichier: str | None, upload: UploadFile | None) -> Path:
-    """Localise le fichier à ingérer : upload prioritaire, sinon data/input/."""
-    if upload is not None:
-        cible = DOSSIER_INPUT / upload.filename
-        cible.write_bytes(upload.file.read())
-        return cible
-    if nom_fichier:
-        chemin = DOSSIER_INPUT / nom_fichier
-        if not chemin.exists():
-            raise HTTPException(404, f"Fichier introuvable : {nom_fichier}")
-        return chemin
-    raise HTTPException(400, "Fournir soit un upload, soit `nom_fichier`.")
-
-
-@router.post("", response_model=RapportOut)
-def ingerer(
-    libelle_annee: str = Form(...),
-    type_personne: Literal["eleve", "adulte", "auto"] = Form("auto"),
-    mode: Literal["simulation", "reel"] = Form("simulation"),
-    nom_fichier: str | None = Form(None),
-    fichier: UploadFile | None = File(None),
-    session: Session = Depends(db_session),
+def _executer_ingestion(
+    session: Session,
+    chemin: Path,
+    libelle_annee: str,
+    type_personne: str,
+    mode: str,
 ) -> RapportOut:
-    """Ingère un export. Mode `simulation` par défaut (garde-fou §8 du prompt)."""
-    chemin = _resoudre_fichier(nom_fichier, fichier)
+    """Cœur commun aux deux endpoints (multipart et base64)."""
+    if mode not in ("simulation", "reel"):
+        raise HTTPException(400, f"mode invalide : {mode!r}")
+    if type_personne not in ("eleve", "adulte", "auto"):
+        raise HTTPException(400, f"type_personne invalide : {type_personne!r}")
 
     # Auto-détection du type si demandé
     if type_personne == "auto":
         try:
-            df = lire_htm(chemin) if chemin.suffix.lower() in (".htm", ".html") else lire_xlsx(chemin)
+            df = (
+                lire_htm(chemin)
+                if chemin.suffix.lower() in (".htm", ".html")
+                else lire_xlsx(chemin)
+            )
         except Exception as e:
             raise HTTPException(400, f"Lecture du fichier impossible : {e}") from e
         detecte = detecter_type_export(df)
@@ -104,6 +100,83 @@ def ingerer(
         mode=mode,
     )
     return _rapport_vers_out(rapport)
+
+
+@router.post("", response_model=RapportOut)
+async def ingerer(
+    fichier: UploadFile = File(...),
+    libelle_annee: str = Form(...),
+    type_personne: str = Form("auto"),
+    mode: str = Form("simulation"),
+    session: Session = Depends(db_session),
+) -> RapportOut:
+    """Ingère un export via upload multipart.
+
+    Ordre des paramètres calqué sur `POST /api/table-correspondance/import`
+    (qui fonctionne en production) : `fichier` required en premier, puis
+    les Form fields. Cette signature évite le rejet silencieux du webview
+    Tauri observé quand `UploadFile` est optionnel en dernière position.
+    """
+    contenu = await fichier.read()
+    if not contenu:
+        raise HTTPException(400, "Fichier vide")
+
+    suffix = Path(fichier.filename or "upload.htm").suffix or ".htm"
+    with NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(contenu)
+        chemin_tmp = Path(tmp.name)
+
+    try:
+        return _executer_ingestion(session, chemin_tmp, libelle_annee, type_personne, mode)
+    finally:
+        try:
+            chemin_tmp.unlink()
+        except OSError:
+            pass
+
+
+class IngerreBase64Payload(BaseModel):
+    """Payload alternatif si le multipart pose problème (WebView2)."""
+
+    fichier_base64: str
+    nom_fichier: str
+    libelle_annee: str
+    type_personne: str = "auto"
+    mode: str = "simulation"
+
+
+@router.post("/base64", response_model=RapportOut)
+def ingerer_base64(
+    payload: IngerreBase64Payload, session: Session = Depends(db_session)
+) -> RapportOut:
+    """Ingère un export dont le contenu est envoyé en base64 dans le JSON.
+
+    Fallback pour les cas où le multipart natif du webview échoue (bug
+    Tauri v2 + WebView2 observé sur les .htm avec espace/accent dans le
+    nom). L'appelant lit le fichier local et l'encode en base64 côté
+    frontend.
+    """
+    try:
+        contenu = base64.b64decode(payload.fichier_base64)
+    except Exception as e:
+        raise HTTPException(400, f"Base64 invalide : {e}") from e
+    if not contenu:
+        raise HTTPException(400, "Fichier vide")
+
+    suffix = Path(payload.nom_fichier or "upload.htm").suffix or ".htm"
+    with NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(contenu)
+        chemin_tmp = Path(tmp.name)
+
+    try:
+        return _executer_ingestion(
+            session, chemin_tmp, payload.libelle_annee, payload.type_personne, payload.mode
+        )
+    finally:
+        try:
+            chemin_tmp.unlink()
+        except OSError:
+            pass
 
 
 @router.get("/fichiers-dispo")
