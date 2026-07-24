@@ -224,6 +224,36 @@ export const reconciliation = {
 };
 
 // ---------------------------------------------------------------------------
+// Amorçage — chargement des Personnes depuis KoXo
+// ---------------------------------------------------------------------------
+export const amorcage = {
+  async koxo({ fichier, siteId, typePersonne, mode = "simulation" }) {
+    if (!fichier) throw new Error("Aucun fichier fourni à l'amorçage");
+    const buffer = await fichier.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, /** @type {any} */ (bytes.subarray(i, i + chunk)));
+    }
+    const fichier_base64 = btoa(binary);
+    return jsonOrThrow(
+      await fetch(`${BASE}/amorcage/koxo`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          fichier_base64,
+          nom_fichier: fichier.name,
+          site_id: siteId,
+          type_personne: typePersonne,
+          mode,
+        }),
+      }),
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Arbitrages — cas ambigus et décisions humaines
 // ---------------------------------------------------------------------------
 export const arbitrages = {

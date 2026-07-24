@@ -14,10 +14,12 @@
   import TableIcon from "@lucide/svelte/icons/table";
   import GitCompareArrows from "@lucide/svelte/icons/git-compare-arrows";
   import Scale from "@lucide/svelte/icons/scale";
+  import Rocket from "@lucide/svelte/icons/rocket";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Personnes from "./routes/Personnes.svelte";
   import Sites from "./routes/Sites.svelte";
   import TableCorrespondance from "./routes/TableCorrespondance.svelte";
+  import Amorcage from "./routes/Amorcage.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
   import Reconciliation from "./routes/Reconciliation.svelte";
   import Arbitrage from "./routes/Arbitrage.svelte";
@@ -121,6 +123,7 @@
     { id: "personnes", label: "Référentiel", icon: Users2, dispo: true },
     { id: "sites", label: "Sites", icon: Building2, dispo: true },
     { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon, dispo: true },
+    { id: "amorcage", label: "Amorçage KoXo", icon: Rocket, dispo: true },
     { id: "snapshots", label: "Snapshots d'années", icon: Database, dispo: true },
     { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows, dispo: true },
     { id: "arbitrage", label: "Arbitrage", icon: Scale, dispo: true, badge: () => nbArbitragesEnAttente },
@@ -277,6 +280,8 @@
         <Sites />
       {:else if page === "table_correspondance"}
         <TableCorrespondance />
+      {:else if page === "amorcage"}
+        <Amorcage />
       {:else if page === "snapshots"}
         <Snapshots />
       {:else if page === "reconciliation"}

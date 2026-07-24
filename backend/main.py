@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 from backend.config import RACINE_DONNEES
 from backend.database import init_db
 from backend.routers import (
+    amorcage,
     annees,
     arbitrages,
     etablissements,
@@ -87,7 +88,7 @@ app = FastAPI(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.27.5",
+    version="0.28.0",
     lifespan=lifespan,
 )
 
@@ -179,3 +180,4 @@ app.include_router(logins.router)
 app.include_router(ingestion.router)
 app.include_router(reconciliation.router)
 app.include_router(arbitrages.router)
+app.include_router(amorcage.router)
