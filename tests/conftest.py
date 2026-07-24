@@ -23,6 +23,11 @@ def tmp_db_path(tmp_path, monkeypatch) -> str:
     importlib.reload(backend.config)
     import backend.database
     importlib.reload(backend.database)
+    # La nouvelle Base peut contenir des Tables héritées d'une session pytest
+    # précédente (les modèles restent référencés depuis sys.modules). On la
+    # vide avant de redéclarer, sinon `class X(Base)` explose avec
+    # "Table already defined for this MetaData".
+    backend.database.Base.metadata.clear()
     # Réimporte les modèles pour qu'ils s'enregistrent contre la nouvelle Base
     import backend.models
     importlib.reload(backend.models)

@@ -12,11 +12,13 @@
   import BarChart3 from "@lucide/svelte/icons/bar-chart-3";
   import Building2 from "@lucide/svelte/icons/building-2";
   import TableIcon from "@lucide/svelte/icons/table";
+  import GitCompareArrows from "@lucide/svelte/icons/git-compare-arrows";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Personnes from "./routes/Personnes.svelte";
   import Sites from "./routes/Sites.svelte";
   import TableCorrespondance from "./routes/TableCorrespondance.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
+  import Reconciliation from "./routes/Reconciliation.svelte";
   import Statistiques from "./routes/Statistiques.svelte";
   import Parametres from "./routes/Parametres.svelte";
   import Aide from "./routes/Aide.svelte";
@@ -96,6 +98,7 @@
     { id: "sites", label: "Sites", icon: Building2, dispo: true },
     { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon, dispo: true },
     { id: "snapshots", label: "Snapshots d'années", icon: Database, dispo: true },
+    { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows, dispo: true },
     { id: "statistiques", label: "Statistiques", icon: BarChart3, dispo: true },
     { id: "parametres", label: "Paramètres", icon: Settings, dispo: true },
     { id: "aide", label: "Aide", icon: HelpCircle, dispo: true },
@@ -246,6 +249,8 @@
         <TableCorrespondance />
       {:else if page === "snapshots"}
         <Snapshots />
+      {:else if page === "reconciliation"}
+        <Reconciliation />
       {:else if page === "statistiques"}
         <Statistiques />
       {:else if page === "parametres"}

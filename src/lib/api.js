@@ -172,6 +172,19 @@ export const ingestion = {
 };
 
 // ---------------------------------------------------------------------------
+// Réconciliation — comparaison de deux années
+// ---------------------------------------------------------------------------
+export const reconciliation = {
+  async obtenir({ anneeSourceId, anneeCibleId, typePersonne = null } = {}) {
+    const p = new URLSearchParams();
+    p.set("annee_source_id", String(anneeSourceId));
+    p.set("annee_cible_id", String(anneeCibleId));
+    if (typePersonne) p.set("type_personne", typePersonne);
+    return jsonOrThrow(await fetch(`${BASE}/reconciliation?${p.toString()}`));
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Années scolaires
 // ---------------------------------------------------------------------------
 export const annees = {
