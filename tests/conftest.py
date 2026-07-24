@@ -18,6 +18,7 @@ def tmp_db_path(tmp_path, monkeypatch) -> str:
 
     # Force re-import de config et database avec la nouvelle DB
     import importlib
+    import sys
 
     import backend.config
     importlib.reload(backend.config)
@@ -28,23 +29,18 @@ def tmp_db_path(tmp_path, monkeypatch) -> str:
     # vide avant de redéclarer, sinon `class X(Base)` explose avec
     # "Table already defined for this MetaData".
     backend.database.Base.metadata.clear()
+
+    # Purge les services et modèles du cache d'imports — ainsi, quand un test
+    # importe `backend.services.X`, python réexécute son code contre la
+    # nouvelle Base au lieu de servir la version cachée branchée sur
+    # l'ancienne. Sans cela, `backend.services.reconciliation` (importé la
+    # 1re fois avant le reload) reste attaché à l'ancienne AnneeScolaire.
+    for nom in list(sys.modules):
+        if nom.startswith("backend.models.") or nom.startswith("backend.services.") or nom == "backend.models":
+            del sys.modules[nom]
+
     # Réimporte les modèles pour qu'ils s'enregistrent contre la nouvelle Base
-    import backend.models
-    importlib.reload(backend.models)
-    for m in (
-        "annee_scolaire",
-        "arbitrage",
-        "compte_cible",
-        "etablissement",
-        "generation",
-        "parametre",
-        "personne",
-        "site",
-        "snapshot",
-        "table_correspondance",
-    ):
-        mod = importlib.import_module(f"backend.models.{m}")
-        importlib.reload(mod)
+    import backend.models  # noqa: F401 — forces re-import chain
 
     backend.database.init_db()
     yield str(tmp_path / "appli_rentree.db")

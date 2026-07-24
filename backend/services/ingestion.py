@@ -37,6 +37,11 @@ from backend.models import (
     Snapshot,
     TableCorrespondance,
 )
+from backend.services.arbitrage import (
+    cle_collision_login,
+    cle_homonymie_ingestion,
+    creer_ou_reprendre as creer_arbitrage,
+)
 from backend.services.parser_charlemagne import lire_htm, lire_xlsx
 from backend.services.regles_metier import (
     calculer_login_base,
@@ -332,6 +337,9 @@ def _ingerer_eleves(
     #    la relation dans Snapshot — annulée si simulation via rollback final).
     annee = _resoudre_annee(session, libelle_annee)
 
+    # e-bis. Persiste les homonymies détectées comme Arbitrage en attente.
+    _persister_arbitrages_homonymies(session, rapport, "eleve")
+
     # f. Boucle d'ingestion
     for ligne in lignes:
         id_ch = _int(ligne.get("id_charlemagne"))
@@ -400,26 +408,26 @@ def _traiter_ligne_eleve(
             )
             return
         if proposition.a_conflit:
-            rapport.collisions_login.append(
-                CollisionLoginIngestion(
-                    id_charlemagne=id_ch,
-                    nom=nom,
-                    prenom=prenom,
-                    login_base=base,
-                    login_attribue=proposition.login_propose,
-                    personnes_deja_presentes=[
-                        {
-                            "personne_id": c.personne_id,
-                            "cle_pivot": c.cle_pivot,
-                            "login": c.login,
-                            "type": c.type,
-                            "nom": c.nom,
-                            "prenom": c.prenom,
-                        }
-                        for c in proposition.personnes_en_conflit
-                    ],
-                )
+            collision = CollisionLoginIngestion(
+                id_charlemagne=id_ch,
+                nom=nom,
+                prenom=prenom,
+                login_base=base,
+                login_attribue=proposition.login_propose,
+                personnes_deja_presentes=[
+                    {
+                        "personne_id": c.personne_id,
+                        "cle_pivot": c.cle_pivot,
+                        "login": c.login,
+                        "type": c.type,
+                        "nom": c.nom,
+                        "prenom": c.prenom,
+                    }
+                    for c in proposition.personnes_en_conflit
+                ],
             )
+            rapport.collisions_login.append(collision)
+            _persister_arbitrage_collision(session, collision, "eleve", annee.libelle)
         personne = Personne(
             type="eleve",
             id_charlemagne=id_ch,
@@ -555,6 +563,8 @@ def _ingerer_adultes(
 
     annee = _resoudre_annee(session, libelle_annee)
 
+    _persister_arbitrages_homonymies(session, rapport, "adulte")
+
     for ligne in lignes:
         id_ch = _int(ligne.get("id_charlemagne"))
         nom = _s(ligne.get("nom"))
@@ -605,26 +615,26 @@ def _traiter_ligne_adulte(
             )
             return
         if proposition.a_conflit:
-            rapport.collisions_login.append(
-                CollisionLoginIngestion(
-                    id_charlemagne=id_ch,
-                    nom=nom,
-                    prenom=prenom,
-                    login_base=base,
-                    login_attribue=proposition.login_propose,
-                    personnes_deja_presentes=[
-                        {
-                            "personne_id": c.personne_id,
-                            "cle_pivot": c.cle_pivot,
-                            "login": c.login,
-                            "type": c.type,
-                            "nom": c.nom,
-                            "prenom": c.prenom,
-                        }
-                        for c in proposition.personnes_en_conflit
-                    ],
-                )
+            collision = CollisionLoginIngestion(
+                id_charlemagne=id_ch,
+                nom=nom,
+                prenom=prenom,
+                login_base=base,
+                login_attribue=proposition.login_propose,
+                personnes_deja_presentes=[
+                    {
+                        "personne_id": c.personne_id,
+                        "cle_pivot": c.cle_pivot,
+                        "login": c.login,
+                        "type": c.type,
+                        "nom": c.nom,
+                        "prenom": c.prenom,
+                    }
+                    for c in proposition.personnes_en_conflit
+                ],
             )
+            rapport.collisions_login.append(collision)
+            _persister_arbitrage_collision(session, collision, "adulte", annee.libelle)
         personne = Personne(
             type="adulte",
             id_charlemagne=id_ch,
@@ -687,3 +697,56 @@ def _resoudre_annee(session: Session, libelle: str) -> AnneeScolaire:
         session.add(annee)
         session.flush()
     return annee
+
+
+def _persister_arbitrages_homonymies(
+    session: Session,
+    rapport: RapportIngestion,
+    type_personne: str,
+) -> None:
+    """Crée un Arbitrage en attente par groupe d'homonymes intra-export.
+
+    Idempotent via cle_cas — un même trio (nom, prénom, IDs) ne créera
+    qu'un seul arbitrage même si l'ingestion est rejouée.
+    """
+    prefixe = "E" if type_personne == "eleve" else "A"
+    for h in rapport.homonymes_intra_export:
+        cles = [f"{prefixe}{i}" for i in h.ids_charlemagne]
+        creer_arbitrage(
+            session,
+            type_cas="homonymie_ingestion",
+            cle_cas=cle_homonymie_ingestion(h.nom_normalise, h.prenom_normalise, cles),
+            contexte={
+                "type_personne": type_personne,
+                "nom_normalise": h.nom_normalise,
+                "prenom_normalise": h.prenom_normalise,
+                "ids_charlemagne": h.ids_charlemagne,
+                "annee_libelle": rapport.annee_libelle,
+            },
+        )
+
+
+def _persister_arbitrage_collision(
+    session: Session,
+    collision: CollisionLoginIngestion,
+    type_personne: str,
+    annee_libelle: str,
+) -> None:
+    """Crée un Arbitrage pour une collision de login détectée à l'ingestion."""
+    prefixe = "E" if type_personne == "eleve" else "A"
+    cle_pivot = f"{prefixe}{collision.id_charlemagne}"
+    creer_arbitrage(
+        session,
+        type_cas="collision_login",
+        cle_cas=cle_collision_login(collision.login_base, cle_pivot),
+        contexte={
+            "type_personne": type_personne,
+            "id_charlemagne": collision.id_charlemagne,
+            "nom": collision.nom,
+            "prenom": collision.prenom,
+            "login_base": collision.login_base,
+            "login_attribue": collision.login_attribue,
+            "personnes_deja_presentes": collision.personnes_deja_presentes,
+            "annee_libelle": annee_libelle,
+        },
+    )

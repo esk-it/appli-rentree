@@ -37,8 +37,9 @@ class Arbitrage(Base):
     """Clé déterministe qui identifie le cas — permet le rappel à l'ingestion suivante.
     Ex : `collision_login:jbars:E5292:A60`, `rapprochement:google:jean.dupont@…`."""
 
-    decision: Mapped[str] = mapped_column(String(100))
-    """Décision retenue. Valeur libre mais typée par convention selon `type_cas` :
+    decision: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    """Décision retenue. `None` tant que l'utilisateur n'a pas tranché.
+    Valeur libre mais typée par convention selon `type_cas` :
     - collision_login → suffixe adopté (`suffixe:2`) ou `pas_de_conflit`
     - homonymie → `personnes_distinctes` ou `meme_personne`
     - rapprochement → `personne_id:N` ou `nouvelle_personne`
@@ -51,8 +52,15 @@ class Arbitrage(Base):
 
     date_creation: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    date_decision: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    """Timestamp de la décision humaine. `None` = en attente d'arbitrage."""
+
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     """Note optionnelle laissée par l'utilisateur."""
+
+    @property
+    def est_en_attente(self) -> bool:
+        return self.date_decision is None
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<Arbitrage {self.type_cas} {self.cle_cas[:40]}>"

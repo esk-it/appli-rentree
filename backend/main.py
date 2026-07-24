@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.database import init_db
 from backend.routers import (
     annees,
+    arbitrages,
     etablissements,
     ingestion,
     logins,
@@ -42,7 +43,7 @@ app = FastAPI(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.25.0",
+    version="0.26.0",
     lifespan=lifespan,
 )
 
@@ -88,3 +89,4 @@ app.include_router(parametres.router)
 app.include_router(logins.router)
 app.include_router(ingestion.router)
 app.include_router(reconciliation.router)
+app.include_router(arbitrages.router)

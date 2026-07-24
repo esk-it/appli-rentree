@@ -13,13 +13,16 @@
   import Building2 from "@lucide/svelte/icons/building-2";
   import TableIcon from "@lucide/svelte/icons/table";
   import GitCompareArrows from "@lucide/svelte/icons/git-compare-arrows";
+  import Scale from "@lucide/svelte/icons/scale";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Personnes from "./routes/Personnes.svelte";
   import Sites from "./routes/Sites.svelte";
   import TableCorrespondance from "./routes/TableCorrespondance.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
   import Reconciliation from "./routes/Reconciliation.svelte";
+  import Arbitrage from "./routes/Arbitrage.svelte";
   import Statistiques from "./routes/Statistiques.svelte";
+  import { arbitrages } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
   import Aide from "./routes/Aide.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
@@ -55,6 +58,24 @@
   // Page courante (très simple pour l'instant — on basculera sur svelte-spa-router quand on aura plus de routes)
   let page = $state("accueil");
 
+  // Compteur d'arbitrages en attente — sert de badge dans la sidebar
+  let nbArbitragesEnAttente = $state(0);
+
+  async function rafraichirArbitrages() {
+    try {
+      const l = await arbitrages.enAttente();
+      nbArbitragesEnAttente = l.length;
+    } catch {
+      // silencieux : si le backend n'est pas prêt, on retentera plus tard
+    }
+  }
+
+  // Rafraîchit à chaque navigation vers Arbitrage (pour capter les décisions),
+  // et périodiquement (peu coûteux : liste courte).
+  $effect(() => {
+    if (page === "arbitrage") rafraichirArbitrages();
+  });
+
   onMount(async () => {
     // Raccourci Ctrl+K global
     window.addEventListener("keydown", gererTouchesGlobales);
@@ -74,6 +95,9 @@
     if (maj.disponible) {
       majDisponible = { version: maj.version, update: maj.update };
     }
+
+    // 3. Compteur arbitrages en attente (badge sidebar)
+    rafraichirArbitrages();
   });
 
   async function lancerMaj() {
@@ -99,6 +123,7 @@
     { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon, dispo: true },
     { id: "snapshots", label: "Snapshots d'années", icon: Database, dispo: true },
     { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows, dispo: true },
+    { id: "arbitrage", label: "Arbitrage", icon: Scale, dispo: true, badge: () => nbArbitragesEnAttente },
     { id: "statistiques", label: "Statistiques", icon: BarChart3, dispo: true },
     { id: "parametres", label: "Paramètres", icon: Settings, dispo: true },
     { id: "aide", label: "Aide", icon: HelpCircle, dispo: true },
@@ -219,6 +244,11 @@
         >
           <item.icon class="h-4 w-4" />
           <span class="flex-1">{item.label}</span>
+          {#if item.badge && item.badge() > 0}
+            <span class="rounded-full bg-amber-500 px-1.5 py-0 text-[10px] font-semibold text-white">
+              {item.badge()}
+            </span>
+          {/if}
           {#if !item.dispo}
             <span class="text-[10px] uppercase tracking-wide text-stone-400">À venir</span>
           {/if}
@@ -251,6 +281,8 @@
         <Snapshots />
       {:else if page === "reconciliation"}
         <Reconciliation />
+      {:else if page === "arbitrage"}
+        <Arbitrage />
       {:else if page === "statistiques"}
         <Statistiques />
       {:else if page === "parametres"}

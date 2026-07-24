@@ -24,7 +24,9 @@ from typing import Iterable
 
 from sqlalchemy.orm import Session
 
-from backend.models import AnneeScolaire, Personne, Snapshot
+import json
+
+from backend.models import AnneeScolaire, Arbitrage, Personne, Snapshot
 from backend.services.ingestion import _hash_etat_snapshot as _hash_champs
 
 # ---------------------------------------------------------------------------
@@ -227,8 +229,19 @@ def reconcilier(
             entree.changements = changements
             rapport.modifies.append(entree)
 
-    # 4. Le seau « ambigu » reste vide tant que le Lot 5 (arbitrage) n'a pas
-    #    branché les collisions de login et homonymies non tranchées.
+    # 4. Seau « ambigu » : personnes touchées par un Arbitrage non tranché.
+    #    « Ambigu » prime — la personne est retirée des autres seaux tant que
+    #    la décision humaine n'est pas prise. C'est la sémantique du prompt
+    #    §3.5 : on ne poursuit pas un flux sur un cas non arbitré.
+    ids_ambigus_par_personne = _collecter_arbitrages_en_attente(
+        session,
+        personnes,
+        source_par_personne,
+        cible_par_personne,
+    )
+    if ids_ambigus_par_personne:
+        _basculer_dans_ambigu(rapport, ids_ambigus_par_personne)
+
     return rapport
 
 
@@ -287,6 +300,92 @@ def _entree_pour(
         classe_cible=snap_cible.classe if snap_cible else None,
         motif=motif,
     )
+
+
+def _collecter_arbitrages_en_attente(
+    session: Session,
+    personnes: dict[int, Personne],
+    source_par_personne: dict[int, Snapshot],
+    cible_par_personne: dict[int, Snapshot],
+) -> dict[int, list[Arbitrage]]:
+    """Associe à chaque personne concernée la liste des Arbitrages non tranchés
+    qui la mentionnent (via `contexte_json`).
+
+    Ne retient que les personnes déjà présentes dans les seaux de la
+    réconciliation (source ou cible) — un arbitrage orphelin ne pollue pas
+    l'écran.
+    """
+    arbitrages = (
+        session.query(Arbitrage)
+        .filter(Arbitrage.date_decision.is_(None))
+        .all()
+    )
+    if not arbitrages:
+        return {}
+
+    # Index (type, id_charlemagne) → personne_id, pour retrouver les Personnes
+    # depuis les IDs Charlemagne que porte le contexte.
+    par_cle_pivot: dict[tuple[str, int], int] = {}
+    for pid, p in personnes.items():
+        par_cle_pivot[(p.type, p.id_charlemagne)] = pid
+
+    resultat: dict[int, list[Arbitrage]] = {}
+    for arb in arbitrages:
+        try:
+            ctx = json.loads(arb.contexte_json)
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        type_p = ctx.get("type_personne")
+        if type_p not in ("eleve", "adulte"):
+            continue
+
+        ids_ch: list[int] = []
+        if arb.type_cas == "collision_login":
+            if isinstance(ctx.get("id_charlemagne"), int):
+                ids_ch = [ctx["id_charlemagne"]]
+        elif arb.type_cas == "homonymie_ingestion":
+            raw = ctx.get("ids_charlemagne", [])
+            if isinstance(raw, list):
+                ids_ch = [i for i in raw if isinstance(i, int)]
+
+        for id_ch in ids_ch:
+            pid = par_cle_pivot.get((type_p, id_ch))
+            if pid is not None:
+                resultat.setdefault(pid, []).append(arb)
+
+    return resultat
+
+
+def _basculer_dans_ambigu(
+    rapport: RapportReconciliation,
+    ids_ambigus_par_personne: dict[int, list[Arbitrage]],
+) -> None:
+    """Retire les personnes ambiguës des 4 autres seaux et les regroupe dans `ambigus`.
+
+    Le motif indique le nombre d'arbitrages en attente ; le détail est chargé
+    ultérieurement via l'écran Arbitrage.
+    """
+    def extraire(seau: list[EntreeReconciliation]) -> tuple[list[EntreeReconciliation], list[EntreeReconciliation]]:
+        gardes, sortis = [], []
+        for e in seau:
+            (sortis if e.personne_id in ids_ambigus_par_personne else gardes).append(e)
+        return gardes, sortis
+
+    ambigus_temp: dict[int, EntreeReconciliation] = {}
+    for seau_nom in ("nouveaux", "identiques", "modifies", "sortants"):
+        gardes, sortis = extraire(getattr(rapport, seau_nom))
+        setattr(rapport, seau_nom, gardes)
+        for e in sortis:
+            # Une personne peut apparaître dans plusieurs seaux (théoriquement
+            # non, en pratique jamais) — on ne la retient qu'une fois côté ambigu.
+            if e.personne_id not in ambigus_temp:
+                nb = len(ids_ambigus_par_personne[e.personne_id])
+                types = sorted({a.type_cas for a in ids_ambigus_par_personne[e.personne_id]})
+                e.motif = f"{nb} arbitrage(s) en attente : {', '.join(types)}"
+                e.changements = []
+                ambigus_temp[e.personne_id] = e
+    rapport.ambigus = list(ambigus_temp.values())
 
 
 def _resumer_changements(changements: list[ChangementChamp]) -> str:

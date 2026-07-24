@@ -185,6 +185,30 @@ export const reconciliation = {
 };
 
 // ---------------------------------------------------------------------------
+// Arbitrages — cas ambigus et décisions humaines
+// ---------------------------------------------------------------------------
+export const arbitrages = {
+  async enAttente() {
+    return jsonOrThrow(await fetch(`${BASE}/arbitrages/en-attente`));
+  },
+  async lister({ typeCas = null } = {}) {
+    const p = new URLSearchParams();
+    if (typeCas) p.set("type_cas", typeCas);
+    const qs = p.toString();
+    return jsonOrThrow(await fetch(`${BASE}/arbitrages${qs ? `?${qs}` : ""}`));
+  },
+  async trancher(id, { decision, note = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/arbitrages/${id}/trancher`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ decision, note }),
+      }),
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Années scolaires
 // ---------------------------------------------------------------------------
 export const annees = {
