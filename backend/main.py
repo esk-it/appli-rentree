@@ -87,7 +87,7 @@ app = FastAPI(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.27.3",
+    version="0.27.4",
     lifespan=lifespan,
 )
 
@@ -123,6 +123,7 @@ async def middleware_trace(request: Request, call_next):
             e,
             tb,
         )
+        log.info("← %s %s [500]", request.method, request.url.path)
         return JSONResponse(
             status_code=500,
             content={"detail": f"Erreur interne : {type(e).__name__}: {e}"},
