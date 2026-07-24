@@ -150,15 +150,93 @@ def _migrer_colonnes_manquantes() -> list[str]:
     return alters_effectues
 
 
+def _detecter_tables_avec_drift() -> dict[str, list[str]]:
+    """Repère les tables dont une colonne existe mais avec un attribut divergent.
+
+    Compare pour chaque colonne présente en base ET dans le modèle :
+    - le `nullable` (une ancienne version peut avoir NOT NULL alors que le
+      modèle actuel autorise NULL, ou l'inverse).
+
+    Ne gère PAS les changements de type — trop rare, préférable de laisser
+    tomber en erreur pour attirer l'attention.
+
+    Retourne `{nom_table: [descriptions des drifts]}` — clef seulement si
+    au moins un drift.
+    """
+    inspector = inspect(_engine)
+    tables_reelles = set(inspector.get_table_names())
+    drifts: dict[str, list[str]] = {}
+
+    for table in Base.metadata.tables.values():
+        if table.name not in tables_reelles:
+            continue
+        cols_reelles = {c["name"]: c for c in inspector.get_columns(table.name)}
+        anomalies: list[str] = []
+        for col in table.columns:
+            real = cols_reelles.get(col.name)
+            if real is None:
+                continue  # géré par _migrer_colonnes_manquantes
+            nullable_reel = bool(real.get("nullable", True))
+            if nullable_reel != col.nullable:
+                anomalies.append(
+                    f"{col.name}: nullable modèle={col.nullable} vs base={nullable_reel}"
+                )
+        if anomalies:
+            drifts[table.name] = anomalies
+    return drifts
+
+
+def _table_est_vide(nom_table: str) -> bool:
+    with _engine.begin() as conn:
+        n = conn.execute(text(f"SELECT COUNT(*) FROM {nom_table}")).scalar_one()
+    return int(n or 0) == 0
+
+
+def _recreer_tables_vides_avec_drift() -> list[str]:
+    """Drop puis re-crée les tables dont le schéma diffère du modèle actuel.
+
+    Seulement si la table est **vide** — pour éviter toute perte de données
+    non-intentionnelle. Sur une table non vide, log un warning et laisse
+    l'anomalie en place ; l'utilisateur devra intervenir manuellement.
+
+    Retourne la liste des tables effectivement recréées.
+    """
+    drifts = _detecter_tables_avec_drift()
+    recreees: list[str] = []
+    for nom_table, anomalies in drifts.items():
+        if not _table_est_vide(nom_table):
+            print(
+                f"[DB] {nom_table} a un drift ({', '.join(anomalies)}) mais contient "
+                "des données — non touchée. Wipe manuel requis pour corriger."
+            )
+            continue
+        print(
+            f"[DB] {nom_table} vide avec drift ({', '.join(anomalies)}) — DROP + recréation."
+        )
+        table_obj = Base.metadata.tables[nom_table]
+        with _engine.begin() as conn:
+            conn.execute(text(f"DROP TABLE {nom_table}"))
+        # create_all limité à cette table (les autres restent intactes)
+        table_obj.create(bind=_engine)
+        recreees.append(nom_table)
+    return recreees
+
+
 def init_db() -> None:
     """Crée les tables manquantes au démarrage.
 
-    Trois passes successives :
+    Quatre passes successives :
     1. Wipe complet si un schéma pré-v0.22 est détecté (tables obsolètes).
     2. `create_all()` pour les tables inexistantes.
-    3. Migration légère : ajoute les colonnes manquantes aux tables existantes
-       (drift entre le modèle courant et une base créée par une version
-       antérieure — ex. `arbitrage.date_decision` ajoutée en v0.26.0).
+    3. `_migrer_colonnes_manquantes` : ADD COLUMN pour les colonnes ajoutées
+       depuis la dernière version (drift additif — ex. `date_decision`).
+    4. `_recreer_tables_vides_avec_drift` : DROP + recréation ciblée pour les
+       tables **vides** dont une colonne a changé de nullabilité (drift
+       structurel — ex. `arbitrage.decision` passé de NOT NULL à nullable
+       en v0.26.0).
+
+    Sur une table non vide avec drift structurel, log un warning et laisse
+    en place (l'utilisateur doit trancher).
     """
     # Imports pour enregistrer les modèles dans Base.metadata
     from backend.models import (  # noqa: F401
@@ -185,9 +263,12 @@ def init_db() -> None:
     Base.metadata.create_all(bind=_engine)
 
     alters = _migrer_colonnes_manquantes()
-    if alters:
-        for sql in alters:
-            print(f"[DB] Migration auto : {sql}")
+    for sql in alters:
+        print(f"[DB] Migration auto : {sql}")
+
+    recreees = _recreer_tables_vides_avec_drift()
+    for t in recreees:
+        print(f"[DB] Table {t} recréée après drift structurel")
 
 
 @contextmanager

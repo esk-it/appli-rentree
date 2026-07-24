@@ -88,3 +88,96 @@ def test_init_db_relance_migration(tmp_db_path):
     inspector = inspect(_engine)
     cols = {c["name"] for c in inspector.get_columns("arbitrage")}
     assert "date_decision" in cols
+
+
+def test_drift_nullability_recreation_si_vide(session, tmp_db_path):
+    """Une colonne dont la nullabilité diverge → table recréée si vide.
+
+    Reproduit le vrai bug : ancienne base avec `arbitrage.decision NOT NULL`,
+    modèle actuel avec `decision` nullable → tentative d'INSERT avec None
+    lève IntegrityError. La migration doit détecter et recréer la table.
+    """
+    from backend.database import _engine, _recreer_tables_vides_avec_drift
+    from backend.models import Arbitrage
+
+    # Recrée la table arbitrage avec la vieille contrainte NOT NULL sur decision
+    with _engine.begin() as conn:
+        conn.execute(text("DROP TABLE arbitrage"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE arbitrage (
+                    id INTEGER PRIMARY KEY,
+                    type_cas VARCHAR(30) NOT NULL,
+                    cle_cas VARCHAR(300) NOT NULL UNIQUE,
+                    decision VARCHAR(100) NOT NULL,
+                    contexte_json TEXT NOT NULL,
+                    date_creation DATETIME NOT NULL,
+                    date_decision DATETIME,
+                    note VARCHAR(500)
+                )
+                """
+            )
+        )
+
+    recreees = _recreer_tables_vides_avec_drift()
+    assert "arbitrage" in recreees
+
+    # Un INSERT avec decision=None doit maintenant marcher
+    arb = Arbitrage(
+        type_cas="homonymie_ingestion",
+        cle_cas="test-recreation",
+        decision=None,
+        contexte_json="{}",
+    )
+    session.add(arb)
+    session.commit()
+    assert arb.id is not None
+    assert arb.decision is None
+
+
+def test_drift_nullability_ne_touche_pas_table_non_vide(session, tmp_db_path):
+    """Si la table a des données, on ne la drop pas — warning et on laisse."""
+    from backend.database import _engine, _recreer_tables_vides_avec_drift
+    from backend.models import Arbitrage
+
+    # Ajoute une ligne pour que la table ne soit pas vide
+    session.add(
+        Arbitrage(
+            type_cas="collision_login",
+            cle_cas="deja-la",
+            decision="suffixe:2",
+            contexte_json="{}",
+        )
+    )
+    session.commit()
+
+    # Simule un drift en recréant la table avec NOT NULL et en réinsérant
+    with _engine.begin() as conn:
+        conn.execute(text("DROP TABLE arbitrage"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE arbitrage (
+                    id INTEGER PRIMARY KEY,
+                    type_cas VARCHAR(30) NOT NULL,
+                    cle_cas VARCHAR(300) NOT NULL UNIQUE,
+                    decision VARCHAR(100) NOT NULL,
+                    contexte_json TEXT NOT NULL,
+                    date_creation DATETIME NOT NULL,
+                    date_decision DATETIME,
+                    note VARCHAR(500)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                "INSERT INTO arbitrage (type_cas, cle_cas, decision, contexte_json, date_creation) "
+                "VALUES ('collision_login', 'deja-la', 'suffixe:2', '{}', datetime('now'))"
+            )
+        )
+
+    recreees = _recreer_tables_vides_avec_drift()
+    # Non vide → pas recréée
+    assert "arbitrage" not in recreees
