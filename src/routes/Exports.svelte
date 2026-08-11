@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import Download from "@lucide/svelte/icons/download";
   import FileDown from "@lucide/svelte/icons/file-down";
+  import Upload from "@lucide/svelte/icons/upload";
   import Info from "@lucide/svelte/icons/info";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import {
@@ -15,7 +16,7 @@
   let listeSites = $state([]);
   let listeAnnees = $state([]);
 
-  let cible = $state(/** @type {"koxo"|"google"} */ ("koxo"));
+  let cible = $state(/** @type {"koxo"|"google"|"pmb"|"jpm"|"cardstudio"} */ ("koxo"));
   let siteId = $state(/** @type {null | number} */ (null));
   let typePersonne = $state(/** @type {"eleve"|"adulte"} */ ("eleve"));
   let categorie = $state(/** @type {"tous"|"nouveaux"|"anciens"} */ ("tous"));
@@ -25,6 +26,9 @@
   let dernierRapport = $state(/** @type {null | any} */ (null));
   let chargement = $state(false);
   let erreur = $state("");
+
+  // Boucle KoXo → Google (Lot 8b) — MDP transportés en mémoire uniquement
+  let fichierKoxoEnrichi = $state(/** @type {File|null} */ (null));
 
   onMount(async () => {
     try {
@@ -55,10 +59,26 @@
         anneeCibleId,
         anneeSourceId: anneeSourceRequise ? anneeSourceId : null,
       };
-      const r = cible === "koxo"
-        ? await exportsCible.koxo(params)
-        : await exportsCible.google(params);
-      dernierRapport = { ...r, cible };
+      let r;
+      if (cible === "koxo") {
+        r = await exportsCible.koxo(params);
+      } else if (cible === "google") {
+        r = fichierKoxoEnrichi
+          ? await exportsCible.googleAvecMdp({ fichierKoxo: fichierKoxoEnrichi, ...params })
+          : await exportsCible.google(params);
+      } else if (cible === "pmb") {
+        r = await exportsCible.pmb(params);
+      } else if (cible === "jpm") {
+        r = await exportsCible.jpm({
+          siteId, anneeCibleId, anneeSourceId,
+        });
+      } else if (cible === "cardstudio") {
+        r = await exportsCible.cardstudio({
+          siteId, categorie, anneeCibleId, anneeSourceId,
+        });
+      }
+      const labelCible = cible === "google" && fichierKoxoEnrichi ? "google (avec MDP)" : cible;
+      dernierRapport = { ...r, cible: labelCible };
       telechargerFichierBase64(r.nom_fichier, r.contenu_base64, "text/csv");
       const suffixe = r.nb_sans_ou > 0
         ? ` (${r.nb_sans_ou} sans OU — classe hors table)`
@@ -104,21 +124,22 @@
   <div class="card p-5 space-y-4">
     <div class="flex items-center justify-between">
       <h2 class="text-lg font-semibold">Génération d'un CSV</h2>
-      <div class="inline-flex gap-1 rounded-lg border border-stone-200 p-1 dark:border-stone-700">
-        <button
-          class="rounded-md px-3 py-1 text-sm font-medium transition
-                 {cible === 'koxo' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700'}"
-          onclick={() => (cible = 'koxo')}
-        >
-          KoXo
-        </button>
-        <button
-          class="rounded-md px-3 py-1 text-sm font-medium transition
-                 {cible === 'google' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700'}"
-          onclick={() => (cible = 'google')}
-        >
-          Google Workspace
-        </button>
+      <div class="inline-flex flex-wrap gap-1 rounded-lg border border-stone-200 p-1 dark:border-stone-700">
+        {#each [
+          { id: "koxo", label: "KoXo" },
+          { id: "google", label: "Google" },
+          { id: "pmb", label: "PMB" },
+          { id: "jpm", label: "JPM" },
+          { id: "cardstudio", label: "CardStudio" },
+        ] as c (c.id)}
+          <button
+            class="rounded-md px-2.5 py-1 text-xs font-medium transition
+                   {cible === c.id ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700'}"
+            onclick={() => (cible = c.id)}
+          >
+            {c.label}
+          </button>
+        {/each}
       </div>
     </div>
 
@@ -223,6 +244,37 @@
       </div>
     </div>
 
+    {#if cible === "google" && categorie === "nouveaux"}
+      <div class="rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-50/40 p-3 dark:border-emerald-700 dark:bg-emerald-900/10">
+        <p class="text-xs font-medium text-emerald-900 dark:text-emerald-200 mb-2">
+          Boucle de retour KoXo → Google (Lot 8b)
+        </p>
+        <p class="text-xs text-stone-700 dark:text-stone-300 mb-2">
+          Si tu as déjà importé le CSV KoXo Nouveaux et re-exporté les comptes avec
+          leurs mots de passe, dépose ce fichier ici — le CSV Google sera enrichi
+          des MDP correspondants. <strong>Aucun MDP n'est stocké côté serveur.</strong>
+        </p>
+        <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
+          <Upload class="h-3.5 w-3.5" />
+          {fichierKoxoEnrichi?.name ?? "Choisir le CSV KoXo (avec MDP)"}
+          <input
+            type="file"
+            accept=".csv"
+            onchange={(e) => (fichierKoxoEnrichi = e.target.files?.[0] ?? null)}
+            class="hidden"
+          />
+        </label>
+        {#if fichierKoxoEnrichi}
+          <button
+            class="ml-2 text-xs text-stone-500 hover:text-red-600"
+            onclick={() => (fichierKoxoEnrichi = null)}
+          >
+            × retirer
+          </button>
+        {/if}
+      </div>
+    {/if}
+
     <div class="flex gap-2">
       <button
         class="btn-primary"
@@ -230,7 +282,7 @@
         disabled={!siteId || !anneeCibleId || (anneeSourceRequise && !anneeSourceId) || chargement}
       >
         <FileDown class="h-4 w-4" />
-        Générer et télécharger
+        {cible === "google" && fichierKoxoEnrichi ? "Générer Google avec MDP" : "Générer et télécharger"}
       </button>
       {#if chargement}
         <span class="self-center text-sm text-stone-500">Génération…</span>

@@ -330,3 +330,152 @@ def _encoder_csv(lignes: list[dict]) -> bytes:
 def _nom_fichier(site_nom: str, type_personne: str, categorie: str) -> str:
     pop = "eleves" if type_personne == "eleve" else "adultes"
     return f"Google_{site_nom}_{pop}_{categorie}.csv"
+
+
+# ---------------------------------------------------------------------------
+# Lot 8b — Boucle de retour KoXo → Google
+# ---------------------------------------------------------------------------
+
+
+def _extraire_mdp_depuis_csv_koxo(contenu_csv: bytes) -> dict[str, str]:
+    """Extrait le mapping {login: mot_de_passe} depuis un CSV KoXo enrichi.
+
+    KoXo génère les mots de passe à la création et les fournit dans son
+    export. On extrait ici en mémoire uniquement — cette structure n'est
+    jamais persistée (§7.1 « le mot de passe n'est jamais persisté »).
+    """
+    import csv as _csv
+    import io as _io
+
+    from unidecode import unidecode as _unidecode
+
+    # Décodage : KoXo peut être en cp1252 (défaut Windows) ou utf-8
+    texte = None
+    for encodage in ("cp1252", "utf-8"):
+        try:
+            texte = contenu_csv.decode(encodage)
+            break
+        except UnicodeDecodeError:
+            continue
+    if texte is None:
+        raise ValueError("Impossible de décoder le CSV KoXo (ni cp1252, ni utf-8)")
+
+    # Détection du séparateur : plus de virgules ou de point-virgules dans la 1re ligne ?
+    premiere_ligne = texte.split("\n", 1)[0]
+    sep = "," if premiere_ligne.count(",") >= premiere_ligne.count(";") else ";"
+
+    reader = _csv.DictReader(_io.StringIO(texte), delimiter=sep)
+    mdp_par_login: dict[str, str] = {}
+    for row in reader:
+        login = None
+        mdp = None
+        for key, val in row.items():
+            if key is None:
+                continue
+            k = _unidecode(str(key).strip().lower())
+            if k == "identifiant":
+                login = (val or "").strip()
+            elif k == "mot de passe":
+                mdp = (val or "").strip()
+        if login and mdp:
+            mdp_par_login[login] = mdp
+    return mdp_par_login
+
+
+@dataclass
+class RapportExportGoogleAvecMdp:
+    site_nom: str
+    type_personne: str
+    categorie: str
+    nb_lignes: int
+    nb_lignes_avec_mdp: int
+    """Nb lignes Google pour lesquelles un MDP KoXo correspondant a été trouvé."""
+    nb_sans_ou: int
+    nb_mdp_orphelins: int
+    """Nb entrées KoXo sans correspondance dans Google (logins présents dans
+    le CSV KoXo mais absents du CSV Google généré) — signalé pour info."""
+    nom_fichier_suggere: str
+
+
+def generer_csv_google_avec_mdp(
+    session: Session,
+    *,
+    csv_koxo_bytes: bytes,
+    site_id: int,
+    type_personne: str,
+    categorie: Categorie,
+    annee_cible_id: int,
+    annee_source_id: int | None = None,
+) -> tuple[bytes, RapportExportGoogleAvecMdp]:
+    """Génère un CSV Google enrichi des mots de passe issus d'un CSV KoXo.
+
+    Le flux : KoXo a créé les nouveaux comptes → l'utilisateur re-exporte
+    KoXo (avec MDP) → upload dans notre app → on fabrique le CSV Google
+    correspondant avec `Password [Required]` rempli.
+
+    Les MDP transitent **en mémoire uniquement** — jamais stockés en base,
+    jamais écrits sur disque en dehors du buffer de réponse HTTP.
+    """
+    import csv as _csv
+    import io as _io
+
+    # 1. Extraire les MDP depuis le CSV KoXo (RAM uniquement)
+    mdp_par_login = _extraire_mdp_depuis_csv_koxo(csv_koxo_bytes)
+
+    # 2. Générer le CSV Google standard (sans MDP)
+    contenu_google, rapport_base = generer_csv_google(
+        session=session,
+        site_id=site_id,
+        type_personne=type_personne,
+        categorie=categorie,
+        annee_cible_id=annee_cible_id,
+        annee_source_id=annee_source_id,
+    )
+
+    # 3. Ré-injecter les MDP par correspondance de login (partie avant @)
+    contenu_str = contenu_google
+    if contenu_str.startswith(BOM_UTF8):
+        contenu_str = contenu_str[3:]
+    texte_google = contenu_str.decode("utf-8")
+
+    reader = _csv.DictReader(_io.StringIO(texte_google))
+    fieldnames = reader.fieldnames or COLONNES_GOOGLE
+    rows = list(reader)
+
+    logins_google = set()
+    nb_avec_mdp = 0
+    for row in rows:
+        email = row.get("Email Address [Required]", "") or ""
+        login = email.split("@", 1)[0] if "@" in email else ""
+        logins_google.add(login)
+        mdp = mdp_par_login.get(login)
+        if mdp:
+            row["Password [Required]"] = mdp
+            nb_avec_mdp += 1
+
+    # 4. Réencoder avec BOM UTF-8
+    buf = _io.StringIO(newline="")
+    writer = _csv.DictWriter(buf, fieldnames=fieldnames, quoting=_csv.QUOTE_MINIMAL)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(row)
+    contenu_enrichi = BOM_UTF8 + buf.getvalue().encode("utf-8", errors="replace")
+
+    # 5. Rapport enrichi
+    orphelins = sum(1 for login in mdp_par_login if login not in logins_google)
+
+    return (
+        contenu_enrichi,
+        RapportExportGoogleAvecMdp(
+            site_nom=rapport_base.site_nom,
+            type_personne=rapport_base.type_personne,
+            categorie=rapport_base.categorie,
+            nb_lignes=rapport_base.nb_lignes,
+            nb_lignes_avec_mdp=nb_avec_mdp,
+            nb_sans_ou=rapport_base.nb_sans_ou,
+            nb_mdp_orphelins=orphelins,
+            nom_fichier_suggere=rapport_base.nom_fichier_suggere.replace(
+                ".csv", "_avec_mdp.csv"
+            ),
+        ),
+    )

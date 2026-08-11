@@ -269,6 +269,63 @@ export const exportsCible = {
       }),
     );
   },
+  async googleAvecMdp({ fichierKoxo, siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null }) {
+    if (!fichierKoxo) throw new Error("Fichier KoXo enrichi requis");
+    const buffer = await fichierKoxo.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, /** @type {any} */ (bytes.subarray(i, i + chunk)));
+    }
+    const csv_koxo_base64 = btoa(binary);
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/google-avec-mdp`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          csv_koxo_base64,
+          site_id: siteId,
+          type_personne: typePersonne,
+          categorie,
+          annee_cible_id: anneeCibleId,
+          annee_source_id: anneeSourceId,
+        }),
+      }),
+    );
+  },
+  async pmb({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/pmb`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId, type_personne: typePersonne, categorie,
+          annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+        }),
+      }),
+    );
+  },
+  async jpm({ siteId, anneeCibleId, anneeSourceId }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/jpm`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId, annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+        }),
+      }),
+    );
+  },
+  async cardstudio({ siteId, categorie, anneeCibleId, anneeSourceId = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/cardstudio`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId, categorie,
+          annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+        }),
+      }),
+    );
+  },
 };
 
 // ---------------------------------------------------------------------------
