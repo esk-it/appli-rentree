@@ -224,6 +224,18 @@ export const reconciliation = {
 };
 
 // ---------------------------------------------------------------------------
+// Simulation transverse (Lot 7)
+// ---------------------------------------------------------------------------
+export const simulation = {
+  async obtenir({ anneeSourceId, anneeCibleId }) {
+    const p = new URLSearchParams();
+    p.set("annee_source_id", String(anneeSourceId));
+    p.set("annee_cible_id", String(anneeCibleId));
+    return jsonOrThrow(await fetch(`${BASE}/simulation?${p.toString()}`));
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Exports vers les cibles (KoXo, Google, PMB, JPM…)
 // ---------------------------------------------------------------------------
 export const exportsCible = {

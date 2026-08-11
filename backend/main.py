@@ -28,6 +28,7 @@ from backend.routers import (
     parametres,
     personnes,
     reconciliation,
+    simulation,
     sites,
     table_correspondance,
 )
@@ -89,7 +90,7 @@ app = FastAPI(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.30.0",
+    version="0.31.0",
     lifespan=lifespan,
 )
 
@@ -183,3 +184,4 @@ app.include_router(reconciliation.router)
 app.include_router(arbitrages.router)
 app.include_router(amorcage.router)
 app.include_router(exports.router)
+app.include_router(simulation.router)

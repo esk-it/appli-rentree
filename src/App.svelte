@@ -16,6 +16,7 @@
   import Scale from "@lucide/svelte/icons/scale";
   import Rocket from "@lucide/svelte/icons/rocket";
   import FileDown from "@lucide/svelte/icons/file-down";
+  import Zap from "@lucide/svelte/icons/zap";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Personnes from "./routes/Personnes.svelte";
   import Sites from "./routes/Sites.svelte";
@@ -24,6 +25,7 @@
   import Snapshots from "./routes/Snapshots.svelte";
   import Reconciliation from "./routes/Reconciliation.svelte";
   import Arbitrage from "./routes/Arbitrage.svelte";
+  import Simulation from "./routes/Simulation.svelte";
   import Exports from "./routes/Exports.svelte";
   import Statistiques from "./routes/Statistiques.svelte";
   import { arbitrages } from "$lib/api.js";
@@ -129,6 +131,7 @@
     { id: "snapshots", label: "Snapshots d'années", icon: Database, dispo: true },
     { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows, dispo: true },
     { id: "arbitrage", label: "Arbitrage", icon: Scale, dispo: true, badge: () => nbArbitragesEnAttente },
+    { id: "simulation", label: "Simulation", icon: Zap, dispo: true },
     { id: "exports", label: "Exports", icon: FileDown, dispo: true },
     { id: "statistiques", label: "Statistiques", icon: BarChart3, dispo: true },
     { id: "parametres", label: "Paramètres", icon: Settings, dispo: true },
@@ -291,6 +294,8 @@
         <Reconciliation />
       {:else if page === "arbitrage"}
         <Arbitrage />
+      {:else if page === "simulation"}
+        <Simulation />
       {:else if page === "exports"}
         <Exports />
       {:else if page === "statistiques"}
