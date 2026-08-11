@@ -17,6 +17,7 @@
   import Rocket from "@lucide/svelte/icons/rocket";
   import FileDown from "@lucide/svelte/icons/file-down";
   import Zap from "@lucide/svelte/icons/zap";
+  import Activity from "@lucide/svelte/icons/activity";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Personnes from "./routes/Personnes.svelte";
   import Sites from "./routes/Sites.svelte";
@@ -27,6 +28,7 @@
   import Arbitrage from "./routes/Arbitrage.svelte";
   import Simulation from "./routes/Simulation.svelte";
   import Exports from "./routes/Exports.svelte";
+  import Suivi from "./routes/Suivi.svelte";
   import Statistiques from "./routes/Statistiques.svelte";
   import { arbitrages } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
@@ -133,6 +135,7 @@
     { id: "arbitrage", label: "Arbitrage", icon: Scale, dispo: true, badge: () => nbArbitragesEnAttente },
     { id: "simulation", label: "Simulation", icon: Zap, dispo: true },
     { id: "exports", label: "Exports", icon: FileDown, dispo: true },
+    { id: "suivi", label: "Suivi", icon: Activity, dispo: true },
     { id: "statistiques", label: "Statistiques", icon: BarChart3, dispo: true },
     { id: "parametres", label: "Paramètres", icon: Settings, dispo: true },
     { id: "aide", label: "Aide", icon: HelpCircle, dispo: true },
@@ -298,6 +301,8 @@
         <Simulation />
       {:else if page === "exports"}
         <Exports />
+      {:else if page === "suivi"}
+        <Suivi />
       {:else if page === "statistiques"}
         <Statistiques />
       {:else if page === "parametres"}

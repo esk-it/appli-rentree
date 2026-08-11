@@ -224,6 +224,44 @@ export const reconciliation = {
 };
 
 // ---------------------------------------------------------------------------
+// Suivi (Lot 12) — cycle de vie des CompteCible
+// ---------------------------------------------------------------------------
+export const suivi = {
+  async stats() {
+    return jsonOrThrow(await fetch(`${BASE}/suivi/stats`));
+  },
+  async lister({ etat, cible = null }) {
+    const p = new URLSearchParams();
+    p.set("etat", etat);
+    if (cible) p.set("cible", cible);
+    return jsonOrThrow(await fetch(`${BASE}/suivi/liste?${p.toString()}`));
+  },
+  async purgesEchues() {
+    return jsonOrThrow(await fetch(`${BASE}/suivi/purges-echues`));
+  },
+  async marquerSortant({ personneId, cible }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/suivi/marquer-sortant`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ personne_id: personneId, cible }),
+      }),
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Statistiques (Lot 13)
+// ---------------------------------------------------------------------------
+export const statistiques = {
+  async referentiel() {
+    return jsonOrThrow(await fetch(`${BASE}/statistiques/referentiel`));
+  },
+  async annee(anneeId) {
+    return jsonOrThrow(await fetch(`${BASE}/statistiques/annee/${anneeId}`));
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Simulation transverse (Lot 7)
 // ---------------------------------------------------------------------------
 export const simulation = {

@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import Search from "@lucide/svelte/icons/search";
   import Users2 from "@lucide/svelte/icons/users-2";
+  import Avatar from "$lib/components/Avatar.svelte";
   import { personnes } from "$lib/api.js";
 
   let liste = $state(/** @type {any[]} */ ([]));
@@ -133,6 +134,7 @@
         <table class="w-full text-sm">
           <thead class="sticky top-0 z-10 bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
             <tr>
+              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700"></th>
               <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Clé pivot</th>
               <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Type</th>
               <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Nom</th>
@@ -147,6 +149,9 @@
           <tbody>
             {#each listeFiltree as p (p.id)}
               <tr class="border-b border-stone-100 dark:border-stone-800 hover:bg-emerald-50/40 dark:hover:bg-emerald-900/20">
+                <td class="px-3 py-1">
+                  <Avatar personneId={p.id} nom={p.nom} prenom={p.prenom} taille={32} />
+                </td>
                 <td class="whitespace-nowrap px-3 py-1.5 font-mono text-xs text-stone-600 dark:text-stone-400">
                   {p.cle_pivot}
                 </td>

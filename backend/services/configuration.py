@@ -75,6 +75,18 @@ CATALOGUE: list[DefinitionParametre] = [
         defaut=2,
         categorie="Mots de passe",
     ),
+    DefinitionParametre(
+        cle="chemin_dossier_photos",
+        libelle="Dossier des photos élèves",
+        description=(
+            "Chemin UNC ou local vers le dossier contenant les photos "
+            "des élèves (ex. \\\\ESK-APP01\\photos). Vide = pas de "
+            "photos, l'app tombe sur des avatars initiales."
+        ),
+        type="str",
+        defaut="",
+        categorie="Photos",
+    ),
 ]
 
 # Index par clé pour lookup rapide
