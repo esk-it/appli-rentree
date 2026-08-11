@@ -224,6 +224,27 @@ export const reconciliation = {
 };
 
 // ---------------------------------------------------------------------------
+// Exports vers les cibles (KoXo, Google, PMB, JPM…)
+// ---------------------------------------------------------------------------
+export const exportsCible = {
+  async koxo({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/koxo`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId,
+          type_personne: typePersonne,
+          categorie,
+          annee_cible_id: anneeCibleId,
+          annee_source_id: anneeSourceId,
+        }),
+      }),
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Amorçage — chargement des Personnes depuis KoXo
 // ---------------------------------------------------------------------------
 export const amorcage = {
