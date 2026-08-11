@@ -15,6 +15,7 @@
   let listeSites = $state([]);
   let listeAnnees = $state([]);
 
+  let cible = $state(/** @type {"koxo"|"google"} */ ("koxo"));
   let siteId = $state(/** @type {null | number} */ (null));
   let typePersonne = $state(/** @type {"eleve"|"adulte"} */ ("eleve"));
   let categorie = $state(/** @type {"tous"|"nouveaux"|"anciens"} */ ("tous"));
@@ -47,16 +48,22 @@
     chargement = true;
     erreur = "";
     try {
-      const r = await exportsCible.koxo({
+      const params = {
         siteId,
         typePersonne,
         categorie,
         anneeCibleId,
         anneeSourceId: anneeSourceRequise ? anneeSourceId : null,
-      });
-      dernierRapport = r;
+      };
+      const r = cible === "koxo"
+        ? await exportsCible.koxo(params)
+        : await exportsCible.google(params);
+      dernierRapport = { ...r, cible };
       telechargerFichierBase64(r.nom_fichier, r.contenu_base64, "text/csv");
-      notify.succes(`${r.nb_lignes} ligne(s) exportée(s) — ${r.nom_fichier}`);
+      const suffixe = r.nb_sans_ou > 0
+        ? ` (${r.nb_sans_ou} sans OU — classe hors table)`
+        : "";
+      notify.succes(`${r.nb_lignes} ligne(s) exportée(s) — ${r.nom_fichier}${suffixe}`);
     } catch (e) {
       erreur = String(e);
       notify.erreur(erreur);
@@ -95,7 +102,25 @@
   {/if}
 
   <div class="card p-5 space-y-4">
-    <h2 class="text-lg font-semibold">KoXo — génération d'un CSV</h2>
+    <div class="flex items-center justify-between">
+      <h2 class="text-lg font-semibold">Génération d'un CSV</h2>
+      <div class="inline-flex gap-1 rounded-lg border border-stone-200 p-1 dark:border-stone-700">
+        <button
+          class="rounded-md px-3 py-1 text-sm font-medium transition
+                 {cible === 'koxo' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700'}"
+          onclick={() => (cible = 'koxo')}
+        >
+          KoXo
+        </button>
+        <button
+          class="rounded-md px-3 py-1 text-sm font-medium transition
+                 {cible === 'google' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700'}"
+          onclick={() => (cible = 'google')}
+        >
+          Google Workspace
+        </button>
+      </div>
+    </div>
 
     <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
       <label class="block">
@@ -175,19 +200,26 @@
     <div class="rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs dark:border-stone-700 dark:bg-stone-800">
       <div class="flex items-start gap-2 text-stone-700 dark:text-stone-300">
         <Info class="mt-0.5 h-4 w-4 shrink-0" />
-        <p>
-          {#if categorie === "tous"}
-            Toutes les personnes du site+type ayant un snapshot dans l'année cible.
-            Utile pour un import massif initial ou une resynchronisation.
-          {:else if categorie === "nouveaux"}
-            Uniquement les entrants (présents à l'année cible, absents de la source).
-            KoXo <strong>générera les mots de passe à l'import</strong> — c'est le
-            fichier à charger pour créer les comptes.
+        <div class="space-y-1">
+          {#if cible === "koxo"}
+            {#if categorie === "tous"}
+              <p>Toutes les personnes du site+type ayant un snapshot dans l'année cible. Utile pour un import massif initial ou une resynchronisation.</p>
+            {:else if categorie === "nouveaux"}
+              <p>Uniquement les entrants (présents cible, absents source). KoXo <strong>générera les mots de passe à l'import</strong>.</p>
+            {:else}
+              <p>Uniquement les sortants (présents source, absents cible). À utiliser pour supprimer les comptes obsolètes côté KoXo.</p>
+            {/if}
           {:else}
-            Uniquement les sortants (présents à la source, absents de la cible).
-            À utiliser pour supprimer les comptes obsolètes côté KoXo.
+            {#if categorie === "tous"}
+              <p>État complet visé — chaque personne est placée dans son OU définitive (via Table de correspondance).</p>
+            {:else if categorie === "nouveaux"}
+              <p>Nouveaux comptes Google — placés dans l'<strong>OU pré-rentrée</strong>, mot de passe vide (sera rempli à partir de KoXo au Lot 8b), forçage du changement de MDP à la 1<sup>re</sup> connexion.</p>
+            {:else}
+              <p>Sortants — à déplacer manuellement vers <code>/7. Sortis/…</code> (l'automatisation viendra plus tard).</p>
+            {/if}
+            <p class="text-stone-500">Format Google Admin bulk-import : 40 colonnes, UTF-8 avec BOM. Ce CSV se charge dans Admin Google → Utilisateurs → Importer utilisateurs.</p>
           {/if}
-        </p>
+        </div>
       </div>
     </div>
 
@@ -220,9 +252,14 @@
             Dernier export : <code>{dernierRapport.nom_fichier}</code>
           </p>
           <p class="text-xs text-stone-500 dark:text-stone-400">
-            {dernierRapport.nb_lignes} ligne(s) — site {dernierRapport.site_nom},
+            {dernierRapport.nb_lignes} ligne(s) — {dernierRapport.cible}, site {dernierRapport.site_nom},
             {dernierRapport.type_personne}s, catégorie {dernierRapport.categorie}
           </p>
+          {#if dernierRapport.nb_sans_ou > 0}
+            <p class="text-xs text-amber-700 dark:text-amber-400">
+              ⚠ {dernierRapport.nb_sans_ou} ligne(s) sans OU — leur classe n'est pas dans la Table de correspondance.
+            </p>
+          {/if}
         </div>
         <button
           class="btn-secondary text-xs"

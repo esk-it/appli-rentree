@@ -242,6 +242,21 @@ export const exportsCible = {
       }),
     );
   },
+  async google({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/google`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId,
+          type_personne: typePersonne,
+          categorie,
+          annee_cible_id: anneeCibleId,
+          annee_source_id: anneeSourceId,
+        }),
+      }),
+    );
+  },
 };
 
 // ---------------------------------------------------------------------------

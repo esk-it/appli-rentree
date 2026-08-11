@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
+from backend.services.exports_google import generer_csv_google
 from backend.services.exports_koxo import generer_csv_koxo
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])
@@ -63,6 +64,57 @@ def exporter_koxo(
         type_personne=rapport.type_personne,
         categorie=rapport.categorie,
         nb_lignes=rapport.nb_lignes,
+        nom_fichier=rapport.nom_fichier_suggere,
+        contenu_base64=base64.b64encode(contenu).decode("ascii"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Google Workspace (Lot 10a)
+# ---------------------------------------------------------------------------
+
+
+class ExportGooglePayload(BaseModel):
+    site_id: int
+    type_personne: Literal["eleve", "adulte"]
+    categorie: Literal["tous", "nouveaux", "anciens"]
+    annee_cible_id: int
+    annee_source_id: int | None = None
+
+
+class ExportGoogleReponse(BaseModel):
+    site_nom: str
+    type_personne: str
+    categorie: str
+    nb_lignes: int
+    nb_sans_ou: int
+    nom_fichier: str
+    contenu_base64: str
+
+
+@router.post("/google", response_model=ExportGoogleReponse)
+def exporter_google(
+    payload: ExportGooglePayload, session: Session = Depends(db_session)
+) -> ExportGoogleReponse:
+    """Génère un CSV Google Admin bulk-import."""
+    try:
+        contenu, rapport = generer_csv_google(
+            session=session,
+            site_id=payload.site_id,
+            type_personne=payload.type_personne,
+            categorie=payload.categorie,
+            annee_cible_id=payload.annee_cible_id,
+            annee_source_id=payload.annee_source_id,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    return ExportGoogleReponse(
+        site_nom=rapport.site_nom,
+        type_personne=rapport.type_personne,
+        categorie=rapport.categorie,
+        nb_lignes=rapport.nb_lignes,
+        nb_sans_ou=rapport.nb_sans_ou,
         nom_fichier=rapport.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
     )
