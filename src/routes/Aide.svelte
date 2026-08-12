@@ -157,11 +157,40 @@
         <h2>Suivi et purge</h2>
         <p>Le cycle de vie d'un compte cible :</p>
         <pre><code>prevu → cree → actif → quarantaine → purge</code></pre>
-        <p><strong>Politique de sortie :</strong></p>
+
+        <h3>Comment les comptes sont créés</h3>
+        <p>
+          Quand tu génères un export <strong>Nouveaux</strong> avec la case
+          <em>Enregistrer le suivi</em> cochée, les personnes du fichier sont
+          inscrites en <code>prevu</code> sur la cible concernée. C'est ce qui
+          alimente cet écran.
+        </p>
+        <p>Ensuite, dans l'onglet Suivi :</p>
+        <ol>
+          <li>Tu importes le fichier dans la cible (KoXo, Google…)</li>
+          <li>Tu cliques <strong>prévu → créé</strong> pour confirmer</li>
+          <li>Puis <strong>créé → actif</strong> une fois le compte en service</li>
+        </ol>
+        <p>
+          Aucune action n'est envoyée au système tiers depuis cet écran — seul
+          l'état du référentiel change. Le programme ne pilote pas KoXo ni
+          Google : il produit des fichiers et mémorise ce que tu en as fait.
+        </p>
+
+        <h3>Politique de sortie</h3>
+        <p>
+          Le bouton <strong>Traiter les sortants</strong> applique
+          automatiquement la politique à toutes les personnes présentes à
+          l'année source mais absentes de la cible :
+        </p>
         <ul>
           <li><strong>Google</strong> : quarantaine 18 mois avant purge.</li>
-          <li><strong>KoXo, PMB, JPM, CardStudio</strong> : suppression immédiate.</li>
+          <li><strong>KoXo, PMB, JPM, CardStudio</strong> : purge immédiate.</li>
         </ul>
+        <p>
+          Une échéance déjà posée n'est jamais repoussée — rejouer l'opération
+          ne prolonge pas la quarantaine.
+        </p>
 
       {:else if sectionActive === "securite"}
         <h2>Sécurité</h2>

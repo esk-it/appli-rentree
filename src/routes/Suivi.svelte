@@ -3,7 +3,9 @@
   import Activity from "@lucide/svelte/icons/activity";
   import Clock from "@lucide/svelte/icons/clock";
   import Trash2 from "@lucide/svelte/icons/trash-2";
-  import { suivi } from "$lib/api.js";
+  import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
+  import LogOut from "@lucide/svelte/icons/log-out";
+  import { annees, suivi } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
   let stats = $state(/** @type {null | any} */ (null));
@@ -13,11 +15,76 @@
   let chargement = $state(false);
   let erreur = $state("");
 
+  // Actions de cycle de vie
+  let listeAnnees = $state([]);
+  let cibleAction = $state("koxo_ndk");
+  let anneeSourceId = $state(/** @type {null | number} */ (null));
+  let anneeCibleId = $state(/** @type {null | number} */ (null));
+  let actionEnCours = $state(false);
+
   const ETATS = ["prevu", "cree", "actif", "quarantaine", "purge"];
+  const CIBLES = [
+    "google", "koxo_ndk", "koxo_su", "pmb_ndk", "pmb_su", "jpm", "cardstudio",
+  ];
 
   onMount(async () => {
     await charger();
+    try {
+      listeAnnees = await annees.lister();
+      if (listeAnnees.length >= 2) {
+        anneeCibleId = listeAnnees[0].id;
+        anneeSourceId = listeAnnees[1].id;
+      }
+    } catch (e) {
+      erreur = String(e);
+    }
   });
+
+  async function confirmerCreation() {
+    actionEnCours = true;
+    try {
+      const r = await suivi.confirmerCreation({ cible: cibleAction });
+      notify.succes(`${r.nb_transitions} compte(s) passé(s) en « créé »`);
+      await charger();
+    } catch (e) {
+      notify.erreur(String(e));
+    } finally {
+      actionEnCours = false;
+    }
+  }
+
+  async function activerComptes() {
+    actionEnCours = true;
+    try {
+      const r = await suivi.activer({ cible: cibleAction });
+      notify.succes(`${r.nb_transitions} compte(s) passé(s) en « actif »`);
+      await charger();
+    } catch (e) {
+      notify.erreur(String(e));
+    } finally {
+      actionEnCours = false;
+    }
+  }
+
+  async function traiterSortants() {
+    if (!anneeSourceId || !anneeCibleId) return;
+    if (anneeSourceId === anneeCibleId) {
+      notify.avertissement("Sélectionne deux années différentes");
+      return;
+    }
+    actionEnCours = true;
+    try {
+      const r = await suivi.traiterSortants({ anneeSourceId, anneeCibleId });
+      notify.succes(
+        `${r.nb_transitions} compte(s) sortis — Google en quarantaine, autres purgés`,
+      );
+      await charger();
+    } catch (e) {
+      notify.erreur(String(e));
+    } finally {
+      actionEnCours = false;
+    }
+  }
 
   async function charger() {
     chargement = true;
@@ -109,6 +176,85 @@
         </div>
       </div>
     {/if}
+
+    <!-- Actions de cycle de vie -->
+    <div class="card p-4 space-y-4">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
+        Faire avancer les comptes
+      </h2>
+
+      <div class="rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
+        <p class="text-xs text-stone-600 dark:text-stone-400 mb-3">
+          Après avoir importé un fichier dans une cible, confirme-le ici pour
+          faire avancer l'état des comptes. Aucune action n'est envoyée au
+          système tiers — seul l'état du référentiel change.
+        </p>
+        <div class="flex flex-wrap items-end gap-2">
+          <label class="block">
+            <span class="text-xs font-medium uppercase tracking-wide text-stone-500">Cible</span>
+            <select
+              bind:value={cibleAction}
+              class="mt-1 rounded-lg border border-stone-300 px-3 py-1.5 text-sm dark:border-stone-600 dark:bg-stone-800"
+            >
+              {#each CIBLES as c (c)}
+                <option value={c}>{c}</option>
+              {/each}
+            </select>
+          </label>
+          <button class="btn-secondary" onclick={confirmerCreation} disabled={actionEnCours}>
+            <CheckCircle2 class="h-4 w-4" />
+            prévu → créé
+          </button>
+          <button class="btn-secondary" onclick={activerComptes} disabled={actionEnCours}>
+            <Activity class="h-4 w-4" />
+            créé → actif
+          </button>
+        </div>
+      </div>
+
+      <div class="rounded-lg border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-800 dark:bg-amber-900/20">
+        <p class="text-xs text-stone-700 dark:text-stone-300 mb-3">
+          <strong>Traiter les sortants</strong> — applique la politique de sortie à
+          toutes les personnes présentes à l'année source mais absentes de la cible.
+          Google part en <strong>quarantaine 18 mois</strong>, les autres cibles en
+          purge immédiate.
+        </p>
+        <div class="flex flex-wrap items-end gap-2">
+          <label class="block">
+            <span class="text-xs font-medium uppercase tracking-wide text-stone-500">Année source</span>
+            <select
+              bind:value={anneeSourceId}
+              class="mt-1 rounded-lg border border-stone-300 px-3 py-1.5 text-sm dark:border-stone-600 dark:bg-stone-800"
+            >
+              <option value={null}>—</option>
+              {#each listeAnnees as a (a.id)}
+                <option value={a.id}>{a.libelle}</option>
+              {/each}
+            </select>
+          </label>
+          <label class="block">
+            <span class="text-xs font-medium uppercase tracking-wide text-stone-500">Année cible</span>
+            <select
+              bind:value={anneeCibleId}
+              class="mt-1 rounded-lg border border-stone-300 px-3 py-1.5 text-sm dark:border-stone-600 dark:bg-stone-800"
+            >
+              <option value={null}>—</option>
+              {#each listeAnnees as a (a.id)}
+                <option value={a.id}>{a.libelle}</option>
+              {/each}
+            </select>
+          </label>
+          <button
+            class="btn-secondary"
+            onclick={traiterSortants}
+            disabled={actionEnCours || !anneeSourceId || !anneeCibleId}
+          >
+            <LogOut class="h-4 w-4" />
+            Traiter les sortants
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Détail par cible × état -->
     <div class="card p-4">

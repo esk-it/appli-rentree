@@ -30,6 +30,10 @@
   // Boucle KoXo → Google (Lot 8b) — MDP transportés en mémoire uniquement
   let fichierKoxoEnrichi = $state(/** @type {File|null} */ (null));
 
+  // Enregistrement du cycle de vie : inscrit les personnes du fichier en
+  // CompteCible(etat="prevu") — c'est ce qui alimente l'écran Suivi.
+  let enregistrerPrevus = $state(true);
+
   onMount(async () => {
     try {
       listeSites = await sitesApi.lister();
@@ -58,6 +62,7 @@
         categorie,
         anneeCibleId,
         anneeSourceId: anneeSourceRequise ? anneeSourceId : null,
+        enregistrerPrevus,
       };
       let r;
       if (cible === "koxo") {
@@ -70,20 +75,22 @@
         r = await exportsCible.pmb(params);
       } else if (cible === "jpm") {
         r = await exportsCible.jpm({
-          siteId, anneeCibleId, anneeSourceId,
+          siteId, anneeCibleId, anneeSourceId, enregistrerPrevus,
         });
       } else if (cible === "cardstudio") {
         r = await exportsCible.cardstudio({
-          siteId, categorie, anneeCibleId, anneeSourceId,
+          siteId, categorie, anneeCibleId, anneeSourceId, enregistrerPrevus,
         });
       }
       const labelCible = cible === "google" && fichierKoxoEnrichi ? "google (avec MDP)" : cible;
       dernierRapport = { ...r, cible: labelCible };
       telechargerFichierBase64(r.nom_fichier, r.contenu_base64, "text/csv");
-      const suffixe = r.nb_sans_ou > 0
-        ? ` (${r.nb_sans_ou} sans OU — classe hors table)`
-        : "";
-      notify.succes(`${r.nb_lignes} ligne(s) exportée(s) — ${r.nom_fichier}${suffixe}`);
+      const parts = [];
+      if (r.nb_sans_ou > 0) parts.push(`${r.nb_sans_ou} sans OU — classe hors table`);
+      if (r.nb_prevus_enregistres > 0) parts.push(`${r.nb_prevus_enregistres} compte(s) suivi(s)`);
+      const suffixe = parts.length ? ` (${parts.join(" ; ")})` : "";
+      const nb = r.nb_lignes ?? r.nb_total ?? 0;
+      notify.succes(`${nb} ligne(s) exportée(s) — ${r.nom_fichier}${suffixe}`);
     } catch (e) {
       erreur = String(e);
       notify.erreur(erreur);
@@ -273,6 +280,22 @@
           </button>
         {/if}
       </div>
+    {/if}
+
+    {#if categorie === "nouveaux"}
+      <label class="flex items-start gap-2 text-xs text-stone-700 dark:text-stone-300">
+        <input
+          type="checkbox"
+          bind:checked={enregistrerPrevus}
+          class="mt-0.5 h-4 w-4 rounded border-stone-300 text-emerald-700 focus:ring-emerald-500"
+        />
+        <span>
+          <strong>Enregistrer le suivi</strong> — inscrit les personnes du fichier
+          comme comptes <em>prévus</em> sur cette cible. C'est ce qui alimente
+          l'onglet <strong>Suivi</strong> ; tu confirmeras la création réelle
+          après l'import.
+        </span>
+      </label>
     {/if}
 
     <div class="flex gap-2">

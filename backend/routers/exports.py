@@ -1,11 +1,16 @@
-"""Endpoints d'exports vers les cibles (KoXo, Google, PMB, JPM…).
+"""Endpoints d'exports vers les cibles (KoXo, Google, PMB, JPM, CardStudio).
 
-Pour l'instant : KoXo uniquement (Lot 8a). Google et suivants viennent après.
+Le contenu du fichier est renvoyé en base64 dans un JSON — le frontend
+décode et déclenche le téléchargement (choix Tauri, pour éviter les popups
+du webview).
 
-Deux modes de retour possibles :
-- `Response(content=..., media_type="text/csv")` : téléchargement direct
-- JSON avec le contenu en base64 : pour le frontend qui affiche puis propose
-  le download (choix Tauri pour éviter les popups navigateur).
+## Enregistrement du cycle de vie
+
+Chaque export accepte `enregistrer_prevus`. Quand ce drapeau est vrai et
+que la catégorie est `nouveaux`, les personnes du fichier sont inscrites
+en `CompteCible(etat="prevu")` sur la cible concernée — c'est ce qui
+alimente l'écran Suivi. La confirmation de l'import effectif se fait
+ensuite via `POST /api/suivi/confirmer-creation`.
 """
 from __future__ import annotations
 
@@ -17,6 +22,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
+from backend.models import Site
+from backend.services.cycle_vie import (
+    SUFFIXE_PAR_DEFAUT,
+    SUFFIXE_SERVEUR_PAR_SITE,
+    enregistrer_prevus_pour_export,
+)
 from backend.services.exports_cardstudio import generer_xlsx_cardstudio
 from backend.services.exports_google import (
     generer_csv_google,
@@ -29,12 +40,60 @@ from backend.services.exports_pmb import generer_csv_pmb
 router = APIRouter(prefix="/api/exports", tags=["exports"])
 
 
+def _cible_pour_export(session: Session, famille: str, site_id: int) -> str:
+    """Résout le code cible d'un export.
+
+    `koxo` et `pmb` ont une instance par site (NDE rattaché à NDK) ; les
+    autres familles sont uniques.
+    """
+    if famille not in ("koxo", "pmb"):
+        return famille
+    site = session.query(Site).filter_by(id=site_id).one_or_none()
+    nom = site.nom.upper() if site else ""
+    suffixe = SUFFIXE_SERVEUR_PAR_SITE.get(nom, SUFFIXE_PAR_DEFAUT)
+    return f"{famille}_{suffixe}"
+
+
+def _enregistrer_si_demande(
+    session: Session,
+    *,
+    demande: bool,
+    famille: str,
+    site_id: int,
+    type_personne: str,
+    categorie: str,
+    annee_cible_id: int,
+    annee_source_id: int | None,
+) -> int:
+    """Inscrit les personnes de l'export en `prevu`. Retourne le nb créé.
+
+    Ne fait rien hors catégorie `nouveaux` : inscrire « tous » en prévu
+    n'aurait pas de sens (les comptes existants sont déjà actifs), et
+    « anciens » relève de la politique de sortie, pas de la création.
+    """
+    if not demande or categorie != "nouveaux":
+        return 0
+    cible = _cible_pour_export(session, famille, site_id)
+    rapport = enregistrer_prevus_pour_export(
+        session,
+        site_id=site_id,
+        type_personne=type_personne,
+        annee_cible_id=annee_cible_id,
+        annee_source_id=annee_source_id,
+        categorie=categorie,
+        cible_unique=cible,
+    )
+    session.commit()
+    return rapport.nb_crees
+
+
 class ExportKoxoPayload(BaseModel):
     site_id: int
     type_personne: Literal["eleve", "adulte"]
     categorie: Literal["tous", "nouveaux", "anciens"]
     annee_cible_id: int
     annee_source_id: int | None = None
+    enregistrer_prevus: bool = False
 
 
 class ExportKoxoReponse(BaseModel):
@@ -46,6 +105,7 @@ class ExportKoxoReponse(BaseModel):
     contenu_base64: str
     """Contenu CSV encodé cp1252 puis base64 — le frontend décode et déclenche
     le téléchargement."""
+    nb_prevus_enregistres: int = 0
 
 
 @router.post("/koxo", response_model=ExportKoxoReponse)
@@ -62,6 +122,16 @@ def exporter_koxo(
             annee_cible_id=payload.annee_cible_id,
             annee_source_id=payload.annee_source_id,
         )
+        nb_prevus = _enregistrer_si_demande(
+            session,
+            demande=payload.enregistrer_prevus,
+            famille="koxo",
+            site_id=payload.site_id,
+            type_personne=payload.type_personne,
+            categorie=payload.categorie,
+            annee_cible_id=payload.annee_cible_id,
+            annee_source_id=payload.annee_source_id,
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -72,6 +142,7 @@ def exporter_koxo(
         nb_lignes=rapport.nb_lignes,
         nom_fichier=rapport.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
+        nb_prevus_enregistres=nb_prevus,
     )
 
 
@@ -86,6 +157,7 @@ class ExportGooglePayload(BaseModel):
     categorie: Literal["tous", "nouveaux", "anciens"]
     annee_cible_id: int
     annee_source_id: int | None = None
+    enregistrer_prevus: bool = False
 
 
 class ExportGoogleReponse(BaseModel):
@@ -96,6 +168,7 @@ class ExportGoogleReponse(BaseModel):
     nb_sans_ou: int
     nom_fichier: str
     contenu_base64: str
+    nb_prevus_enregistres: int = 0
 
 
 @router.post("/google", response_model=ExportGoogleReponse)
@@ -106,6 +179,16 @@ def exporter_google(
     try:
         contenu, rapport = generer_csv_google(
             session=session,
+            site_id=payload.site_id,
+            type_personne=payload.type_personne,
+            categorie=payload.categorie,
+            annee_cible_id=payload.annee_cible_id,
+            annee_source_id=payload.annee_source_id,
+        )
+        nb_prevus = _enregistrer_si_demande(
+            session,
+            demande=payload.enregistrer_prevus,
+            famille="google",
             site_id=payload.site_id,
             type_personne=payload.type_personne,
             categorie=payload.categorie,
@@ -123,6 +206,7 @@ def exporter_google(
         nb_sans_ou=rapport.nb_sans_ou,
         nom_fichier=rapport.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
+        nb_prevus_enregistres=nb_prevus,
     )
 
 
@@ -205,6 +289,7 @@ class ExportPmbPayload(BaseModel):
     categorie: Literal["tous", "nouveaux", "anciens"]
     annee_cible_id: int
     annee_source_id: int | None = None
+    enregistrer_prevus: bool = False
 
 
 class ExportPmbReponse(BaseModel):
@@ -214,6 +299,7 @@ class ExportPmbReponse(BaseModel):
     nb_lignes: int
     nom_fichier: str
     contenu_base64: str
+    nb_prevus_enregistres: int = 0
 
 
 @router.post("/pmb", response_model=ExportPmbReponse)
@@ -224,6 +310,16 @@ def exporter_pmb(payload: ExportPmbPayload, session: Session = Depends(db_sessio
             categorie=payload.categorie, annee_cible_id=payload.annee_cible_id,
             annee_source_id=payload.annee_source_id,
         )
+        nb_prevus = _enregistrer_si_demande(
+            session,
+            demande=payload.enregistrer_prevus,
+            famille="pmb",
+            site_id=payload.site_id,
+            type_personne=payload.type_personne,
+            categorie=payload.categorie,
+            annee_cible_id=payload.annee_cible_id,
+            annee_source_id=payload.annee_source_id,
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
     return ExportPmbReponse(
@@ -231,6 +327,7 @@ def exporter_pmb(payload: ExportPmbPayload, session: Session = Depends(db_sessio
         categorie=rapport.categorie, nb_lignes=rapport.nb_lignes,
         nom_fichier=rapport.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
+        nb_prevus_enregistres=nb_prevus,
     )
 
 
@@ -243,6 +340,7 @@ class ExportJpmPayload(BaseModel):
     site_id: int
     annee_cible_id: int
     annee_source_id: int
+    enregistrer_prevus: bool = False
 
 
 class ExportJpmReponse(BaseModel):
@@ -253,6 +351,7 @@ class ExportJpmReponse(BaseModel):
     nb_total: int
     nom_fichier: str
     contenu_base64: str
+    nb_prevus_enregistres: int = 0
 
 
 @router.post("/jpm", response_model=ExportJpmReponse)
@@ -260,6 +359,17 @@ def exporter_jpm(payload: ExportJpmPayload, session: Session = Depends(db_sessio
     try:
         contenu, rapport = generer_csv_jpm(
             session=session, site_id=payload.site_id,
+            annee_cible_id=payload.annee_cible_id,
+            annee_source_id=payload.annee_source_id,
+        )
+        # JPM ne concerne que les élèves ; les « ajouts » (Op=a) sont les nouveaux.
+        nb_prevus = _enregistrer_si_demande(
+            session,
+            demande=payload.enregistrer_prevus,
+            famille="jpm",
+            site_id=payload.site_id,
+            type_personne="eleve",
+            categorie="nouveaux",
             annee_cible_id=payload.annee_cible_id,
             annee_source_id=payload.annee_source_id,
         )
@@ -271,6 +381,7 @@ def exporter_jpm(payload: ExportJpmPayload, session: Session = Depends(db_sessio
         nb_modifications=rapport.nb_modifications, nb_total=rapport.nb_total,
         nom_fichier=rapport.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
+        nb_prevus_enregistres=nb_prevus,
     )
 
 
@@ -284,6 +395,7 @@ class ExportCardStudioPayload(BaseModel):
     categorie: Literal["tous", "nouveaux"]
     annee_cible_id: int
     annee_source_id: int | None = None
+    enregistrer_prevus: bool = False
 
 
 class ExportCardStudioReponse(BaseModel):
@@ -291,6 +403,7 @@ class ExportCardStudioReponse(BaseModel):
     nb_lignes: int
     nom_fichier: str
     contenu_base64: str
+    nb_prevus_enregistres: int = 0
 
 
 @router.post("/cardstudio", response_model=ExportCardStudioReponse)
@@ -301,10 +414,21 @@ def exporter_cardstudio(payload: ExportCardStudioPayload, session: Session = Dep
             categorie=payload.categorie, annee_cible_id=payload.annee_cible_id,
             annee_source_id=payload.annee_source_id,
         )
+        nb_prevus = _enregistrer_si_demande(
+            session,
+            demande=payload.enregistrer_prevus,
+            famille="cardstudio",
+            site_id=payload.site_id,
+            type_personne="eleve",
+            categorie=payload.categorie,
+            annee_cible_id=payload.annee_cible_id,
+            annee_source_id=payload.annee_source_id,
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
     return ExportCardStudioReponse(
         site_nom=rapport.site_nom, nb_lignes=rapport.nb_lignes,
         nom_fichier=rapport.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
+        nb_prevus_enregistres=nb_prevus,
     )

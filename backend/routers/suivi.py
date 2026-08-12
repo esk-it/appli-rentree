@@ -8,6 +8,12 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
+from backend.services.cycle_vie import (
+    activer,
+    cibles_pour,
+    confirmer_creation,
+    traiter_sortants,
+)
 from backend.services.suivi import (
     comptes_a_purger,
     lister_par_etat,
@@ -108,3 +114,80 @@ def poster_sortant(
         "etat_avant": t.etat_avant, "etat_apres": t.etat_apres,
         "date_prevue_purge": t.date_prevue_purge.isoformat() if t.date_prevue_purge else None,
     }
+
+
+# ---------------------------------------------------------------------------
+# Transitions de cycle de vie
+# ---------------------------------------------------------------------------
+
+
+class RapportCycleOut(BaseModel):
+    operation: str
+    nb_crees: int
+    nb_transitions: int
+    nb_ignores: int
+    details: list[dict]
+    erreurs: list[str]
+
+
+class ConfirmerPayload(BaseModel):
+    cible: str
+    site_id: int | None = None
+
+
+@router.post("/confirmer-creation", response_model=RapportCycleOut)
+def poster_confirmer_creation(
+    payload: ConfirmerPayload, session: Session = Depends(db_session)
+) -> RapportCycleOut:
+    """Passe les comptes `prevu` à `cree` — après import effectif côté cible."""
+    try:
+        r = confirmer_creation(session, cible=payload.cible, site_id=payload.site_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    session.commit()
+    return RapportCycleOut(**r.__dict__)
+
+
+@router.post("/activer", response_model=RapportCycleOut)
+def poster_activer(
+    payload: ConfirmerPayload, session: Session = Depends(db_session)
+) -> RapportCycleOut:
+    """Passe les comptes `cree` à `actif`."""
+    try:
+        r = activer(session, cible=payload.cible, site_id=payload.site_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    session.commit()
+    return RapportCycleOut(**r.__dict__)
+
+
+class TraiterSortantsPayload(BaseModel):
+    annee_source_id: int
+    annee_cible_id: int
+
+
+@router.post("/traiter-sortants", response_model=RapportCycleOut)
+def poster_traiter_sortants(
+    payload: TraiterSortantsPayload, session: Session = Depends(db_session)
+) -> RapportCycleOut:
+    """Applique la politique de sortie à tous les sortants de la réconciliation.
+
+    Google → quarantaine +18 mois. Autres cibles → purge immédiate.
+    Aucune suppression n'est effectuée côté système tiers : seul l'état du
+    référentiel change.
+    """
+    try:
+        r = traiter_sortants(session, payload.annee_source_id, payload.annee_cible_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    session.commit()
+    return RapportCycleOut(**r.__dict__)
+
+
+@router.get("/cibles")
+def obtenir_cibles(site_nom: str, type_personne: str) -> dict:
+    """Cibles applicables à un couple (site, type de personne)."""
+    try:
+        return {"cibles": cibles_pour(site_nom, type_personne)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))

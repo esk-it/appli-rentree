@@ -247,6 +247,32 @@ export const suivi = {
       }),
     );
   },
+  async confirmerCreation({ cible, siteId = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/suivi/confirmer-creation`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cible, site_id: siteId }),
+      }),
+    );
+  },
+  async activer({ cible, siteId = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/suivi/activer`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cible, site_id: siteId }),
+      }),
+    );
+  },
+  async traiterSortants({ anneeSourceId, anneeCibleId }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/suivi/traiter-sortants`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annee_source_id: anneeSourceId, annee_cible_id: anneeCibleId,
+        }),
+      }),
+    );
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -277,7 +303,7 @@ export const simulation = {
 // Exports vers les cibles (KoXo, Google, PMB, JPM…)
 // ---------------------------------------------------------------------------
 export const exportsCible = {
-  async koxo({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null }) {
+  async koxo({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null, enregistrerPrevus = false }) {
     return jsonOrThrow(
       await fetch(`${BASE}/exports/koxo`, {
         method: "POST",
@@ -288,11 +314,12 @@ export const exportsCible = {
           categorie,
           annee_cible_id: anneeCibleId,
           annee_source_id: anneeSourceId,
+          enregistrer_prevus: enregistrerPrevus,
         }),
       }),
     );
   },
-  async google({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null }) {
+  async google({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null, enregistrerPrevus = false }) {
     return jsonOrThrow(
       await fetch(`${BASE}/exports/google`, {
         method: "POST",
@@ -303,6 +330,7 @@ export const exportsCible = {
           categorie,
           annee_cible_id: anneeCibleId,
           annee_source_id: anneeSourceId,
+          enregistrer_prevus: enregistrerPrevus,
         }),
       }),
     );
@@ -332,34 +360,37 @@ export const exportsCible = {
       }),
     );
   },
-  async pmb({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null }) {
+  async pmb({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null, enregistrerPrevus = false }) {
     return jsonOrThrow(
       await fetch(`${BASE}/exports/pmb`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
           site_id: siteId, type_personne: typePersonne, categorie,
           annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+          enregistrer_prevus: enregistrerPrevus,
         }),
       }),
     );
   },
-  async jpm({ siteId, anneeCibleId, anneeSourceId }) {
+  async jpm({ siteId, anneeCibleId, anneeSourceId, enregistrerPrevus = false }) {
     return jsonOrThrow(
       await fetch(`${BASE}/exports/jpm`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
           site_id: siteId, annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+          enregistrer_prevus: enregistrerPrevus,
         }),
       }),
     );
   },
-  async cardstudio({ siteId, categorie, anneeCibleId, anneeSourceId = null }) {
+  async cardstudio({ siteId, categorie, anneeCibleId, anneeSourceId = null, enregistrerPrevus = false }) {
     return jsonOrThrow(
       await fetch(`${BASE}/exports/cardstudio`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
           site_id: siteId, categorie,
           annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+          enregistrer_prevus: enregistrerPrevus,
         }),
       }),
     );
