@@ -4,10 +4,23 @@
  * L'app interroge le `latest.json` publié sur GitHub Releases au démarrage.
  * Si une nouvelle version est dispo et que l'utilisateur accepte, on télécharge
  * et installe en arrière-plan, puis on relance l'app.
+ *
+ * ## Pourquoi l'erreur est remontée et non avalée
+ *
+ * Une version antérieure se contentait d'un `console.warn` en cas d'échec.
+ * La console n'étant pas accessible dans l'app packagée, un échec de
+ * vérification (réseau, proxy d'établissement, GitHub injoignable, signature
+ * invalide) se traduisait par... rien du tout. L'utilisateur constatait
+ * l'absence de mise à jour sans pouvoir en connaître la cause.
+ *
+ * `verifierMaj()` retourne désormais le détail de l'échec, que l'interface
+ * affiche et que le backend journalise dans `backend.log`.
  */
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { invoke } from "@tauri-apps/api/core";
+
+const BASE = import.meta.env.PROD ? "http://127.0.0.1:8020/api" : "/api";
 
 /**
  * @typedef {Object} ProgressionMaj
@@ -17,8 +30,34 @@ import { invoke } from "@tauri-apps/api/core";
  */
 
 /**
+ * @typedef {Object} ResultatVerification
+ * @property {boolean} disponible
+ * @property {string} [version]
+ * @property {any} [update]
+ * @property {string} [erreur]        - message lisible si la vérification a échoué
+ * @property {boolean} [aEchoue]      - distingue « pas de maj » de « vérification impossible »
+ */
+
+/**
+ * Envoie une trace au backend pour qu'elle atterrisse dans backend.log.
+ *
+ * Best-effort : si le backend ne répond pas, on n'aggrave pas la situation.
+ */
+async function tracerBackend(message) {
+  try {
+    await fetch(`${BASE}/trace-frontend`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ source: "updater", message }),
+    });
+  } catch {
+    // Le backend est peut-être en train de démarrer — sans conséquence.
+  }
+}
+
+/**
  * Vérifie s'il y a une mise à jour disponible.
- * @returns {Promise<{disponible: boolean, version?: string, update?: any}>}
+ * @returns {Promise<ResultatVerification>}
  */
 export async function verifierMaj() {
   try {
@@ -26,11 +65,12 @@ export async function verifierMaj() {
     if (update?.available) {
       return { disponible: true, version: update.version, update };
     }
-    return { disponible: false };
+    return { disponible: false, aEchoue: false };
   } catch (e) {
-    // En dev (sans signature/endpoint), check() peut lever — on l'ignore.
+    const message = e instanceof Error ? e.message : String(e);
     console.warn("[updater] Vérification impossible :", e);
-    return { disponible: false };
+    tracerBackend(`Vérification de mise à jour impossible : ${message}`);
+    return { disponible: false, aEchoue: true, erreur: message };
   }
 }
 

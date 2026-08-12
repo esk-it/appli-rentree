@@ -18,6 +18,8 @@
   import FileDown from "@lucide/svelte/icons/file-down";
   import Zap from "@lucide/svelte/icons/zap";
   import Activity from "@lucide/svelte/icons/activity";
+  import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Personnes from "./routes/Personnes.svelte";
   import Sites from "./routes/Sites.svelte";
@@ -62,6 +64,28 @@
   let majDisponible = $state(/** @type {null | {version: string, update: any}} */ (null));
   let majEnCours = $state(false);
   let majProgression = $state({ phase: "", pourcentage: 0, version: "" });
+  let majErreur = $state("");
+  let majVerifiee = $state(false);
+  let majVerificationEnCours = $state(false);
+
+  async function verifierMiseAJour({ manuelle = false } = {}) {
+    majVerificationEnCours = true;
+    majErreur = "";
+    try {
+      const maj = await verifierMaj();
+      majVerifiee = true;
+      if (maj.disponible) {
+        majDisponible = { version: maj.version, update: maj.update };
+      } else if (maj.aEchoue) {
+        majErreur = maj.erreur ?? "cause inconnue";
+        if (manuelle) notify.erreur(`Vérification impossible : ${majErreur}`, { duree: 8000 });
+      } else if (manuelle) {
+        notify.info(`Aucune mise à jour — tu es déjà en v${versionBackend}`);
+      }
+    } finally {
+      majVerificationEnCours = false;
+    }
+  }
 
   // Page courante (très simple pour l'instant — on basculera sur svelte-spa-router quand on aura plus de routes)
   let page = $state("accueil");
@@ -99,10 +123,7 @@
     }
 
     // 2. Vérification de mise à jour (en parallèle de l'app qui démarre)
-    const maj = await verifierMaj();
-    if (maj.disponible) {
-      majDisponible = { version: maj.version, update: maj.update };
-    }
+    await verifierMiseAJour();
 
     // 3. Compteur arbitrages en attente (badge sidebar)
     rafraichirArbitrages();
@@ -189,6 +210,26 @@
       </button>
     </div>
   {/if}
+  {#if majErreur && !majEnCours}
+    <!-- Échec de vérification : rendu visible plutôt qu'avalé en console,
+         inaccessible dans l'app packagée. -->
+    <div class="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 dark:border-amber-800 dark:bg-amber-900/20">
+      <div class="flex items-start gap-2 text-sm text-amber-900 dark:text-amber-200">
+        <AlertTriangle class="mt-0.5 h-4 w-4 shrink-0" />
+        <span>
+          Impossible de vérifier les mises à jour :
+          <span class="font-mono text-xs">{majErreur}</span>
+        </span>
+      </div>
+      <button
+        class="btn-secondary !py-1 !px-3 text-xs shrink-0"
+        onclick={() => verifierMiseAJour({ manuelle: true })}
+        disabled={majVerificationEnCours}
+      >
+        Réessayer
+      </button>
+    </div>
+  {/if}
   {#if majEnCours}
     <div class="flex items-center gap-3 border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-900">
       <span>
@@ -269,11 +310,21 @@
     </nav>
 
     <div class="border-t border-stone-200 p-3 text-xs text-stone-500 dark:border-stone-700 dark:text-stone-400">
-      <div class="flex items-center gap-2">
-        <span
-          class="inline-block h-2 w-2 rounded-full {backendOk === true ? 'bg-emerald-500' : backendOk === false ? 'bg-red-500' : 'bg-stone-300'}"
-        ></span>
-        Backend{backendOk === true ? ` v${versionBackend}` : backendOk === false ? " hors-ligne" : "…"}
+      <div class="flex items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+          <span
+            class="inline-block h-2 w-2 rounded-full {backendOk === true ? 'bg-emerald-500' : backendOk === false ? 'bg-red-500' : 'bg-stone-300'}"
+          ></span>
+          Backend{backendOk === true ? ` v${versionBackend}` : backendOk === false ? " hors-ligne" : "…"}
+        </div>
+        <button
+          class="rounded-md p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700 disabled:opacity-40 dark:hover:bg-stone-700 dark:hover:text-stone-200"
+          title="Vérifier les mises à jour maintenant"
+          onclick={() => verifierMiseAJour({ manuelle: true })}
+          disabled={majVerificationEnCours}
+        >
+          <RefreshCw class="h-3.5 w-3.5 {majVerificationEnCours ? 'animate-spin' : ''}" />
+        </button>
       </div>
     </div>
   </aside>

@@ -95,7 +95,7 @@ app = FastAPI(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.37.0",
+    version="0.37.1",
     lifespan=lifespan,
 )
 
@@ -160,6 +160,24 @@ def dernieres_logs(n: int = 200) -> dict:
     except OSError as e:
         return {"lignes": [], "erreur": str(e)}
     return {"chemin": str(CHEMIN_LOG), "lignes": [l.rstrip() for l in lignes[-n:]]}
+
+
+@app.post("/api/trace-frontend")
+async def trace_frontend(request: Request) -> dict:
+    """Reçoit une trace du frontend pour la faire atterrir dans backend.log.
+
+    Le webview n'expose pas de console dans l'app packagée : sans ce relais,
+    une erreur côté interface (échec de vérification de mise à jour, par
+    exemple) resterait invisible et indiagnosticable.
+    """
+    try:
+        corps = await request.json()
+    except Exception:
+        corps = {}
+    source = str(corps.get("source", "frontend"))[:50]
+    message = str(corps.get("message", ""))[:2000]
+    log.warning("[%s] %s", source, message)
+    return {"ok": True}
 
 
 @app.post("/api/shutdown")
