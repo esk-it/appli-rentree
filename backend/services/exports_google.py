@@ -38,6 +38,7 @@ from __future__ import annotations
 import csv
 import io
 from dataclasses import dataclass
+from datetime import date
 from typing import Literal
 
 from sqlalchemy.orm import Session
@@ -106,6 +107,8 @@ class ContexteExport:
     annee_source_id: int | None
     # Résolution OU par code classe
     ou_par_classe: dict[str, tuple[str, str]]  # {code_court: (ou_pre_rentree, ou_definitive)}
+    ou_sortants: str = ""
+    """OU d'archivage horodatée, calculée une fois pour la catégorie `anciens`."""
 
 
 @dataclass
@@ -158,6 +161,9 @@ def generer_csv_google(
         annee_cible_id=annee_cible_id,
         annee_source_id=annee_source_id,
         ou_par_classe=ou_par_classe,
+        ou_sortants=(
+            calculer_ou_sortants(session) if categorie == "anciens" else ""
+        ),
     )
 
     if categorie == "tous":
@@ -294,6 +300,26 @@ def _formatter_ligne(
     return ligne
 
 
+def calculer_ou_sortants(session: Session, *, aujourd_hui: date | None = None) -> str:
+    """OU d'archivage horodatée des sortants.
+
+    Reprend la convention du prédécesseur : la date d'échéance de purge
+    figure dans le nom de l'OU, ce qui rend le ménage annuel lisible depuis
+    la console Google sans consulter le référentiel.
+
+        /7. Sortis/Comptes à supprimer au 31-12-2027
+
+    L'échéance est la fin de quarantaine (18 mois), arrondie au 31 décembre
+    de l'année concernée — un seul dossier par campagne plutôt qu'un par jour.
+    """
+    from backend.services.configuration import get_param
+    from backend.services.suivi import QUARANTAINE_GOOGLE
+
+    racine = (get_param(session, "google.ou_sortants") or "/7. Sortis").rstrip("/")
+    echeance = (aujourd_hui or date.today()) + QUARANTAINE_GOOGLE
+    return f"{racine}/Comptes à supprimer au 31-12-{echeance.year}"
+
+
 def _resoudre_ou(snapshot: Snapshot, ctx: ContexteExport, *, ou_pre_rentree: bool) -> str:
     """Résout l'OU à partir de la classe du snapshot et du paramétrage TableCorrespondance.
 
@@ -301,6 +327,11 @@ def _resoudre_ou(snapshot: Snapshot, ctx: ContexteExport, *, ou_pre_rentree: boo
     via `nb_sans_ou`. L'utilisateur devra soit compléter la Table, soit
     déplacer la personne à la main.
     """
+    # Sortants : tout le monde part dans l'OU d'archivage, quel que soit
+    # le type de personne ou la classe d'origine.
+    if ctx.categorie == "anciens":
+        return ctx.ou_sortants
+
     if ctx.type_personne == "adulte":
         # Adultes : pas de classe, on utilise la racine du site
         return ctx.site.prefixe_racine_ou()

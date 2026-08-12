@@ -360,6 +360,17 @@ export const exportsCible = {
       }),
     );
   },
+  async googleGroupes({ siteId, anneeId, inclureEleves = true, inclureProfs = true }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/google-groupes`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId, annee_id: anneeId,
+          inclure_eleves: inclureEleves, inclure_profs: inclureProfs,
+        }),
+      }),
+    );
+  },
   async pmb({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null, enregistrerPrevus = false }) {
     return jsonOrThrow(
       await fetch(`${BASE}/exports/pmb`, {

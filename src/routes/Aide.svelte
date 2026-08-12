@@ -145,9 +145,16 @@
           <li><strong>PMB</strong> — CSV ;-séparateur pour l'import bibliothèque CDI.</li>
           <li><strong>JPM/SmartAir</strong> — CSV différentiel (<code>Op = a/b/m</code>)
             pour les badges d'accès.</li>
+          <li><strong>Groupes Google</strong> — CSV 4 colonnes d'appartenances :
+            les élèves dans la mailing list de leur classe, les enseignants dans
+            le groupe profs de chaque classe où ils sont professeur principal.</li>
           <li><strong>CardStudio</strong> — XLSX 13 colonnes pour l'impression visuelle
             des badges (photo + chambre).</li>
         </ul>
+        <p><strong>Sortants Google</strong> — la catégorie <em>Anciens</em> place
+          tout le monde dans l'OU d'archivage horodatée
+          (<code>/7. Sortis/Comptes à supprimer au 31-12-AAAA</code>), quelle que
+          soit la classe d'origine. La racine est configurable dans les Paramètres.</p>
         <p><strong>Boucle KoXo → Google (Lot 8b)</strong> — quand tu as le CSV KoXo
           re-exporté après création (avec MDP générés), tu le déposes dans l'écran
           Google Nouveaux pour enrichir le CSV Google. Les MDP transitent en mémoire

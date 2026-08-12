@@ -76,6 +76,18 @@ CATALOGUE: list[DefinitionParametre] = [
         categorie="Mots de passe",
     ),
     DefinitionParametre(
+        cle="google.ou_sortants",
+        libelle="Racine OU des sortants",
+        description=(
+            "Unité d'organisation d'archivage des comptes sortants. La date "
+            "d'échéance de purge est ajoutée automatiquement : "
+            "/7. Sortis/Comptes à supprimer au 31-12-2027."
+        ),
+        type="str",
+        defaut="/7. Sortis",
+        categorie="Google Workspace",
+    ),
+    DefinitionParametre(
         cle="chemin_dossier_photos",
         libelle="Dossier des photos élèves",
         description=(

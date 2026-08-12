@@ -33,6 +33,7 @@ from backend.services.exports_google import (
     generer_csv_google,
     generer_csv_google_avec_mdp,
 )
+from backend.services.exports_google_groupes import generer_csv_groupes_google
 from backend.services.exports_jpm import generer_csv_jpm
 from backend.services.exports_koxo import generer_csv_koxo
 from backend.services.exports_pmb import generer_csv_pmb
@@ -274,6 +275,65 @@ def exporter_google_avec_mdp(
         nb_sans_ou=rapport.nb_sans_ou,
         nb_mdp_orphelins=rapport.nb_mdp_orphelins,
         nom_fichier=rapport.nom_fichier_suggere,
+        contenu_base64=base64.b64encode(contenu).decode("ascii"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Groupes Google (appartenances) — mailing lists de classe + groupes profs
+# ---------------------------------------------------------------------------
+
+
+class ExportGroupesPayload(BaseModel):
+    site_id: int
+    annee_id: int
+    inclure_eleves: bool = True
+    inclure_profs: bool = True
+
+
+class ExportGroupesReponse(BaseModel):
+    site_nom: str
+    annee_libelle: str
+    nb_lignes: int
+    nb_lignes_eleves: int
+    nb_lignes_profs: int
+    nb_groupes_classes: int
+    nb_groupes_profs: int
+    classes_sans_groupe: list[str]
+    groupes_profs_vides: list[str]
+    nb_membres_sans_email: int
+    nom_fichier: str
+    contenu_base64: str
+
+
+@router.post("/google-groupes", response_model=ExportGroupesReponse)
+def exporter_groupes_google(
+    payload: ExportGroupesPayload, session: Session = Depends(db_session)
+) -> ExportGroupesReponse:
+    """Génère le CSV d'appartenance aux groupes Google."""
+    try:
+        contenu, r = generer_csv_groupes_google(
+            session=session,
+            site_id=payload.site_id,
+            annee_id=payload.annee_id,
+            inclure_eleves=payload.inclure_eleves,
+            inclure_profs=payload.inclure_profs,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    return ExportGroupesReponse(
+        site_nom=r.site_nom,
+        annee_libelle=r.annee_libelle,
+        nb_lignes=r.nb_lignes,
+        nb_lignes_eleves=r.nb_lignes_eleves,
+        nb_lignes_profs=r.nb_lignes_profs,
+        nb_groupes_classes=r.nb_groupes_classes,
+        nb_groupes_profs=r.nb_groupes_profs,
+        classes_sans_groupe=r.classes_sans_groupe,
+        groupes_profs_vides=r.groupes_profs_vides,
+        nb_membres_sans_email=r.nb_membres_sans_email,
+        nom_fichier=r.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
     )
 

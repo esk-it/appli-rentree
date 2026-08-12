@@ -16,7 +16,13 @@
   let listeSites = $state([]);
   let listeAnnees = $state([]);
 
-  let cible = $state(/** @type {"koxo"|"google"|"pmb"|"jpm"|"cardstudio"} */ ("koxo"));
+  let cible = $state(
+    /** @type {"koxo"|"google"|"groupes"|"pmb"|"jpm"|"cardstudio"} */ ("koxo"),
+  );
+
+  // Groupes Google : quelles familles inclure
+  let inclureEleves = $state(true);
+  let inclureProfs = $state(true);
   let siteId = $state(/** @type {null | number} */ (null));
   let typePersonne = $state(/** @type {"eleve"|"adulte"} */ ("eleve"));
   let categorie = $state(/** @type {"tous"|"nouveaux"|"anciens"} */ ("tous"));
@@ -71,6 +77,10 @@
         r = fichierKoxoEnrichi
           ? await exportsCible.googleAvecMdp({ fichierKoxo: fichierKoxoEnrichi, ...params })
           : await exportsCible.google(params);
+      } else if (cible === "groupes") {
+        r = await exportsCible.googleGroupes({
+          siteId, anneeId: anneeCibleId, inclureEleves, inclureProfs,
+        });
       } else if (cible === "pmb") {
         r = await exportsCible.pmb(params);
       } else if (cible === "jpm") {
@@ -135,6 +145,7 @@
         {#each [
           { id: "koxo", label: "KoXo" },
           { id: "google", label: "Google" },
+          { id: "groupes", label: "Groupes" },
           { id: "pmb", label: "PMB" },
           { id: "jpm", label: "JPM" },
           { id: "cardstudio", label: "CardStudio" },
@@ -153,7 +164,7 @@
     <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
       <label class="block">
         <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">
-          Site KoXo cible
+          Site cible
         </span>
         <select
           bind:value={siteId}
@@ -165,7 +176,7 @@
           {/each}
         </select>
       </label>
-      <label class="block">
+      <label class="block {cible === 'groupes' ? 'opacity-40 pointer-events-none' : ''}">
         <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">
           Type de population
         </span>
@@ -177,7 +188,7 @@
           <option value="adulte">Adultes / Profs</option>
         </select>
       </label>
-      <label class="block">
+      <label class="block {cible === 'groupes' ? 'opacity-40 pointer-events-none' : ''}">
         <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">
           Catégorie
         </span>
@@ -191,6 +202,27 @@
         </select>
       </label>
     </div>
+
+    {#if cible === "groupes"}
+      <div class="flex flex-wrap gap-4 rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
+        <label class="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            bind:checked={inclureEleves}
+            class="h-4 w-4 rounded border-stone-300 text-emerald-700 focus:ring-emerald-500"
+          />
+          Mailing lists de classe (élèves)
+        </label>
+        <label class="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            bind:checked={inclureProfs}
+            class="h-4 w-4 rounded border-stone-300 text-emerald-700 focus:ring-emerald-500"
+          />
+          Groupes d'enseignants
+        </label>
+      </div>
+    {/if}
 
     <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
       <label class="block">
@@ -229,7 +261,22 @@
       <div class="flex items-start gap-2 text-stone-700 dark:text-stone-300">
         <Info class="mt-0.5 h-4 w-4 shrink-0" />
         <div class="space-y-1">
-          {#if cible === "koxo"}
+          {#if cible === "groupes"}
+            <p>
+              Appartenances aux groupes Google — un fichier à charger dans
+              <strong>Admin Google → Groupes → Importer des membres</strong>.
+            </p>
+            <p>
+              Les adresses viennent de la <strong>Table de correspondance</strong> :
+              colonne <em>groupe Google</em> pour les élèves de la classe, colonne
+              <em>groupe profs</em> pour les enseignants.
+            </p>
+            <p class="text-stone-500">
+              Les enseignants sont déduits du champ Charlemagne « Liste des classes
+              (prof principal) » — un intervenant qui n'est pas professeur principal
+              n'y figure pas. Le rapport signale les groupes restés vides.
+            </p>
+          {:else if cible === "koxo"}
             {#if categorie === "tous"}
               <p>Toutes les personnes du site+type ayant un snapshot dans l'année cible. Utile pour un import massif initial ou une resynchronisation.</p>
             {:else if categorie === "nouveaux"}
@@ -333,6 +380,19 @@
           {#if dernierRapport.nb_sans_ou > 0}
             <p class="text-xs text-amber-700 dark:text-amber-400">
               ⚠ {dernierRapport.nb_sans_ou} ligne(s) sans OU — leur classe n'est pas dans la Table de correspondance.
+            </p>
+          {/if}
+          {#if dernierRapport.classes_sans_groupe?.length > 0}
+            <p class="text-xs text-amber-700 dark:text-amber-400">
+              ⚠ {dernierRapport.classes_sans_groupe.length} classe(s) sans adresse de groupe :
+              <span class="font-mono">{dernierRapport.classes_sans_groupe.join(", ")}</span>
+            </p>
+          {/if}
+          {#if dernierRapport.groupes_profs_vides?.length > 0}
+            <p class="text-xs text-stone-500">
+              {dernierRapport.groupes_profs_vides.length} groupe(s) profs sans aucun
+              enseignant rattaché — le champ « prof principal » ne couvre pas tous
+              les intervenants.
             </p>
           {/if}
         </div>
