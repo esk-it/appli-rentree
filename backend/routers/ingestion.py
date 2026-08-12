@@ -99,6 +99,34 @@ def _executer_ingestion(
         libelle_annee=libelle_annee,
         mode=mode,
     )
+
+    # Trace l'ingestion — jamais bloquant pour le résultat rendu à l'appelant.
+    try:
+        from backend.services.journal import journaliser
+
+        journaliser(
+            session,
+            type_operation="ingestion",
+            cible=type_personne,
+            mode=mode,
+            annee_libelle=libelle_annee,
+            parametres={"fichier": chemin.name},
+            resultat={
+                "nb_lignes_lues": rapport.nb_lignes_lues,
+                "nb_lignes_ingerees": rapport.nb_lignes_ingerees,
+                "nb_lignes_ignorees": rapport.nb_lignes_ignorees,
+                "nb_personnes_creees": rapport.nb_personnes_creees,
+                "nb_personnes_mises_a_jour": rapport.nb_personnes_mises_a_jour,
+                "nb_snapshots_crees": rapport.nb_snapshots_crees,
+                "nb_classes_inconnues": len(rapport.classes_inconnues),
+                "nb_collisions_login": len(rapport.collisions_login),
+                "nb_homonymes": len(rapport.homonymes_intra_export),
+            },
+        )
+        session.commit()
+    except Exception:  # pragma: no cover — le journal ne doit rien casser
+        session.rollback()
+
     return _rapport_vers_out(rapport)
 
 

@@ -285,6 +285,32 @@ export const statistiques = {
   async annee(anneeId) {
     return jsonOrThrow(await fetch(`${BASE}/statistiques/annee/${anneeId}`));
   },
+  async anomalies({ anneeId = null, verifierPhotos = false } = {}) {
+    const p = new URLSearchParams();
+    if (anneeId) p.set("annee_id", String(anneeId));
+    if (verifierPhotos) p.set("verifier_photos", "true");
+    const qs = p.toString();
+    return jsonOrThrow(
+      await fetch(`${BASE}/statistiques/anomalies${qs ? `?${qs}` : ""}`),
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Journal des opérations
+// ---------------------------------------------------------------------------
+export const journal = {
+  async lister({ typeOperation = null, cible = null, anneeLibelle = null, limite = 100 } = {}) {
+    const p = new URLSearchParams();
+    if (typeOperation) p.set("type_operation", typeOperation);
+    if (cible) p.set("cible", cible);
+    if (anneeLibelle) p.set("annee_libelle", anneeLibelle);
+    p.set("limite", String(limite));
+    return jsonOrThrow(await fetch(`${BASE}/journal?${p.toString()}`));
+  },
+  async comparaison(generationId) {
+    return jsonOrThrow(await fetch(`${BASE}/journal/${generationId}/comparaison`));
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -296,6 +322,13 @@ export const simulation = {
     p.set("annee_source_id", String(anneeSourceId));
     p.set("annee_cible_id", String(anneeCibleId));
     return jsonOrThrow(await fetch(`${BASE}/simulation?${p.toString()}`));
+  },
+  async exporter({ anneeSourceId, anneeCibleId, format = "texte" }) {
+    const p = new URLSearchParams();
+    p.set("annee_source_id", String(anneeSourceId));
+    p.set("annee_cible_id", String(anneeCibleId));
+    p.set("format", format);
+    return jsonOrThrow(await fetch(`${BASE}/simulation/export?${p.toString()}`));
   },
 };
 

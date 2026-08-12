@@ -105,4 +105,25 @@ def amorcer_koxo(
         except OSError:
             pass
 
+    try:
+        from backend.services.journal import journaliser
+
+        journaliser(
+            session,
+            type_operation="amorcage",
+            cible=payload.type_personne,
+            mode=payload.mode,
+            parametres={"site": rapport.site, "fichier": payload.nom_fichier},
+            resultat={
+                "nb_lignes_lues": rapport.nb_lignes_lues,
+                "nb_creations": rapport.nb_creations,
+                "nb_deja_presentes": rapport.nb_deja_presentes,
+                "nb_conflits_login": rapport.nb_conflits_login,
+                "nb_rejets": rapport.nb_rejets,
+            },
+        )
+        session.commit()
+    except Exception:  # pragma: no cover — le journal ne doit rien casser
+        session.rollback()
+
     return _to_out(rapport)

@@ -151,14 +151,20 @@ def _migrer_colonnes_manquantes() -> list[str]:
 
 
 def _detecter_tables_avec_drift() -> dict[str, list[str]]:
-    """Repère les tables dont une colonne existe mais avec un attribut divergent.
+    """Repère les tables dont le schéma réel diverge du modèle.
 
-    Compare pour chaque colonne présente en base ET dans le modèle :
-    - le `nullable` (une ancienne version peut avoir NOT NULL alors que le
-      modèle actuel autorise NULL, ou l'inverse).
+    Deux formes de divergence détectées :
 
-    Ne gère PAS les changements de type — trop rare, préférable de laisser
-    tomber en erreur pour attirer l'attention.
+    1. **Nullabilité** — une colonne existe des deux côtés mais avec un
+       `nullable` différent (ex. `arbitrage.decision` passé de NOT NULL à
+       nullable en v0.26.0).
+    2. **Colonne obsolète bloquante** — une colonne NOT NULL sans valeur
+       par défaut existe en base mais plus dans le modèle. `create_all`
+       ne la supprime jamais, et tout INSERT échouerait puisque le modèle
+       ne la renseigne plus.
+
+    Ne gère PAS les changements de type — trop rare, et mieux vaut échouer
+    bruyamment que convertir en silence.
 
     Retourne `{nom_table: [descriptions des drifts]}` — clef seulement si
     au moins un drift.
@@ -171,7 +177,9 @@ def _detecter_tables_avec_drift() -> dict[str, list[str]]:
         if table.name not in tables_reelles:
             continue
         cols_reelles = {c["name"]: c for c in inspector.get_columns(table.name)}
+        cols_modele = {col.name for col in table.columns}
         anomalies: list[str] = []
+
         for col in table.columns:
             real = cols_reelles.get(col.name)
             if real is None:
@@ -181,6 +189,14 @@ def _detecter_tables_avec_drift() -> dict[str, list[str]]:
                 anomalies.append(
                     f"{col.name}: nullable modèle={col.nullable} vs base={nullable_reel}"
                 )
+
+        for nom, real in cols_reelles.items():
+            if nom in cols_modele:
+                continue
+            bloquante = not real.get("nullable", True) and real.get("default") is None
+            if bloquante:
+                anomalies.append(f"{nom}: colonne obsolète NOT NULL sans défaut")
+
         if anomalies:
             drifts[table.name] = anomalies
     return drifts

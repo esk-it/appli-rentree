@@ -136,6 +136,64 @@ def test_drift_nullability_recreation_si_vide(session, tmp_db_path):
     assert arb.decision is None
 
 
+def test_colonne_obsolete_not_null_declenche_recreation(session, tmp_db_path):
+    """Une colonne NOT NULL restée en base mais absente du modèle bloque les INSERT.
+
+    Cas réel : la table `generation` d'avant v0.36.0 avait `annee_n`,
+    `nb_fichiers`, `nb_lignes_total` en NOT NULL. Le modèle actuel ne les
+    renseigne plus — sans recréation, tout INSERT échouerait.
+    """
+    from backend.database import _engine, _recreer_tables_vides_avec_drift
+    from backend.models import Generation
+
+    with _engine.begin() as conn:
+        conn.execute(text("DROP TABLE generation"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE generation (
+                    id INTEGER PRIMARY KEY,
+                    date_creation DATETIME NOT NULL,
+                    type_operation VARCHAR(30) NOT NULL,
+                    cible VARCHAR(50),
+                    mode VARCHAR(20),
+                    annee_libelle VARCHAR(20),
+                    annee_source_libelle VARCHAR(20),
+                    parametres_json TEXT NOT NULL,
+                    resultat_json TEXT NOT NULL,
+                    notes VARCHAR(500),
+                    annee_n VARCHAR(20) NOT NULL,
+                    nb_fichiers INTEGER NOT NULL
+                )
+                """
+            )
+        )
+
+    recreees = _recreer_tables_vides_avec_drift()
+    assert "generation" in recreees
+
+    # L'INSERT passe maintenant sans renseigner les colonnes disparues
+    g = Generation(
+        type_operation="export",
+        parametres_json="{}",
+        resultat_json="{}",
+    )
+    session.add(g)
+    session.commit()
+    assert g.id is not None
+
+
+def test_colonne_obsolete_nullable_est_toleree(session, tmp_db_path):
+    """Une colonne obsolète mais nullable ne gêne pas — pas de recréation."""
+    from backend.database import _engine, _recreer_tables_vides_avec_drift
+
+    with _engine.begin() as conn:
+        conn.execute(text("ALTER TABLE generation ADD COLUMN vieux_champ VARCHAR(50)"))
+
+    recreees = _recreer_tables_vides_avec_drift()
+    assert "generation" not in recreees
+
+
 def test_drift_nullability_ne_touche_pas_table_non_vide(session, tmp_db_path):
     """Si la table a des données, on ne la drop pas — warning et on laisse."""
     from backend.database import _engine, _recreer_tables_vides_avec_drift

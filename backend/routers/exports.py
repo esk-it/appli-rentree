@@ -37,8 +37,49 @@ from backend.services.exports_google_groupes import generer_csv_groupes_google
 from backend.services.exports_jpm import generer_csv_jpm
 from backend.services.exports_koxo import generer_csv_koxo
 from backend.services.exports_pmb import generer_csv_pmb
+from backend.services.journal import journaliser
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])
+
+
+def _libelle_annee(session: Session, annee_id: int | None) -> str | None:
+    if annee_id is None:
+        return None
+    from backend.models import AnneeScolaire
+
+    a = session.query(AnneeScolaire).filter_by(id=annee_id).one_or_none()
+    return a.libelle if a else None
+
+
+def _journaliser_export(
+    session: Session,
+    *,
+    cible: str,
+    site_nom: str,
+    type_personne: str | None,
+    categorie: str | None,
+    annee_cible_id: int,
+    annee_source_id: int | None,
+    resultat: dict,
+) -> None:
+    """Trace l'export dans le journal. Ne bloque jamais la génération."""
+    try:
+        journaliser(
+            session,
+            type_operation="export",
+            cible=cible,
+            annee_libelle=_libelle_annee(session, annee_cible_id),
+            annee_source_libelle=_libelle_annee(session, annee_source_id),
+            parametres={
+                "site": site_nom,
+                "type_personne": type_personne,
+                "categorie": categorie,
+            },
+            resultat=resultat,
+        )
+        session.commit()
+    except Exception:  # pragma: no cover — le journal ne doit rien casser
+        session.rollback()
 
 
 def _cible_pour_export(session: Session, famille: str, site_id: int) -> str:
@@ -136,6 +177,13 @@ def exporter_koxo(
     except ValueError as e:
         raise HTTPException(400, str(e))
 
+    _journaliser_export(
+        session, cible="koxo", site_nom=rapport.site_nom,
+        type_personne=payload.type_personne, categorie=payload.categorie,
+        annee_cible_id=payload.annee_cible_id, annee_source_id=payload.annee_source_id,
+        resultat={"nb_lignes": rapport.nb_lignes, "nb_prevus_enregistres": nb_prevus},
+    )
+
     return ExportKoxoReponse(
         site_nom=rapport.site_nom,
         type_personne=rapport.type_personne,
@@ -198,6 +246,17 @@ def exporter_google(
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+    _journaliser_export(
+        session, cible="google", site_nom=rapport.site_nom,
+        type_personne=payload.type_personne, categorie=payload.categorie,
+        annee_cible_id=payload.annee_cible_id, annee_source_id=payload.annee_source_id,
+        resultat={
+            "nb_lignes": rapport.nb_lignes,
+            "nb_sans_ou": rapport.nb_sans_ou,
+            "nb_prevus_enregistres": nb_prevus,
+        },
+    )
 
     return ExportGoogleReponse(
         site_nom=rapport.site_nom,

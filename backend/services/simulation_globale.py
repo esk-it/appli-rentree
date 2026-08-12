@@ -158,6 +158,91 @@ def simuler_globalement(
 # ---------------------------------------------------------------------------
 
 
+def rendre_rapport_texte(rapport: RapportSimulation) -> str:
+    """Rapport de simulation en texte brut, lisible et archivable.
+
+    Reprend la forme du récapitulatif du cahier des charges — un bloc par
+    cible, avec les compteurs alignés. Destiné à être relu, comparé d'une
+    année sur l'autre, ou collé dans un mail.
+    """
+    lignes: list[str] = []
+    ajouter = lignes.append
+
+    ajouter("=" * 62)
+    ajouter("RAPPORT DE SIMULATION".center(62))
+    ajouter("=" * 62)
+    ajouter("")
+    ajouter(f"Année source : {rapport.annee_source_libelle}")
+    ajouter(f"Année cible  : {rapport.annee_cible_libelle}")
+    ajouter("")
+
+    # Verdict en tête : c'est l'information qu'on cherche en premier
+    if rapport.est_pret_a_executer:
+        ajouter(">>> PRÊT À EXÉCUTER — aucun blocage détecté")
+    else:
+        ajouter(f">>> {len(rapport.blocages)} BLOCAGE(S) À TRAITER")
+        for b in rapport.blocages:
+            ajouter(f"    - {b.description}")
+    ajouter("")
+
+    # Totaux par cible
+    ajouter("-" * 62)
+    ajouter("TOTAUX PAR CIBLE")
+    ajouter("-" * 62)
+    entete = f"{'Cible':<14}{'Créations':>11}{'Modifs':>10}{'Sortants':>10}{'Inchangés':>12}"
+    ajouter(entete)
+    for cible, t in sorted(rapport.totaux_par_cible.items()):
+        ajouter(
+            f"{cible:<14}{t['nouveaux']:>11}{t['modifies']:>10}"
+            f"{t['sortants']:>10}{t['identiques']:>12}"
+        )
+    ajouter("")
+
+    # Détail par site et population
+    if rapport.lignes:
+        ajouter("-" * 62)
+        ajouter("DÉTAIL PAR SITE ET POPULATION")
+        ajouter("-" * 62)
+        ajouter(
+            f"{'Site':<8}{'Type':<9}{'Cible':<12}{'Nouv.':>7}{'Modif.':>8}{'Sort.':>7}{'Ops':>6}"
+        )
+        for l in sorted(
+            rapport.lignes, key=lambda x: (x.site_nom, x.type_personne, x.cible)
+        ):
+            ajouter(
+                f"{l.site_nom:<8}{l.type_personne:<9}{l.cible:<12}"
+                f"{l.nouveaux:>7}{l.modifies:>8}{l.sortants:>7}{l.total_operations:>6}"
+            )
+        ajouter("")
+
+    ajouter("=" * 62)
+    ajouter(
+        "Simulation — aucune écriture n'a été effectuée sur les systèmes cibles."
+    )
+    return "\n".join(lignes)
+
+
+def rendre_rapport_csv(rapport: RapportSimulation) -> str:
+    """Même contenu au format CSV, pour analyse en tableur."""
+    import csv
+    import io
+
+    buf = io.StringIO(newline="")
+    writer = csv.writer(buf, delimiter=";")
+    writer.writerow(
+        ["site", "type_personne", "cible", "nouveaux", "modifies", "sortants",
+         "identiques", "total_operations"]
+    )
+    for l in sorted(
+        rapport.lignes, key=lambda x: (x.site_nom, x.type_personne, x.cible)
+    ):
+        writer.writerow([
+            l.site_nom, l.type_personne, l.cible,
+            l.nouveaux, l.modifies, l.sortants, l.identiques, l.total_operations,
+        ])
+    return buf.getvalue()
+
+
 def _compter_par_site_type(
     session: Session,
     annee_source_id: int,

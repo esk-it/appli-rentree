@@ -3,7 +3,8 @@
   import Zap from "@lucide/svelte/icons/zap";
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
-  import { annees, simulation } from "$lib/api.js";
+  import FileDown from "@lucide/svelte/icons/file-down";
+  import { annees, simulation, telechargerFichierBase64 } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
   let listeAnnees = $state([]);
@@ -46,6 +47,21 @@
 
   function totaux(cible) {
     return rapport?.totaux_par_cible?.[cible] ?? { nouveaux: 0, identiques: 0, modifies: 0, sortants: 0 };
+  }
+
+  async function exporterRapport(format) {
+    if (!anneeSourceId || !anneeCibleId) return;
+    try {
+      const r = await simulation.exporter({ anneeSourceId, anneeCibleId, format });
+      telechargerFichierBase64(
+        r.nom_fichier,
+        r.contenu_base64,
+        format === "csv" ? "text/csv" : "text/plain",
+      );
+      notify.succes(`Rapport exporté — ${r.nom_fichier}`);
+    } catch (e) {
+      notify.erreur(String(e));
+    }
   }
 </script>
 
@@ -111,6 +127,21 @@
   </div>
 
   {#if rapport}
+    <!-- Export du rapport -->
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-xs text-stone-500 dark:text-stone-400">
+        Archiver ce rapport pour le comparer l'an prochain :
+      </span>
+      <button class="btn-secondary text-xs" onclick={() => exporterRapport("texte")}>
+        <FileDown class="h-3.5 w-3.5" />
+        Texte
+      </button>
+      <button class="btn-secondary text-xs" onclick={() => exporterRapport("csv")}>
+        <FileDown class="h-3.5 w-3.5" />
+        CSV
+      </button>
+    </div>
+
     <!-- Statut global -->
     {#if rapport.est_pret_a_executer}
       <div class="card border-emerald-200 bg-emerald-50/50 p-4 dark:border-emerald-800 dark:bg-emerald-900/20">

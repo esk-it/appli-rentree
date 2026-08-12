@@ -198,6 +198,76 @@ def test_simulation_annee_cible_introuvable(session, annee_factory):
         simuler_globalement(session, an.id, 99999)
 
 
+def test_rapport_texte_lisible(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    from backend.services.simulation_globale import (
+        rendre_rapport_texte,
+        simuler_globalement,
+    )
+
+    site = site_factory("NDK")
+    an_prec = annee_factory("2024-2025")
+    an_cour = annee_factory("2025-2026")
+    p = personne_factory(site_id=site.id, login="neuf")
+    snap_factory(p.id, an_cour.id, classe="3B")
+
+    texte = rendre_rapport_texte(simuler_globalement(session, an_prec.id, an_cour.id))
+
+    assert "RAPPORT DE SIMULATION" in texte
+    assert "2024-2025" in texte and "2025-2026" in texte
+    assert "PRÊT À EXÉCUTER" in texte
+    assert "koxo" in texte and "google" in texte
+    assert "aucune écriture" in texte.lower()
+
+
+def test_rapport_texte_annonce_les_blocages(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    from backend.services.arbitrage import creer_ou_reprendre
+    from backend.services.simulation_globale import (
+        rendre_rapport_texte,
+        simuler_globalement,
+    )
+
+    site = site_factory("NDK")
+    an_prec = annee_factory("2024-2025")
+    an_cour = annee_factory("2025-2026")
+    p = personne_factory(site_id=site.id, login="neuf")
+    snap_factory(p.id, an_cour.id, classe="3B")
+    creer_ou_reprendre(session, type_cas="collision_login", cle_cas="k", contexte={})
+    session.commit()
+
+    texte = rendre_rapport_texte(simuler_globalement(session, an_prec.id, an_cour.id))
+    assert "BLOCAGE" in texte
+    assert "PRÊT À EXÉCUTER" not in texte
+
+
+def test_rapport_csv_structure(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    import csv
+    import io
+
+    from backend.services.simulation_globale import (
+        rendre_rapport_csv,
+        simuler_globalement,
+    )
+
+    site = site_factory("NDK")
+    an_prec = annee_factory("2024-2025")
+    an_cour = annee_factory("2025-2026")
+    p = personne_factory(site_id=site.id, login="neuf")
+    snap_factory(p.id, an_cour.id, classe="3B")
+
+    csv_texte = rendre_rapport_csv(simuler_globalement(session, an_prec.id, an_cour.id))
+    rows = list(csv.DictReader(io.StringIO(csv_texte), delimiter=";"))
+
+    assert len(rows) == 2  # une ligne koxo + une ligne google
+    assert rows[0]["site"] == "NDK"
+    assert int(rows[0]["nouveaux"]) == 1
+
+
 def test_simulation_scenario_realiste(
     session, site_factory, annee_factory, personne_factory, snap_factory
 ):

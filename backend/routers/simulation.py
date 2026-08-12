@@ -10,6 +10,8 @@ from sqlalchemy.orm import Session
 from backend.database import db_session
 from backend.services.simulation_globale import (
     RapportSimulation,
+    rendre_rapport_csv,
+    rendre_rapport_texte,
     simuler_globalement,
 )
 
@@ -85,3 +87,42 @@ def obtenir_simulation(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return _to_out(rapport)
+
+
+class RapportExportOut(BaseModel):
+    format: str
+    nom_fichier: str
+    contenu_base64: str
+
+
+@router.get("/export", response_model=RapportExportOut)
+def exporter_simulation(
+    annee_source_id: int = Query(...),
+    annee_cible_id: int = Query(...),
+    format: str = Query("texte", pattern="^(texte|csv)$"),
+    session: Session = Depends(db_session),
+) -> RapportExportOut:
+    """Rapport de simulation archivable — texte lisible ou CSV pour tableur."""
+    import base64
+
+    try:
+        rapport = simuler_globalement(session, annee_source_id, annee_cible_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    if format == "csv":
+        contenu = rendre_rapport_csv(rapport)
+        extension = "csv"
+    else:
+        contenu = rendre_rapport_texte(rapport)
+        extension = "txt"
+
+    nom = (
+        f"Simulation_{rapport.annee_source_libelle}_vers_"
+        f"{rapport.annee_cible_libelle}.{extension}"
+    )
+    return RapportExportOut(
+        format=format,
+        nom_fichier=nom,
+        contenu_base64=base64.b64encode(contenu.encode("utf-8")).decode("ascii"),
+    )
