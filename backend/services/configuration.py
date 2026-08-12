@@ -76,6 +76,42 @@ CATALOGUE: list[DefinitionParametre] = [
         categorie="Mots de passe",
     ),
     DefinitionParametre(
+        cle="google.api_active",
+        libelle="Activer le mode API Google",
+        description=(
+            "Permet d'appliquer les changements directement via l'Admin SDK, "
+            "en plus des exports CSV. Le mode fichier reste toujours "
+            "disponible — l'API n'est qu'un canal supplémentaire."
+        ),
+        type="bool",
+        defaut=False,
+        categorie="Google Workspace",
+    ),
+    DefinitionParametre(
+        cle="google.chemin_credentials",
+        libelle="Fichier de credentials (compte de service)",
+        description=(
+            "Chemin vers le fichier JSON du compte de service Google Cloud. "
+            "Le fichier reste sur le disque : son contenu n'est jamais copié "
+            "en base."
+        ),
+        type="str",
+        defaut="",
+        categorie="Google Workspace",
+    ),
+    DefinitionParametre(
+        cle="google.admin_impersonation",
+        libelle="Administrateur à impersonner",
+        description=(
+            "Email d'un administrateur Google Workspace. La délégation à "
+            "l'échelle du domaine impose que le compte de service agisse au "
+            "nom d'un administrateur réel."
+        ),
+        type="str",
+        defaut="",
+        categorie="Google Workspace",
+    ),
+    DefinitionParametre(
         cle="google.ou_sortants",
         libelle="Racine OU des sortants",
         description=(

@@ -151,6 +151,25 @@
           <li><strong>CardStudio</strong> — XLSX 13 colonnes pour l'impression visuelle
             des badges (photo + chambre).</li>
         </ul>
+        <h3>Mode API Google (optionnel)</h3>
+        <p>
+          En complément du CSV, les changements peuvent être appliqués
+          directement via l'Admin SDK. <strong>Le mode fichier reste le mode
+          nominal</strong> : l'API n'est qu'un canal d'envoi supplémentaire.
+        </p>
+        <p>Configuration requise (Paramètres → Google Workspace) :</p>
+        <ol>
+          <li>Projet Google Cloud avec l'<strong>Admin SDK API</strong> activée</li>
+          <li>Compte de service + clé JSON déposée sur ce poste</li>
+          <li>Délégation à l'échelle du domaine autorisée sur les scopes annuaire</li>
+          <li>Email d'un administrateur à impersonner</li>
+        </ol>
+        <p>
+          Le fichier de credentials n'est <strong>jamais copié en base</strong> —
+          seul son chemin est mémorisé. Le flux impose de calculer un plan,
+          de le relire, puis de confirmer avant tout envoi.
+        </p>
+
         <p><strong>Sortants Google</strong> — la catégorie <em>Anciens</em> place
           tout le monde dans l'OU d'archivage horodatée
           (<code>/7. Sortis/Comptes à supprimer au 31-12-AAAA</code>), quelle que

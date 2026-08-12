@@ -5,9 +5,12 @@
   import Upload from "@lucide/svelte/icons/upload";
   import Info from "@lucide/svelte/icons/info";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
+  import Cloud from "@lucide/svelte/icons/cloud";
+  import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
   import {
     annees,
     exportsCible,
+    googleApi,
     sites as sitesApi,
     telechargerFichierBase64,
   } from "$lib/api.js";
@@ -40,6 +43,73 @@
   // CompteCible(etat="prevu") — c'est ce qui alimente l'écran Suivi.
   let enregistrerPrevus = $state(true);
 
+  // Mode API Google (optionnel — le mode fichier reste le mode nominal)
+  let statutApi = $state(/** @type {null | any} */ (null));
+  let planApi = $state(/** @type {null | any} */ (null));
+  let apiEnCours = $state(false);
+
+  async function chargerStatutApi() {
+    try {
+      statutApi = await googleApi.statut();
+    } catch (e) {
+      statutApi = null;
+    }
+  }
+
+  async function csvKoxoEnBase64() {
+    if (!fichierKoxoEnrichi) return null;
+    const buffer = await fichierKoxoEnrichi.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, /** @type {any} */ (bytes.subarray(i, i + chunk)));
+    }
+    return btoa(binary);
+  }
+
+  async function calculerPlanApi() {
+    if (!siteId || !anneeCibleId || !anneeSourceId) {
+      notify.avertissement("Site et deux années requis pour le plan API");
+      return;
+    }
+    apiEnCours = true;
+    try {
+      planApi = await googleApi.plan({
+        siteId, typePersonne,
+        anneeCibleId, anneeSourceId,
+        csvKoxoBase64: await csvKoxoEnBase64(),
+      });
+      notify.info(`${planApi.nb_total} opération(s) planifiée(s) — rien n'a été envoyé`);
+    } catch (e) {
+      notify.erreur(String(e));
+    } finally {
+      apiEnCours = false;
+    }
+  }
+
+  async function executerPlanApi() {
+    if (!planApi) return;
+    apiEnCours = true;
+    try {
+      const r = await googleApi.executer({
+        siteId, typePersonne,
+        anneeCibleId, anneeSourceId,
+        csvKoxoBase64: await csvKoxoEnBase64(),
+      });
+      if (r.tout_reussi) {
+        notify.succes(`${r.nb_reussies} opération(s) appliquée(s) sur Google`);
+      } else {
+        notify.erreur(`${r.nb_echecs} échec(s) sur ${r.nb_reussies + r.nb_echecs}`);
+      }
+      planApi = null;
+    } catch (e) {
+      notify.erreur(String(e));
+    } finally {
+      apiEnCours = false;
+    }
+  }
+
   onMount(async () => {
     try {
       listeSites = await sitesApi.lister();
@@ -49,6 +119,7 @@
     } catch (e) {
       erreur = String(e);
     }
+    await chargerStatutApi();
   });
 
   let anneeSourceRequise = $derived(categorie === "nouveaux" || categorie === "anciens");
@@ -365,6 +436,93 @@
       </p>
     {/if}
   </div>
+
+  <!-- Mode API Google — canal alternatif au CSV -->
+  {#if cible === "google" && statutApi}
+    <div class="card p-4 space-y-3">
+      <div class="flex items-center justify-between gap-2">
+        <h2 class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
+          <Cloud class="h-4 w-4" />
+          Mode API (optionnel)
+        </h2>
+        {#if statutApi.configuration_complete}
+          <span class="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+            <CheckCircle2 class="h-3.5 w-3.5" />
+            Configuré
+          </span>
+        {:else}
+          <span class="rounded-full bg-stone-100 px-2.5 py-0.5 text-xs font-medium text-stone-600 dark:bg-stone-800 dark:text-stone-400">
+            Non configuré
+          </span>
+        {/if}
+      </div>
+
+      {#if !statutApi.configuration_complete}
+        <div class="rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs dark:border-stone-700 dark:bg-stone-800">
+          <p class="text-stone-700 dark:text-stone-300">
+            Le mode API applique les changements directement dans Google, sans
+            passer par l'import manuel du CSV. <strong>Le mode fichier
+            ci-dessus reste le mode nominal</strong> et fonctionne sans cette
+            configuration.
+          </p>
+          {#if statutApi.problemes.length > 0}
+            <ul class="mt-2 space-y-0.5 text-stone-600 dark:text-stone-400">
+              {#each statutApi.problemes as p}
+                <li>• {p}</li>
+              {/each}
+            </ul>
+          {/if}
+          {#if !statutApi.bibliotheques_disponibles}
+            <p class="mt-2 text-stone-500">{statutApi.message_bibliotheques}</p>
+          {/if}
+        </div>
+      {:else}
+        <div class="flex flex-wrap gap-2">
+          <button class="btn-secondary" onclick={calculerPlanApi} disabled={apiEnCours}>
+            <Cloud class="h-4 w-4" />
+            Calculer le plan
+          </button>
+          {#if planApi && planApi.nb_total > 0}
+            <button class="btn-primary" onclick={executerPlanApi} disabled={apiEnCours}>
+              Appliquer les {planApi.nb_total} opération(s)
+            </button>
+          {/if}
+        </div>
+
+        {#if planApi}
+          <div class="rounded-lg border border-stone-200 p-3 text-sm dark:border-stone-700">
+            <p class="font-medium">
+              {planApi.nb_creations} création(s) · {planApi.nb_deplacements} déplacement(s)
+              · {planApi.nb_suspensions} suspension(s)
+            </p>
+            <p class="mt-1 text-xs text-stone-500">
+              Aucun compte n'est jamais supprimé — un sortant est suspendu et
+              déplacé en OU d'archivage.
+            </p>
+            {#if planApi.avertissements.length > 0}
+              <ul class="mt-2 space-y-0.5 text-xs text-amber-700 dark:text-amber-400">
+                {#each planApi.avertissements.slice(0, 10) as a}
+                  <li>⚠ {a}</li>
+                {/each}
+              </ul>
+            {/if}
+            {#if planApi.operations.length > 0}
+              <details class="mt-2">
+                <summary class="cursor-pointer text-xs text-sky-700 dark:text-sky-400">
+                  Voir les opérations
+                </summary>
+                <ul class="mt-1 space-y-0.5 text-xs text-stone-600 dark:text-stone-400">
+                  {#each planApi.operations.slice(0, 50) as o}
+                    <li>{o.libelle}</li>
+                  {/each}
+                </ul>
+              </details>
+            {/if}
+          </div>
+        {/if}
+      {/if}
+    </div>
+  {/if}
 
   {#if dernierRapport}
     <div class="card p-4">

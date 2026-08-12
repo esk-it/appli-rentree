@@ -297,6 +297,43 @@ export const statistiques = {
 };
 
 // ---------------------------------------------------------------------------
+// Mode API Google Workspace (optionnel)
+// ---------------------------------------------------------------------------
+export const googleApi = {
+  async statut() {
+    return jsonOrThrow(await fetch(`${BASE}/google/statut`));
+  },
+  async testerConnexion() {
+    return jsonOrThrow(await fetch(`${BASE}/google/tester-connexion`, { method: "POST" }));
+  },
+  async plan({ siteId, typePersonne, anneeCibleId, anneeSourceId, csvKoxoBase64 = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/plan`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId, type_personne: typePersonne,
+          annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+          csv_koxo_base64: csvKoxoBase64,
+        }),
+      }),
+    );
+  },
+  async executer({ siteId, typePersonne, anneeCibleId, anneeSourceId, csvKoxoBase64 = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/executer`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId, type_personne: typePersonne,
+          annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+          csv_koxo_base64: csvKoxoBase64,
+          confirmation: true,
+        }),
+      }),
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Journal des opérations
 // ---------------------------------------------------------------------------
 export const journal = {
