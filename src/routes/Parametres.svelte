@@ -3,6 +3,7 @@
   import Settings from "@lucide/svelte/icons/settings";
   import Check from "@lucide/svelte/icons/check";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import Squelette from "$lib/components/Squelette.svelte";
   import { parametres } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -57,35 +58,37 @@
 
 <section class="space-y-5">
   <header>
-    <h1 class="text-2xl font-semibold text-stone-900">Paramètres</h1>
-    <p class="mt-1 text-sm text-stone-600">
+    <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">Paramètres</h1>
+    <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
       Configuration des règles métier de l'application. Les modifications
       s'appliquent immédiatement aux prochaines générations d'exports.
     </p>
   </header>
 
   {#if erreur}
-    <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{erreur}</p>
+    <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{erreur}</p>
   {/if}
 
   {#if chargement}
-    <div class="card p-8 text-center text-stone-500">Chargement…</div>
+    <div class="card p-5">
+      <Squelette variante="texte" nb={5} />
+    </div>
   {:else}
     {#each parametresGroupes as [categorie, params] (categorie)}
       <div class="card p-5">
-        <h2 class="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-stone-600">
+        <h2 class="titre-section mb-4 flex items-center gap-2">
           <Settings class="h-4 w-4" />
           {categorie}
         </h2>
         <div class="space-y-4">
           {#each params as p (p.cle)}
-            <div class="border-b border-stone-100 pb-4 last:border-0 last:pb-0">
+            <div class="border-b border-stone-100 pb-4 last:border-0 last:pb-0 dark:border-stone-700">
               <div class="flex items-start justify-between gap-3">
                 <div class="flex-1">
-                  <label for={p.cle} class="block text-sm font-medium text-stone-900">
+                  <label for={p.cle} class="block text-sm font-medium text-stone-900 dark:text-stone-100">
                     {p.libelle}
                   </label>
-                  <p class="mt-0.5 text-xs text-stone-500">{p.description}</p>
+                  <p class="mt-0.5 text-xs text-stone-500 dark:text-stone-400">{p.description}</p>
                   <p class="mt-0.5 font-mono text-[10px] text-stone-400">
                     {p.cle}
                   </p>
@@ -96,7 +99,7 @@
                       id={p.cle}
                       type="number"
                       bind:value={valeursEnEdition[p.cle]}
-                      class="w-24 rounded-lg border border-stone-300 px-3 py-1.5 text-sm focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                      class="champ w-24 !py-1.5"
                     />
                   {:else if p.type === "bool"}
                     <input
@@ -110,7 +113,7 @@
                       id={p.cle}
                       type="text"
                       bind:value={valeursEnEdition[p.cle]}
-                      class="w-72 rounded-lg border border-stone-300 px-3 py-1.5 text-sm focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600"
+                      class="champ w-72 !py-1.5"
                     />
                   {/if}
                   <button

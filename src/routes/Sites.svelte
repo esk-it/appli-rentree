@@ -4,6 +4,8 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Pencil from "@lucide/svelte/icons/pencil";
+  import EtatVide from "$lib/components/EtatVide.svelte";
+  import Squelette from "$lib/components/Squelette.svelte";
   import { sites as sitesApi } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -86,11 +88,22 @@
 
   <div class="card overflow-hidden">
     {#if chargement}
-      <div class="p-8 text-center text-stone-500 dark:text-stone-400">Chargement…</div>
+      <div class="p-4">
+        <Squelette variante="ligne-tableau" nb={3} colonnes={5} />
+      </div>
     {:else if liste.length === 0}
-      <div class="p-8 text-center text-stone-500 dark:text-stone-400">
-        <Building2 class="mx-auto mb-3 h-10 w-10 text-stone-300 dark:text-stone-600" />
-        <p>Aucun site configuré.</p>
+      <div class="p-4">
+        <EtatVide
+          icon={Building2}
+          titre="Aucun site configuré"
+          message="C'est la toute première étape : déclare NDE, NDK et SU avec leur domaine de messagerie. Rien d'autre ne peut fonctionner sans eux."
+          ton="attention"
+        >
+          <button class="btn-primary text-xs" onclick={ouvrirNouveau}>
+            <Plus class="h-3.5 w-3.5" />
+            Créer le premier site
+          </button>
+        </EtatVide>
       </div>
     {:else}
       <table class="w-full text-sm">

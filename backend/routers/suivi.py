@@ -12,6 +12,7 @@ from backend.services.cycle_vie import (
     activer,
     cibles_pour,
     confirmer_creation,
+    purger,
     traiter_sortants,
 )
 from backend.services.suivi import (
@@ -181,6 +182,57 @@ def poster_traiter_sortants(
     except ValueError as e:
         raise HTTPException(404, str(e))
     session.commit()
+    return RapportCycleOut(**r.__dict__)
+
+
+class PurgerPayload(BaseModel):
+    """Purge des comptes dont l'échéance de quarantaine est dépassée.
+
+    `confirmation` est un garde-fou explicite : le prompt impose une
+    « confirmation séparée » pour toute suppression.
+    """
+
+    compte_ids: list[int] | None = None
+    cible: str | None = None
+    confirmation: bool = False
+
+
+@router.post("/purger", response_model=RapportCycleOut)
+def poster_purger(
+    payload: PurgerPayload, session: Session = Depends(db_session)
+) -> RapportCycleOut:
+    """Marque comme purgés les comptes dont la quarantaine est terminée.
+
+    N'effectue **aucune suppression** dans les systèmes tiers : enregistre
+    que l'utilisateur l'a faite de son côté. Seuls les comptes en
+    quarantaine avec une échéance atteinte sont éligibles.
+    """
+    if not payload.confirmation:
+        raise HTTPException(
+            400,
+            "Confirmation requise : relis la liste des comptes concernés puis "
+            "renvoie `confirmation: true`.",
+        )
+    try:
+        r = purger(session, compte_ids=payload.compte_ids, cible=payload.cible)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    session.commit()
+
+    try:
+        from backend.services.journal import journaliser
+
+        journaliser(
+            session,
+            type_operation="cycle_vie",
+            cible=payload.cible or "toutes",
+            parametres={"nb_demandes": len(payload.compte_ids or [])},
+            resultat={"nb_purges": r.nb_transitions, "nb_refuses": len(r.erreurs)},
+        )
+        session.commit()
+    except Exception:  # pragma: no cover — le journal ne doit rien casser
+        session.rollback()
+
     return RapportCycleOut(**r.__dict__)
 
 

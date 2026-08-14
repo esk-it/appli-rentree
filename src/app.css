@@ -17,6 +17,11 @@
   --color-status-sortant: oklch(0.7 0.18 55); /* ambre */
 
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Durées d'animation — centralisées pour rester cohérentes */
+  --duree-rapide: 120ms;
+  --duree-normale: 200ms;
+  --duree-lente: 320ms;
 }
 
 /* Scrollbars discrètes */
@@ -36,17 +41,140 @@
   @apply bg-emerald-700 text-emerald-50;
 }
 
-/* Composants utilitaires (avec variantes dark) */
+/* ---------------------------------------------------------------------------
+ * Animations
+ *
+ * Toutes déclarées ici pour rester cohérentes et réutilisables. Elles sont
+ * neutralisées si l'utilisateur a demandé moins d'animations au niveau du
+ * système — une interface de gestion doit rester utilisable avant d'être
+ * jolie.
+ * ------------------------------------------------------------------------ */
+
+@keyframes apparition {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes apparition-douce {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes chatoiement {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes pulsation-douce {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.anim-apparition {
+  animation: apparition var(--duree-normale) ease-out both;
+}
+
+.anim-apparition-douce {
+  animation: apparition-douce var(--duree-lente) ease-out both;
+}
+
+/* Décalage en cascade pour une grille de cartes — jusqu'à 6 éléments,
+ * au-delà l'effet devient plus gênant qu'agréable. */
+.anim-cascade > *:nth-child(1) { animation-delay: 0ms; }
+.anim-cascade > *:nth-child(2) { animation-delay: 40ms; }
+.anim-cascade > *:nth-child(3) { animation-delay: 80ms; }
+.anim-cascade > *:nth-child(4) { animation-delay: 120ms; }
+.anim-cascade > *:nth-child(5) { animation-delay: 160ms; }
+.anim-cascade > *:nth-child(6) { animation-delay: 200ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Composants utilitaires
+ * ------------------------------------------------------------------------ */
+
 .btn-primary {
-  @apply inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:focus:ring-offset-stone-900;
+  @apply inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-150 hover:bg-emerald-800 hover:shadow active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:focus-visible:ring-offset-stone-900;
 }
 
 .btn-secondary {
-  @apply inline-flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-700 shadow-sm transition hover:bg-stone-50 focus:outline-none focus:ring-2 focus:ring-stone-400 focus:ring-offset-2 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-200 dark:hover:bg-stone-700 dark:focus:ring-offset-stone-900;
+  @apply inline-flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-700 shadow-sm transition-all duration-150 hover:border-stone-400 hover:bg-stone-50 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-200 dark:hover:border-stone-500 dark:hover:bg-stone-700 dark:focus-visible:ring-offset-stone-900;
+}
+
+/* Variante destructive — réservée aux actions irréversibles */
+.btn-danger {
+  @apply inline-flex items-center gap-2 rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-150 hover:bg-red-800 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:bg-red-600 dark:hover:bg-red-500 dark:focus-visible:ring-offset-stone-900;
 }
 
 .card {
-  @apply rounded-xl border border-stone-200 bg-white shadow-sm dark:border-stone-700 dark:bg-stone-800;
+  @apply rounded-xl border border-stone-200 bg-white shadow-sm transition-shadow duration-200 dark:border-stone-700 dark:bg-stone-800;
+}
+
+/* Carte cliquable : léger soulèvement au survol pour signaler l'interaction */
+.card-interactive {
+  @apply cursor-pointer hover:-translate-y-0.5 hover:shadow-md;
+}
+
+/* Champs de formulaire — évite de répéter la même longue classe partout */
+.champ {
+  @apply w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 transition-colors duration-150 placeholder:text-stone-400 hover:border-stone-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-100 dark:hover:border-stone-500;
+}
+
+.libelle-champ {
+  @apply block text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400;
+}
+
+/* Titre de section — unifie les en-têtes répétés dans les écrans */
+.titre-section {
+  @apply text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400;
+}
+
+/* Squelette de chargement : barre de chatoiement qui traverse un bloc gris */
+.squelette {
+  @apply relative overflow-hidden rounded-md bg-stone-200 dark:bg-stone-700;
+}
+.squelette::after {
+  @apply absolute inset-0 -translate-x-full;
+  content: "";
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    theme(--color-stone-100),
+    transparent
+  );
+  animation: chatoiement 1.4s infinite;
+}
+.dark .squelette::after {
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    theme(--color-stone-600),
+    transparent
+  );
 }
 
 .badge-nouveau {
@@ -59,4 +187,22 @@
 
 .badge-sortant {
   @apply inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300;
+}
+
+.badge-neutre {
+  @apply inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-700 dark:bg-stone-700 dark:text-stone-300;
+}
+
+/* Tableaux — mêmes règles partout plutôt qu'une variante par écran */
+.tableau {
+  @apply min-w-full divide-y divide-stone-200 text-sm dark:divide-stone-700;
+}
+.tableau thead {
+  @apply bg-stone-50 text-xs uppercase tracking-wide text-stone-500 dark:bg-stone-800/80 dark:text-stone-400;
+}
+.tableau tbody {
+  @apply divide-y divide-stone-100 dark:divide-stone-800;
+}
+.tableau tbody tr {
+  @apply transition-colors duration-100 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10;
 }

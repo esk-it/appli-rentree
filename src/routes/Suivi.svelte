@@ -5,6 +5,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
   import LogOut from "@lucide/svelte/icons/log-out";
+  import EtatVide from "$lib/components/EtatVide.svelte";
   import { annees, suivi } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -58,6 +59,27 @@
     try {
       const r = await suivi.activer({ cible: cibleAction });
       notify.succes(`${r.nb_transitions} compte(s) passé(s) en « actif »`);
+      await charger();
+    } catch (e) {
+      notify.erreur(String(e));
+    } finally {
+      actionEnCours = false;
+    }
+  }
+
+  // Purge en deux temps : la confirmation est un écran à part entière,
+  // pas une case cochée d'avance.
+  let confirmationPurge = $state(false);
+
+  async function confirmerPurge() {
+    actionEnCours = true;
+    try {
+      const r = await suivi.purger({});
+      notify.succes(`${r.nb_transitions} compte(s) marqué(s) comme purgé(s)`);
+      if (r.erreurs.length > 0) {
+        notify.avertissement(`${r.erreurs.length} compte(s) refusé(s)`);
+      }
+      confirmationPurge = false;
       await charger();
     } catch (e) {
       notify.erreur(String(e));
@@ -156,10 +178,47 @@
               {stats.nb_purges_echues} compte(s) en quarantaine avec date de purge échue
             </p>
             <p class="mt-1 text-sm text-stone-700 dark:text-stone-300">
-              Ces comptes attendent une suppression définitive côté cible. Une
-              action de purge (avec confirmation séparée) sera proposée dans un
-              prochain lot.
+              Leur quarantaine est terminée : tu peux les supprimer dans la
+              console de chaque cible. Une fois que c'est fait, enregistre-le
+              ici pour que le référentiel reflète la réalité.
             </p>
+
+            {#if !confirmationPurge}
+              <button
+                class="btn-secondary mt-2 text-xs"
+                onclick={() => (confirmationPurge = true)}
+                disabled={actionEnCours}
+              >
+                <Trash2 class="h-3.5 w-3.5" />
+                Enregistrer la purge
+              </button>
+            {:else}
+              <div class="mt-2 rounded-lg border border-red-300 bg-white p-3 dark:border-red-700 dark:bg-stone-900">
+                <p class="text-sm font-medium text-red-900 dark:text-red-200">
+                  Confirmer la purge de {purges.length} compte(s) ?
+                </p>
+                <p class="mt-1 text-xs text-stone-600 dark:text-stone-400">
+                  Cette action <strong>ne supprime rien</strong> dans Google, KoXo
+                  ou les autres cibles — le programme n'y touche jamais. Elle
+                  enregistre que tu as effectué la suppression de ton côté. Les
+                  <code>Personne</code> du référentiel sont conservées, seul l'état
+                  du compte cible passe à <code>purge</code>.
+                </p>
+                <div class="mt-2 flex gap-2">
+                  <button class="btn-primary text-xs" onclick={confirmerPurge} disabled={actionEnCours}>
+                    Oui, c'est fait côté cible
+                  </button>
+                  <button
+                    class="btn-secondary text-xs"
+                    onclick={() => (confirmationPurge = false)}
+                    disabled={actionEnCours}
+                  >
+                    Annuler
+                  </button>
+                </div>
+              </div>
+            {/if}
+
             <details class="mt-2">
               <summary class="cursor-pointer text-xs text-red-700 dark:text-red-400">
                 Voir la liste ({purges.length})
@@ -307,7 +366,10 @@
       </div>
 
       {#if liste.length === 0}
-        <p class="text-sm text-stone-500 py-4 text-center">Aucun compte dans l'état « {etatChoisi} ».</p>
+        <EtatVide
+          titre="Aucun compte dans cet état"
+          message="Rien n'est actuellement en « {etatChoisi} ». Les comptes apparaissent ici dès qu'un export « Nouveaux » est généré avec le suivi activé."
+        />
       {:else}
         <div class="overflow-hidden rounded-lg border border-stone-200 dark:border-stone-700">
           <table class="min-w-full divide-y divide-stone-200 text-sm dark:divide-stone-700">

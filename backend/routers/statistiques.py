@@ -24,6 +24,7 @@ class ReferentielOut(BaseModel):
     nb_eleves_total: int
     nb_adultes_total: int
     nb_sites: int
+    nb_classes_table: int
     nb_annees_scolaires: int
     nb_arbitrages_en_attente: int
     nb_arbitrages_tranches: int

@@ -423,6 +423,142 @@ def test_traiter_sortants_sans_compte_ne_plante_pas(
 # ---------------------------------------------------------------------------
 
 
+def test_purger_marque_les_echeances_atteintes(
+    session, site_factory, personne_factory
+):
+    from backend.models import CompteCible
+    from backend.services.cycle_vie import purger
+
+    site = site_factory("NDK")
+    p = personne_factory(site_id=site.id, login="sorti")
+    session.add(CompteCible(
+        personne_id=p.id, cible="google", etat="quarantaine",
+        date_prevue_purge=date(2024, 1, 1),
+    ))
+    session.commit()
+
+    r = purger(session, aujourd_hui=date(2026, 1, 1))
+    session.commit()
+
+    assert r.nb_transitions == 1
+    assert session.query(CompteCible).one().etat == "purge"
+
+
+def test_purger_refuse_une_echeance_future(session, site_factory, personne_factory):
+    """Un compte encore en quarantaine active n'est pas purgeable."""
+    from backend.models import CompteCible
+    from backend.services.cycle_vie import purger
+
+    site = site_factory("NDK")
+    p = personne_factory(site_id=site.id, login="encore")
+    session.add(CompteCible(
+        personne_id=p.id, cible="google", etat="quarantaine",
+        date_prevue_purge=date(2099, 1, 1),
+    ))
+    session.commit()
+
+    r = purger(session, aujourd_hui=date(2026, 1, 1))
+    session.commit()
+
+    assert r.nb_transitions == 0
+    assert session.query(CompteCible).one().etat == "quarantaine"
+
+
+def test_purger_refuse_un_compte_actif(session, site_factory, personne_factory):
+    from backend.models import CompteCible
+    from backend.services.cycle_vie import purger
+
+    site = site_factory("NDK")
+    p = personne_factory(site_id=site.id, login="actif")
+    session.add(CompteCible(personne_id=p.id, cible="google", etat="actif"))
+    session.commit()
+
+    r = purger(session, aujourd_hui=date(2026, 1, 1))
+    session.commit()
+
+    assert r.nb_transitions == 0
+    assert session.query(CompteCible).one().etat == "actif"
+
+
+def test_purger_selection_precise(session, site_factory, personne_factory):
+    """On peut ne purger qu'une partie du lot éligible."""
+    from backend.models import CompteCible
+    from backend.services.cycle_vie import purger
+
+    site = site_factory("NDK")
+    comptes = []
+    for i in range(3):
+        p = personne_factory(site_id=site.id, login=f"s{i}")
+        c = CompteCible(
+            personne_id=p.id, cible="google", etat="quarantaine",
+            date_prevue_purge=date(2024, 1, 1),
+        )
+        session.add(c)
+        comptes.append(c)
+    session.commit()
+
+    r = purger(session, compte_ids=[comptes[0].id], aujourd_hui=date(2026, 1, 1))
+    session.commit()
+
+    assert r.nb_transitions == 1
+    etats = sorted(c.etat for c in session.query(CompteCible).all())
+    assert etats == ["purge", "quarantaine", "quarantaine"]
+
+
+def test_purger_signale_une_demande_non_eligible(
+    session, site_factory, personne_factory
+):
+    """Demander la purge d'un compte non éligible remonte une erreur explicite."""
+    from backend.models import CompteCible
+    from backend.services.cycle_vie import purger
+
+    site = site_factory("NDK")
+    p = personne_factory(site_id=site.id, login="futur")
+    c = CompteCible(
+        personne_id=p.id, cible="google", etat="quarantaine",
+        date_prevue_purge=date(2099, 1, 1),
+    )
+    session.add(c)
+    session.commit()
+
+    r = purger(session, compte_ids=[c.id], aujourd_hui=date(2026, 1, 1))
+    session.commit()
+
+    assert r.nb_transitions == 0
+    assert len(r.erreurs) == 1
+    assert "non éligible" in r.erreurs[0]
+
+
+def test_purger_filtre_par_cible(session, site_factory, personne_factory):
+    from backend.models import CompteCible
+    from backend.services.cycle_vie import purger
+
+    site = site_factory("NDK")
+    p = personne_factory(site_id=site.id, login="multi")
+    for cible in ("google", "koxo_ndk"):
+        session.add(CompteCible(
+            personne_id=p.id, cible=cible, etat="quarantaine",
+            date_prevue_purge=date(2024, 1, 1),
+        ))
+    session.commit()
+
+    r = purger(session, cible="google", aujourd_hui=date(2026, 1, 1))
+    session.commit()
+
+    assert r.nb_transitions == 1
+    google = session.query(CompteCible).filter_by(cible="google").one()
+    koxo = session.query(CompteCible).filter_by(cible="koxo_ndk").one()
+    assert google.etat == "purge"
+    assert koxo.etat == "quarantaine"
+
+
+def test_purger_cible_invalide(session):
+    from backend.services.cycle_vie import purger
+
+    with pytest.raises(ValueError, match="cible"):
+        purger(session, cible="fantome")
+
+
 def test_stats_suivi_reflete_les_comptes_crees(
     session, site_factory, personne_factory
 ):

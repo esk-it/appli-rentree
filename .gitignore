@@ -38,6 +38,10 @@ data/output/*
 !data/input/.gitkeep
 !data/output/.gitkeep
 
+# Journaux du sidecar (rotation gérée à l'exécution)
+*.log
+data/backend.log
+
 # Fichiers d'exemple à la racine (exports anonymisés ou pas)
 /*.xlsx
 /*.xls
@@ -57,3 +61,4 @@ Thumbs.db
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/scheduled_tasks/
+.claude/launch.json

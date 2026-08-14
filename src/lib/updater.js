@@ -56,10 +56,24 @@ async function tracerBackend(message) {
 }
 
 /**
+ * Vrai si l'on tourne dans le shell Tauri, faux dans un navigateur.
+ *
+ * Sert à ne pas signaler un « échec de mise à jour » quand on développe
+ * avec `npm run dev` : hors Tauri, `check()` lève forcément, et afficher
+ * une bannière d'erreur permanente serait du bruit trompeur.
+ */
+function dansTauri() {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/**
  * Vérifie s'il y a une mise à jour disponible.
  * @returns {Promise<ResultatVerification>}
  */
 export async function verifierMaj() {
+  if (!dansTauri()) {
+    return { disponible: false, aEchoue: false };
+  }
   try {
     const update = await check();
     if (update?.available) {

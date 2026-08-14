@@ -327,6 +327,81 @@ def activer(
 # ---------------------------------------------------------------------------
 
 
+def purger(
+    session: Session,
+    *,
+    compte_ids: list[int] | None = None,
+    cible: str | None = None,
+    aujourd_hui: date | None = None,
+) -> RapportCycleVie:
+    """Marque comme `purge` les comptes dont l'échéance de quarantaine est passée.
+
+    **Ce service ne supprime rien nulle part.** Il enregistre que la
+    suppression a été effectuée par l'utilisateur dans la console de la
+    cible. Le programme n'a jamais la main sur les systèmes tiers — c'est
+    le principe posé au §7.2 : « aucune suppression directe ».
+
+    Deux garde-fous :
+
+    - Seuls les comptes en `quarantaine` avec `date_prevue_purge` échue
+      sont éligibles. Un compte dont l'échéance est future est refusé,
+      même s'il est explicitement demandé.
+    - `compte_ids` permet de purger une sélection précise plutôt que tout
+      le lot, pour traiter au cas par cas.
+
+    Args:
+        compte_ids: restreint à ces `CompteCible`. `None` = tous les éligibles.
+        cible: restreint à une cible (`google`, `koxo_ndk`…).
+    """
+    today = aujourd_hui or date.today()
+    rapport = RapportCycleVie(operation="purger")
+
+    q = session.query(CompteCible).filter(
+        CompteCible.etat == "quarantaine",
+        CompteCible.date_prevue_purge.isnot(None),
+        CompteCible.date_prevue_purge <= today,
+    )
+    if cible:
+        if cible not in CIBLES:
+            raise ValueError(f"cible invalide : {cible!r}")
+        q = q.filter(CompteCible.cible == cible)
+    if compte_ids:
+        q = q.filter(CompteCible.id.in_(compte_ids))
+
+    eligibles = q.all()
+
+    # Une demande explicite portant sur un compte non éligible doit être
+    # signalée, pas ignorée en silence.
+    if compte_ids:
+        trouves = {c.id for c in eligibles}
+        for cid in compte_ids:
+            if cid not in trouves:
+                rapport.erreurs.append(
+                    f"Compte {cid} non éligible à la purge "
+                    "(pas en quarantaine, ou échéance non atteinte)"
+                )
+
+    for compte in eligibles:
+        compte.etat = "purge"
+        rapport.nb_transitions += 1
+        rapport.details.append(
+            {
+                "compte_id": compte.id,
+                "personne_id": compte.personne_id,
+                "cible": compte.cible,
+                "identifiant_externe": compte.identifiant_externe,
+                "date_prevue_purge": (
+                    compte.date_prevue_purge.isoformat()
+                    if compte.date_prevue_purge
+                    else None
+                ),
+            }
+        )
+
+    session.flush()
+    return rapport
+
+
 def traiter_sortants(
     session: Session,
     annee_source_id: int,

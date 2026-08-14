@@ -6,6 +6,8 @@
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
+  import EtatVide from "$lib/components/EtatVide.svelte";
+  import Squelette from "$lib/components/Squelette.svelte";
   import { tableCorrespondance, sites as sitesApi } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -269,15 +271,22 @@
 
   <div class="card overflow-hidden">
     {#if chargement}
-      <div class="p-8 text-center text-stone-500 dark:text-stone-400">Chargement…</div>
+      <div class="p-4">
+        <Squelette variante="ligne-tableau" nb={6} colonnes={6} />
+      </div>
     {:else if liste.length === 0}
-      <div class="p-8 text-center text-stone-500 dark:text-stone-400">
-        <Table class="mx-auto mb-3 h-10 w-10 text-stone-300 dark:text-stone-600" />
-        <p>Table vide.</p>
-        <p class="mt-1 text-xs">
-          Clique sur <strong>Importer XLSX</strong> en haut à droite pour la remplir depuis
-          le classeur historique.
-        </p>
+      <div class="p-4">
+        <EtatVide
+          icon={Table}
+          titre="Table vide"
+          message="Aucune classe n'est encore déclarée. Sans elle, l'ingestion refusera de s'exécuter — c'est volontaire : le programme n'affecte jamais une classe par défaut."
+          ton="attention"
+        >
+          <button class="btn-primary text-xs" onclick={() => (panneauImportOuvert = true)}>
+            <Upload class="h-3.5 w-3.5" />
+            Importer depuis le classeur historique
+          </button>
+        </EtatVide>
       </div>
     {:else}
       <div class="max-h-[640px] overflow-auto">

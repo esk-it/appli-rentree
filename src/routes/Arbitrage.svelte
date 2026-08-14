@@ -6,6 +6,8 @@
   import UserX from "@lucide/svelte/icons/user-x";
   import Users from "@lucide/svelte/icons/users";
   import History from "@lucide/svelte/icons/history";
+  import EtatVide from "$lib/components/EtatVide.svelte";
+  import Squelette from "$lib/components/Squelette.svelte";
   import { arbitrages } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -147,14 +149,18 @@
   {/if}
 
   {#if chargement}
-    <p class="text-sm text-stone-500 dark:text-stone-400">Chargement…</p>
+    <Squelette variante="texte" nb={4} />
   {:else if liste.length === 0}
-    <div class="card border-emerald-200 bg-emerald-50/50 p-8 text-center dark:border-emerald-800 dark:bg-emerald-900/20">
-      <CheckCircle2 class="mx-auto h-10 w-10 text-emerald-600 dark:text-emerald-400" />
-      <p class="mt-2 text-sm font-medium text-emerald-900 dark:text-emerald-200">
-        {onglet === "en_attente" ? "Aucun cas en attente d'arbitrage." : "Aucun arbitrage enregistré."}
-      </p>
-    </div>
+    <EtatVide
+      icon={CheckCircle2}
+      ton={onglet === "en_attente" ? "succes" : "neutre"}
+      titre={onglet === "en_attente"
+        ? "Aucun cas en attente"
+        : "Aucun arbitrage enregistré"}
+      message={onglet === "en_attente"
+        ? "Rien ne bloque : toutes les collisions et homonymies ont été tranchées."
+        : "Les décisions apparaîtront ici au fur et à mesure. Elles sont conservées à vie et ne seront jamais redemandées."}
+    />
   {:else}
     <div class="space-y-3">
       {#each liste as arb (arb.id)}

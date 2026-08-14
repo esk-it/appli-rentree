@@ -45,6 +45,10 @@ class StatsReferentiel:
     nb_eleves_total: int = 0
     nb_adultes_total: int = 0
     nb_sites: int = 0
+    nb_classes_table: int = 0
+    """Lignes de la Table de correspondance. Permet de savoir si la
+    configuration métier est faite, plutôt que de le déduire de l'absence
+    d'anomalie — absence qui est trivialement vraie sur un référentiel vide."""
     nb_annees_scolaires: int = 0
     nb_arbitrages_en_attente: int = 0
     nb_arbitrages_tranches: int = 0
@@ -52,11 +56,14 @@ class StatsReferentiel:
 
 def stats_referentiel(session: Session) -> StatsReferentiel:
     """Vue transverse du référentiel (ne dépend pas d'une année)."""
+    from backend.models import TableCorrespondance
+
     return StatsReferentiel(
         nb_personnes_total=session.query(Personne).count(),
         nb_eleves_total=session.query(Personne).filter_by(type="eleve").count(),
         nb_adultes_total=session.query(Personne).filter_by(type="adulte").count(),
         nb_sites=session.query(Site).count(),
+        nb_classes_table=session.query(TableCorrespondance).count(),
         nb_annees_scolaires=session.query(func.count(func.distinct(Snapshot.annee_scolaire_id))).scalar() or 0,
         nb_arbitrages_en_attente=session.query(Arbitrage).filter(Arbitrage.date_decision.is_(None)).count(),
         nb_arbitrages_tranches=session.query(Arbitrage).filter(Arbitrage.date_decision.isnot(None)).count(),

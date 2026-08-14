@@ -3,6 +3,8 @@
   import Search from "@lucide/svelte/icons/search";
   import Users2 from "@lucide/svelte/icons/users-2";
   import Avatar from "$lib/components/Avatar.svelte";
+  import EtatVide from "$lib/components/EtatVide.svelte";
+  import Squelette from "$lib/components/Squelette.svelte";
   import { personnes } from "$lib/api.js";
 
   let liste = $state(/** @type {any[]} */ ([]));
@@ -120,14 +122,24 @@
 
   <div class="card overflow-hidden">
     {#if chargement}
-      <div class="p-8 text-center text-stone-500 dark:text-stone-400">Chargement…</div>
+      <div class="p-4">
+        <Squelette variante="ligne-tableau" nb={6} colonnes={6} />
+      </div>
     {:else if liste.length === 0}
-      <div class="p-8 text-center text-stone-500 dark:text-stone-400">
-        <Users2 class="mx-auto mb-3 h-10 w-10 text-stone-300 dark:text-stone-600" />
-        <p>Référentiel vide.</p>
-        <p class="mt-1 text-xs">
-          Le référentiel sera peuplé au Lot 9 (amorçage) puis à chaque ingestion Charlemagne.
-        </p>
+      <div class="p-4">
+        <EtatVide
+          icon={Users2}
+          titre="Référentiel vide"
+          message="Charge d'abord tes comptes existants depuis l'onglet Amorçage KoXo, puis dépose un export Charlemagne dans Snapshots d'années."
+        />
+      </div>
+    {:else if listeFiltree.length === 0}
+      <div class="p-4">
+        <EtatVide
+          icon={Search}
+          titre="Aucun résultat"
+          message="Aucune personne ne correspond à ces filtres. Élargis la recherche ou retire un filtre."
+        />
       </div>
     {:else}
       <div class="max-h-[640px] overflow-auto">

@@ -6,6 +6,7 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import LogOut from "@lucide/svelte/icons/log-out";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
+  import EtatVide from "$lib/components/EtatVide.svelte";
   import { annees, reconciliation } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -222,9 +223,10 @@
 
       <!-- Contenu du seau actif -->
       {#if entreesCourantes.length === 0}
-        <p class="rounded-lg border border-stone-200 bg-stone-50 p-4 text-center text-sm text-stone-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-400">
-          Aucune personne dans ce seau.
-        </p>
+        <EtatVide
+          titre="Seau vide"
+          message="Aucune personne n'est classée dans « {seauActif} » pour ce couple d'années."
+        />
       {:else}
         <div class="overflow-hidden rounded-lg border border-stone-200 dark:border-stone-700">
           <table class="min-w-full divide-y divide-stone-200 text-sm dark:divide-stone-700">

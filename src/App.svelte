@@ -289,16 +289,29 @@
     <nav class="flex-1 space-y-0.5 p-3">
       {#each navItems as item (item.id)}
         <button
-          class="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm font-medium transition
-                 {page === item.id ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300' : 'text-stone-700 hover:bg-stone-50 dark:text-stone-300 dark:hover:bg-stone-700/50'}
-                 {!item.dispo ? 'opacity-40 cursor-not-allowed' : ''}"
+          class="group relative flex w-full items-center gap-3 rounded-lg py-2 pl-4 pr-3 text-left text-sm font-medium transition-all duration-150
+                 {page === item.id
+                   ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
+                   : 'text-stone-700 hover:bg-stone-100 hover:pl-5 dark:text-stone-300 dark:hover:bg-stone-700/50'}
+                 {!item.dispo ? 'cursor-not-allowed opacity-40' : ''}"
           disabled={!item.dispo}
           onclick={() => item.dispo && (page = item.id)}
         >
-          <item.icon class="h-4 w-4" />
-          <span class="flex-1">{item.label}</span>
+          <!-- Barre latérale : repère plus lisible qu'un simple fond coloré -->
+          <span
+            class="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-emerald-600 transition-all duration-200 dark:bg-emerald-400
+                   {page === item.id ? 'opacity-100' : 'opacity-0'}"
+          ></span>
+          <item.icon
+            class="h-4 w-4 shrink-0 transition-transform duration-150 {page === item.id
+              ? ''
+              : 'group-hover:scale-110'}"
+          />
+          <span class="flex-1 truncate">{item.label}</span>
           {#if item.badge && item.badge() > 0}
-            <span class="rounded-full bg-amber-500 px-1.5 py-0 text-[10px] font-semibold text-white">
+            <span
+              class="animate-[pulsation-douce_2s_ease-in-out_infinite] rounded-full bg-amber-500 px-1.5 py-0 text-[10px] font-semibold text-white"
+            >
               {item.badge()}
             </span>
           {/if}
@@ -331,37 +344,42 @@
 
   <!-- Zone principale -->
   <main class="flex-1 overflow-auto bg-stone-50 dark:bg-stone-900">
-    <div class="mx-auto max-w-7xl p-6">
-      {#if page === "accueil"}
-        <TableauDeBord />
-      {:else if page === "personnes"}
-        <Personnes />
-      {:else if page === "sites"}
-        <Sites />
-      {:else if page === "table_correspondance"}
-        <TableCorrespondance />
-      {:else if page === "amorcage"}
-        <Amorcage />
-      {:else if page === "snapshots"}
-        <Snapshots />
-      {:else if page === "reconciliation"}
-        <Reconciliation />
-      {:else if page === "arbitrage"}
-        <Arbitrage />
-      {:else if page === "simulation"}
-        <Simulation />
-      {:else if page === "exports"}
-        <Exports />
-      {:else if page === "suivi"}
-        <Suivi />
-      {:else if page === "statistiques"}
-        <Statistiques />
-      {:else if page === "parametres"}
-        <Parametres />
-      {:else if page === "aide"}
-        <Aide />
-      {/if}
-    </div>
+    <!-- `{#key}` reconstruit le bloc à chaque navigation, ce qui relance
+         l'animation d'apparition — sinon Svelte réutilise le nœud et rien
+         ne bouge visuellement. -->
+    {#key page}
+      <div class="anim-apparition mx-auto max-w-7xl p-6">
+        {#if page === "accueil"}
+          <TableauDeBord onNaviguer={(p) => (page = p)} />
+        {:else if page === "personnes"}
+          <Personnes />
+        {:else if page === "sites"}
+          <Sites />
+        {:else if page === "table_correspondance"}
+          <TableCorrespondance />
+        {:else if page === "amorcage"}
+          <Amorcage />
+        {:else if page === "snapshots"}
+          <Snapshots />
+        {:else if page === "reconciliation"}
+          <Reconciliation />
+        {:else if page === "arbitrage"}
+          <Arbitrage />
+        {:else if page === "simulation"}
+          <Simulation />
+        {:else if page === "exports"}
+          <Exports />
+        {:else if page === "suivi"}
+          <Suivi />
+        {:else if page === "statistiques"}
+          <Statistiques />
+        {:else if page === "parametres"}
+          <Parametres />
+        {:else if page === "aide"}
+          <Aide />
+        {/if}
+      </div>
+    {/key}
   </main>
 </div>
 </div>

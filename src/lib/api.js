@@ -263,6 +263,16 @@ export const suivi = {
       }),
     );
   },
+  async purger({ compteIds = null, cible = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/suivi/purger`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          compte_ids: compteIds, cible, confirmation: true,
+        }),
+      }),
+    );
+  },
   async traiterSortants({ anneeSourceId, anneeCibleId }) {
     return jsonOrThrow(
       await fetch(`${BASE}/suivi/traiter-sortants`, {
