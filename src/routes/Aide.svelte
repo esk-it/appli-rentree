@@ -235,6 +235,20 @@
         </ul>
 
       {:else if sectionActive === "faq"}
+        <h2>Raccourcis clavier</h2>
+        <table>
+          <thead><tr><th>Touches</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><code>Ctrl</code> + <code>K</code></td><td>Recherche rapide</td></tr>
+            <tr><td><code>Ctrl</code> + <code>1</code>…<code>9</code></td><td>Aller directement à une page, dans l'ordre de la barre latérale</td></tr>
+            <tr><td><code>?</code></td><td>Ouvrir cette aide</td></tr>
+          </tbody>
+        </table>
+        <p>
+          Les raccourcis de navigation sont ignorés pendant une saisie, pour ne
+          pas détourner les touches d'un champ de texte.
+        </p>
+
         <h2>FAQ</h2>
 
         <h3>« Failed to fetch » à l'ingestion</h3>

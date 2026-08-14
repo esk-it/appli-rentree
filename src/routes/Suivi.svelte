@@ -73,15 +73,44 @@
   // pas une case cochée d'avance.
   let confirmationPurge = $state(false);
 
+  /**
+   * Sélection des comptes à purger.
+   *
+   * On purge rarement tout un lot d'un coup : certains comptes demandent
+   * une vérification préalable. La sélection permet de traiter au cas par
+   * cas. Vide = tout le lot éligible.
+   */
+  let selection = $state(/** @type {Set<number>} */ (new Set()));
+
+  let toutSelectionne = $derived(
+    purges.length > 0 && selection.size === purges.length,
+  );
+
+  function basculerCompte(id) {
+    const s = new Set(selection);
+    if (s.has(id)) s.delete(id);
+    else s.add(id);
+    selection = s;
+  }
+
+  function basculerTout() {
+    selection = toutSelectionne ? new Set() : new Set(purges.map((p) => p.id));
+  }
+
   async function confirmerPurge() {
     actionEnCours = true;
     try {
-      const r = await suivi.purger({});
+      // Sélection vide = tout le lot éligible, ce que l'intitulé du bouton
+      // annonce explicitement.
+      const r = await suivi.purger({
+        compteIds: selection.size > 0 ? [...selection] : null,
+      });
       notify.succes(`${r.nb_transitions} compte(s) marqué(s) comme purgé(s)`);
       if (r.erreurs.length > 0) {
         notify.avertissement(`${r.erreurs.length} compte(s) refusé(s)`);
       }
       confirmationPurge = false;
+      selection = new Set();
       await charger();
     } catch (e) {
       notify.erreur(String(e));
@@ -186,19 +215,61 @@
               ici pour que le référentiel reflète la réalité.
             </p>
 
+            <!-- Liste sélectionnable : on purge rarement tout d'un coup -->
+            <div class="mt-3 overflow-hidden rounded-lg border border-red-200 bg-white dark:border-red-800 dark:bg-stone-900">
+              <label
+                class="flex cursor-pointer items-center gap-2 border-b border-red-100 px-3 py-2 text-xs font-medium text-stone-700 dark:border-red-900 dark:text-stone-300"
+              >
+                <input
+                  type="checkbox"
+                  checked={toutSelectionne}
+                  onchange={basculerTout}
+                  class="h-3.5 w-3.5 rounded border-stone-300 text-red-600 focus:ring-red-500"
+                />
+                {selection.size > 0
+                  ? `${selection.size} sélectionné(s)`
+                  : "Tout sélectionner"}
+              </label>
+              <ul class="max-h-56 overflow-auto">
+                {#each purges as l (l.id)}
+                  <li>
+                    <label
+                      class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selection.has(l.id)}
+                        onchange={() => basculerCompte(l.id)}
+                        class="h-3.5 w-3.5 rounded border-stone-300 text-red-600 focus:ring-red-500"
+                      />
+                      <code class="font-mono">{l.login}</code>
+                      <span class="text-stone-600 dark:text-stone-400">
+                        {l.prenom} {l.nom}
+                      </span>
+                      <span class="badge-neutre ml-auto">{l.cible}</span>
+                      <span class="w-20 text-right text-stone-400">
+                        {formaterDate(l.date_prevue_purge)}
+                      </span>
+                    </label>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+
             {#if !confirmationPurge}
               <button
-                class="btn-secondary mt-2 text-xs"
+                class="btn-secondary mt-3 text-xs"
                 onclick={() => (confirmationPurge = true)}
                 disabled={actionEnCours}
               >
                 <Trash2 class="h-3.5 w-3.5" />
                 Enregistrer la purge
+                {selection.size > 0 ? `de ${selection.size} compte(s)` : "de tout le lot"}
               </button>
             {:else}
-              <div class="mt-2 rounded-lg border border-red-300 bg-white p-3 dark:border-red-700 dark:bg-stone-900">
+              <div class="mt-3 rounded-lg border border-red-300 bg-white p-3 dark:border-red-700 dark:bg-stone-900">
                 <p class="text-sm font-medium text-red-900 dark:text-red-200">
-                  Confirmer la purge de {purges.length} compte(s) ?
+                  Confirmer la purge de {selection.size > 0 ? selection.size : purges.length} compte(s) ?
                 </p>
                 <p class="mt-1 text-xs text-stone-600 dark:text-stone-400">
                   Cette action <strong>ne supprime rien</strong> dans Google, KoXo
@@ -208,7 +279,7 @@
                   du compte cible passe à <code>purge</code>.
                 </p>
                 <div class="mt-2 flex gap-2">
-                  <button class="btn-primary text-xs" onclick={confirmerPurge} disabled={actionEnCours}>
+                  <button class="btn-danger text-xs" onclick={confirmerPurge} disabled={actionEnCours}>
                     Oui, c'est fait côté cible
                   </button>
                   <button
@@ -221,19 +292,6 @@
                 </div>
               </div>
             {/if}
-
-            <details class="mt-2">
-              <summary class="cursor-pointer text-xs text-red-700 dark:text-red-400">
-                Voir la liste ({purges.length})
-              </summary>
-              <ul class="mt-2 space-y-1 text-xs">
-                {#each purges.slice(0, 20) as l}
-                  <li>
-                    <code>{l.login}</code> — {l.prenom} {l.nom} · {l.cible} · purge prévue {formaterDate(l.date_prevue_purge)}
-                  </li>
-                {/each}
-              </ul>
-            </details>
           </div>
         </div>
       </div>

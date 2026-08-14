@@ -16,12 +16,52 @@
   --color-status-restant: oklch(0.65 0.13 230); /* bleu calme */
   --color-status-sortant: oklch(0.7 0.18 55); /* ambre */
 
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* Pile système affinée pour Windows.
+   *
+   * « Inter » figurait ici sans jamais être chargée — ni fichier local ni
+   * @font-face — donc l'app retombait silencieusement sur la police par
+   * défaut. Plutôt que d'embarquer une police (poids ajouté au binaire,
+   * pour un gain discutable), on nomme explicitement les meilleures polices
+   * déjà présentes : Segoe UI Variable sur Windows 11, Segoe UI sur 10. */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui,
+    -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "SF Mono",
+    Consolas, monospace;
 
   /* Durées d'animation — centralisées pour rester cohérentes */
   --duree-rapide: 120ms;
   --duree-normale: 200ms;
   --duree-lente: 320ms;
+}
+
+/* ---------------------------------------------------------------------------
+ * Réglages typographiques
+ *
+ * Ce sont ces détails, plus que le choix de la police, qui font qu'une
+ * interface dense reste lisible et paraît soignée.
+ * ------------------------------------------------------------------------ */
+
+html {
+  /* Lissage et ligatures contextuelles */
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* Les titres serrent légèrement leur interlettrage : à grande taille, les
+ * espacements par défaut paraissent lâches. */
+h1,
+h2,
+h3 {
+  letter-spacing: -0.015em;
+}
+
+/* Tout ce qui est chiffré s'aligne en colonnes, y compris dans les
+ * paragraphes — sinon les compteurs sautillent pendant les animations. */
+.tabular-nums,
+td,
+th {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Scrollbars discrètes */

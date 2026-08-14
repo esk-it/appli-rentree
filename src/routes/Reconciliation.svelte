@@ -6,6 +6,7 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import LogOut from "@lucide/svelte/icons/log-out";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
+  import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
   import Nombre from "$lib/components/Nombre.svelte";
   import { annees, reconciliation } from "$lib/api.js";
@@ -92,16 +93,12 @@
 </script>
 
 <section class="space-y-5">
-  <header>
-    <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">
-      Réconciliation
-    </h1>
-    <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
-      Compare deux années scolaires sur la clé pivot <code>(type, ID Charlemagne)</code>
-      et classe chaque personne dans un des <strong>cinq seaux</strong>. Aucun cas
-      ambigu n'est résolu automatiquement — l'arbitrage reste humain (Lot 5).
-    </p>
-  </header>
+  <EnTetePage
+    icon={GitCompareArrows}
+    ton="sky"
+    titre="Réconciliation"
+    description="Compare deux années scolaires sur la clé pivot (type, ID Charlemagne) et classe chaque personne dans un des cinq seaux. Aucun cas ambigu n'est résolu automatiquement — l'arbitrage reste humain."
+  />
 
   {#if listeAnnees.length < 2}
     <div class="card border-amber-200 bg-amber-50/50 p-4 text-sm dark:border-amber-800 dark:bg-amber-900/20">

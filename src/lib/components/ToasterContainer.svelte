@@ -32,24 +32,43 @@
     info: "text-sky-700 dark:text-sky-400",
     avertissement: "text-amber-700 dark:text-amber-400",
   };
+
+  const CLASSES_BARRE = {
+    succes: "bg-emerald-500/60",
+    erreur: "bg-red-500/60",
+    info: "bg-sky-500/60",
+    avertissement: "bg-amber-500/60",
+  };
 </script>
 
 <div class="pointer-events-none fixed bottom-4 right-4 z-[200] flex w-80 flex-col-reverse gap-2">
   {#each $toasts as t (t.id)}
     {@const Icone = ICONES[t.type]}
     <div
-      class="pointer-events-auto flex items-start gap-3 rounded-xl border px-3 py-2.5 shadow-lg animate-[slideup_180ms_ease-out] {CLASSES[t.type]}"
+      class="pointer-events-auto relative overflow-hidden rounded-xl border shadow-lg animate-[slideup_180ms_ease-out] {CLASSES[t.type]}"
       role="alert"
     >
-      <Icone class="mt-0.5 h-4 w-4 shrink-0 {CLASSES_ICONE[t.type]}" />
-      <p class="flex-1 text-sm leading-tight">{t.message}</p>
-      <button
-        class="rounded p-0.5 opacity-60 transition-opacity hover:opacity-100"
-        onclick={() => notify.retirer(t.id)}
-        aria-label="Fermer la notification"
-      >
-        <X class="h-3.5 w-3.5" />
-      </button>
+      <div class="flex items-start gap-3 px-3 py-2.5">
+        <Icone class="mt-0.5 h-4 w-4 shrink-0 {CLASSES_ICONE[t.type]}" />
+        <p class="flex-1 text-sm leading-tight">{t.message}</p>
+        <button
+          class="rounded p-0.5 opacity-60 transition-opacity hover:opacity-100"
+          onclick={() => notify.retirer(t.id)}
+          aria-label="Fermer la notification"
+        >
+          <X class="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <!-- Compte à rebours : indique le temps restant avant disparition.
+           Absent des notifications persistantes (durée nulle ou négative),
+           qui attendent une fermeture explicite. -->
+      {#if t.duree > 0}
+        <div
+          class="absolute bottom-0 left-0 h-0.5 w-full origin-left {CLASSES_BARRE[t.type]}"
+          style="animation: rebours {t.duree}ms linear forwards;"
+        ></div>
+      {/if}
     </div>
   {/each}
 </div>
@@ -63,6 +82,17 @@
     to {
       transform: translateY(0);
       opacity: 1;
+    }
+  }
+
+  /* La barre se rétracte sur toute la durée d'affichage du toast, ce qui
+     rend le délai restant lisible sans afficher de compteur. */
+  @keyframes rebours {
+    from {
+      transform: scaleX(1);
+    }
+    to {
+      transform: scaleX(0);
     }
   }
 </style>

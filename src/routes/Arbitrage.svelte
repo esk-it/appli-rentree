@@ -6,6 +6,7 @@
   import UserX from "@lucide/svelte/icons/user-x";
   import Users from "@lucide/svelte/icons/users";
   import History from "@lucide/svelte/icons/history";
+  import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
   import Segments from "$lib/components/Segments.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
@@ -108,16 +109,12 @@
 </script>
 
 <section class="space-y-5">
-  <header>
-    <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">
-      Arbitrage
-    </h1>
-    <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
-      Chaque décision est <strong>mémorisée définitivement</strong> et ne sera
-      plus jamais redemandée. Le programme refuse de trancher les cas ambigus
-      lui-même — c'est le principe qui garantit la stabilité inter-années.
-    </p>
-  </header>
+  <EnTetePage
+    icon={Scale}
+    ton="amber"
+    titre="Arbitrage"
+    description="Chaque décision est mémorisée définitivement et ne sera plus jamais redemandée. Le programme refuse de trancher les cas ambigus lui-même — c'est le principe qui garantit la stabilité inter-années."
+  />
 
   <Segments
     bind:valeur={onglet}

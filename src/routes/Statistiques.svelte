@@ -7,6 +7,9 @@
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import History from "@lucide/svelte/icons/history";
+  import BarChart from "$lib/components/BarChart.svelte";
+  import EnTetePage from "$lib/components/EnTetePage.svelte";
+  import StatCard from "$lib/components/StatCard.svelte";
   import { annees, journal, statistiques } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -94,20 +97,15 @@
     }
   }
 
-  function maxValeur(liste) {
-    return Math.max(1, ...liste.map((v) => v.valeur));
-  }
 </script>
 
 <section class="space-y-5">
-  <header>
-    <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">
-      Statistiques
-    </h1>
-    <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
-      Vue instantanée du référentiel et des effectifs par année.
-    </p>
-  </header>
+  <EnTetePage
+    icon={BarChart3}
+    ton="sky"
+    titre="Statistiques"
+    description="Vue instantanée du référentiel, anomalies détectées et journal des opérations."
+  />
 
   {#if erreur}
     <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
@@ -116,59 +114,26 @@
   {/if}
 
   {#if ref}
-    <!-- Cards top -->
-    <div class="grid grid-cols-2 gap-3 md:grid-cols-4">
-      <div class="card p-4">
-        <div class="flex items-center gap-3">
-          <div class="rounded-lg bg-emerald-100 p-2 dark:bg-emerald-900/40">
-            <Users2 class="h-5 w-5 text-emerald-700 dark:text-emerald-300" />
-          </div>
-          <div>
-            <p class="text-xs uppercase tracking-wide text-stone-500">Personnes</p>
-            <p class="text-2xl font-semibold tabular-nums">{ref.nb_personnes_total}</p>
-            <p class="text-xs text-stone-500">
-              {ref.nb_eleves_total} él. · {ref.nb_adultes_total} ad.
-            </p>
-          </div>
-        </div>
-      </div>
-      <div class="card p-4">
-        <div class="flex items-center gap-3">
-          <div class="rounded-lg bg-sky-100 p-2 dark:bg-sky-900/40">
-            <Building2 class="h-5 w-5 text-sky-700 dark:text-sky-300" />
-          </div>
-          <div>
-            <p class="text-xs uppercase tracking-wide text-stone-500">Sites</p>
-            <p class="text-2xl font-semibold tabular-nums">{ref.nb_sites}</p>
-          </div>
-        </div>
-      </div>
-      <div class="card p-4">
-        <div class="flex items-center gap-3">
-          <div class="rounded-lg bg-stone-100 p-2 dark:bg-stone-800">
-            <BarChart3 class="h-5 w-5 text-stone-700 dark:text-stone-300" />
-          </div>
-          <div>
-            <p class="text-xs uppercase tracking-wide text-stone-500">Années</p>
-            <p class="text-2xl font-semibold tabular-nums">{ref.nb_annees_scolaires}</p>
-          </div>
-        </div>
-      </div>
-      <div class="card p-4">
-        <div class="flex items-center gap-3">
-          <div class="rounded-lg bg-amber-100 p-2 dark:bg-amber-900/40">
-            <Scale class="h-5 w-5 text-amber-700 dark:text-amber-300" />
-          </div>
-          <div>
-            <p class="text-xs uppercase tracking-wide text-stone-500">Arbitrages</p>
-            <p class="text-2xl font-semibold tabular-nums">
-              {ref.nb_arbitrages_en_attente}
-              <span class="text-sm text-stone-400">/ {ref.nb_arbitrages_en_attente + ref.nb_arbitrages_tranches}</span>
-            </p>
-            <p class="text-xs text-stone-500">en attente / total</p>
-          </div>
-        </div>
-      </div>
+    <div class="anim-cascade grid grid-cols-2 gap-3 md:grid-cols-4">
+      <StatCard
+        label="Personnes"
+        value={ref.nb_personnes_total}
+        icon={Users2}
+        hint="{ref.nb_eleves_total} él. · {ref.nb_adultes_total} ad."
+      />
+      <StatCard label="Sites" value={ref.nb_sites} icon={Building2} variante="info" />
+      <StatCard
+        label="Classes déclarées"
+        value={ref.nb_classes_table ?? 0}
+        icon={BarChart3}
+      />
+      <StatCard
+        label="Arbitrages"
+        value={ref.nb_arbitrages_en_attente}
+        icon={Scale}
+        variante={ref.nb_arbitrages_en_attente > 0 ? "warning" : "success"}
+        hint="sur {ref.nb_arbitrages_en_attente + ref.nb_arbitrages_tranches} au total"
+      />
     </div>
   {/if}
 
@@ -188,54 +153,55 @@
       </div>
 
       {#if statsAnnee}
-        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div>
-            <p class="text-sm font-semibold text-stone-700 dark:text-stone-300 mb-2">
-              {statsAnnee.nb_personnes} personne(s)
-              — {statsAnnee.nb_eleves} él., {statsAnnee.nb_adultes} ad.
-            </p>
+        <p class="text-sm font-semibold text-stone-700 dark:text-stone-300">
+          {statsAnnee.nb_personnes} personne(s)
+          — {statsAnnee.nb_eleves} él., {statsAnnee.nb_adultes} ad.
+        </p>
 
-            <h3 class="text-xs uppercase tracking-wide text-stone-500 mt-3 mb-1">Par site</h3>
-            {#each statsAnnee.par_site as v (v.label)}
-              {@const max = maxValeur(statsAnnee.par_site)}
-              <div class="flex items-center gap-2 py-0.5 text-sm">
-                <span class="w-24 text-stone-600 dark:text-stone-400">{v.label}</span>
-                <div class="flex-1 rounded-full bg-stone-100 dark:bg-stone-800 overflow-hidden">
-                  <div class="h-4 rounded-full bg-emerald-500" style="width: {(v.valeur / max) * 100}%"></div>
-                </div>
-                <span class="w-10 text-right tabular-nums font-medium">{v.valeur}</span>
-              </div>
-            {/each}
+        <div class="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <div>
+            <h3 class="titre-section mb-2">Par site</h3>
+            <BarChart
+              donnees={statsAnnee.par_site.map((v) => ({ cle: v.label, valeur: v.valeur }))}
+              couleur="bg-emerald-500"
+              afficherPart
+            />
           </div>
 
           <div>
-            <h3 class="text-xs uppercase tracking-wide text-stone-500 mt-3 mb-1">Par régime</h3>
-            {#each statsAnnee.par_regime as v (v.label)}
-              {@const max = maxValeur(statsAnnee.par_regime)}
-              <div class="flex items-center gap-2 py-0.5 text-sm">
-                <span class="w-24 text-stone-600 dark:text-stone-400">{v.label}</span>
-                <div class="flex-1 rounded-full bg-stone-100 dark:bg-stone-800 overflow-hidden">
-                  <div class="h-4 rounded-full bg-sky-500" style="width: {(v.valeur / max) * 100}%"></div>
-                </div>
-                <span class="w-10 text-right tabular-nums font-medium">{v.valeur}</span>
-              </div>
-            {/each}
+            <h3 class="titre-section mb-2">Par régime</h3>
+            <BarChart
+              donnees={statsAnnee.par_regime.map((v) => ({ cle: v.label, valeur: v.valeur }))}
+              couleur="bg-sky-500"
+              afficherPart
+            />
           </div>
-        </div>
 
-        {#if statsAnnee.par_niveau.length > 0}
-          <div class="mt-4">
-            <h3 class="text-xs uppercase tracking-wide text-stone-500 mb-1">Par niveau</h3>
-            <div class="grid grid-cols-2 gap-1 md:grid-cols-4">
-              {#each statsAnnee.par_niveau as v (v.label)}
-                <div class="rounded-lg border border-stone-200 bg-stone-50 p-2 text-sm dark:border-stone-700 dark:bg-stone-800">
-                  <span class="font-mono text-xs text-stone-500">{v.label}</span>
-                  <span class="ml-2 font-semibold tabular-nums">{v.valeur}</span>
-                </div>
-              {/each}
+          {#if statsAnnee.par_niveau.length > 0}
+            <div>
+              <h3 class="titre-section mb-2">Par niveau</h3>
+              <BarChart
+                donnees={statsAnnee.par_niveau.map((v) => ({ cle: v.label, valeur: v.valeur }))}
+                couleur="bg-indigo-500"
+                maxLignes={12}
+              />
             </div>
-          </div>
-        {/if}
+          {/if}
+
+          {#if statsAnnee.par_etablissement_charlemagne.length > 0}
+            <div>
+              <h3 class="titre-section mb-2">Par établissement Charlemagne</h3>
+              <BarChart
+                donnees={statsAnnee.par_etablissement_charlemagne.map((v) => ({
+                  cle: v.label,
+                  valeur: v.valeur,
+                }))}
+                couleur="bg-amber-500"
+                afficherPart
+              />
+            </div>
+          {/if}
+        </div>
       {/if}
     </div>
   {/if}

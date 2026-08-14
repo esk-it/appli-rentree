@@ -50,11 +50,48 @@
   // Command Palette (Ctrl+K / Cmd+K)
   let paletteOuverte = $state(false);
 
+  /**
+   * Raccourcis de navigation.
+   *
+   * `Ctrl+1` à `Ctrl+9` suivent l'ordre visuel de la barre latérale, donc
+   * l'ordre du travail : configuration, traitement, consultation. On atteint
+   * ainsi une page fréquente sans quitter le clavier.
+   */
+  let ordreRaccourcis = $derived(sections.flatMap((s) => s.items.map((i) => i.id)));
+
   function gererTouchesGlobales(e) {
-    // Ctrl+K ou Cmd+K
+    // Ne pas détourner les touches pendant une saisie.
+    const cible = e.target;
+    const dansUnChamp =
+      cible instanceof HTMLElement &&
+      (cible.tagName === "INPUT" ||
+        cible.tagName === "TEXTAREA" ||
+        cible.tagName === "SELECT" ||
+        cible.isContentEditable);
+
+    // Ctrl+K ou Cmd+K — recherche, accessible même depuis un champ.
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
       e.preventDefault();
       paletteOuverte = !paletteOuverte;
+      return;
+    }
+
+    if (dansUnChamp) return;
+
+    // Ctrl+1..9 — navigation directe
+    if ((e.ctrlKey || e.metaKey) && /^[1-9]$/.test(e.key)) {
+      const cible = ordreRaccourcis[Number(e.key) - 1];
+      if (cible) {
+        e.preventDefault();
+        page = cible;
+      }
+      return;
+    }
+
+    // « ? » — aide, convention répandue
+    if (e.key === "?" && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      page = "aide";
     }
   }
   let messageDemarrage = $state("Démarrage du backend…");
@@ -145,21 +182,56 @@
     }
   }
 
-  const navItems = [
-    { id: "accueil", label: "Tableau de bord", icon: Home, dispo: true },
-    { id: "personnes", label: "Référentiel", icon: Users2, dispo: true },
-    { id: "sites", label: "Sites", icon: Building2, dispo: true },
-    { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon, dispo: true },
-    { id: "amorcage", label: "Amorçage KoXo", icon: Rocket, dispo: true },
-    { id: "snapshots", label: "Snapshots d'années", icon: Database, dispo: true },
-    { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows, dispo: true },
-    { id: "arbitrage", label: "Arbitrage", icon: Scale, dispo: true, badge: () => nbArbitragesEnAttente },
-    { id: "simulation", label: "Simulation", icon: Zap, dispo: true },
-    { id: "exports", label: "Exports", icon: FileDown, dispo: true },
-    { id: "suivi", label: "Suivi", icon: Activity, dispo: true },
-    { id: "statistiques", label: "Statistiques", icon: BarChart3, dispo: true },
-    { id: "parametres", label: "Paramètres", icon: Settings, dispo: true },
-    { id: "aide", label: "Aide", icon: HelpCircle, dispo: true },
+  /**
+   * Navigation groupée par moment d'usage plutôt qu'en liste plate.
+   *
+   * Quatorze entrées alignées sans hiérarchie obligeaient à toutes les lire
+   * pour en trouver une. Les sections suivent l'ordre réel du travail :
+   * on configure une fois, on traite à chaque campagne, on surveille ensuite.
+   */
+  const sections = [
+    {
+      titre: null, // le tableau de bord n'appartient à aucun groupe
+      items: [{ id: "accueil", label: "Tableau de bord", icon: Home }],
+    },
+    {
+      titre: "Configuration",
+      items: [
+        { id: "sites", label: "Sites", icon: Building2 },
+        { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon },
+        { id: "amorcage", label: "Amorçage KoXo", icon: Rocket },
+      ],
+    },
+    {
+      titre: "Traitement",
+      items: [
+        { id: "snapshots", label: "Snapshots d'années", icon: Database },
+        { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
+        {
+          id: "arbitrage",
+          label: "Arbitrage",
+          icon: Scale,
+          badge: () => nbArbitragesEnAttente,
+        },
+        { id: "simulation", label: "Simulation", icon: Zap },
+        { id: "exports", label: "Exports", icon: FileDown },
+      ],
+    },
+    {
+      titre: "Consultation",
+      items: [
+        { id: "personnes", label: "Référentiel", icon: Users2 },
+        { id: "suivi", label: "Suivi", icon: Activity },
+        { id: "statistiques", label: "Statistiques", icon: BarChart3 },
+      ],
+    },
+    {
+      titre: null,
+      items: [
+        { id: "parametres", label: "Paramètres", icon: Settings },
+        { id: "aide", label: "Aide", icon: HelpCircle },
+      ],
+    },
   ];
 </script>
 
@@ -286,39 +358,48 @@
       </button>
     </div>
 
-    <nav class="flex-1 space-y-0.5 p-3">
-      {#each navItems as item (item.id)}
-        <button
-          class="group relative flex w-full items-center gap-3 rounded-lg py-2 pl-4 pr-3 text-left text-sm font-medium transition-all duration-150
-                 {page === item.id
-                   ? 'bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
-                   : 'text-stone-700 hover:bg-stone-100 hover:pl-5 dark:text-stone-300 dark:hover:bg-stone-700/50'}
-                 {!item.dispo ? 'cursor-not-allowed opacity-40' : ''}"
-          disabled={!item.dispo}
-          onclick={() => item.dispo && (page = item.id)}
-        >
-          <!-- Barre latérale : repère plus lisible qu'un simple fond coloré -->
-          <span
-            class="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-emerald-600 transition-all duration-200 dark:bg-emerald-400
-                   {page === item.id ? 'opacity-100' : 'opacity-0'}"
-          ></span>
-          <item.icon
-            class="h-4 w-4 shrink-0 transition-transform duration-150 {page === item.id
-              ? ''
-              : 'group-hover:scale-110'}"
-          />
-          <span class="flex-1 truncate">{item.label}</span>
-          {#if item.badge && item.badge() > 0}
-            <span
-              class="animate-[pulsation-douce_2s_ease-in-out_infinite] rounded-full bg-amber-500 px-1.5 py-0 text-[10px] font-semibold text-white"
+    <nav class="flex-1 overflow-y-auto px-3 py-2">
+      {#each sections as section, iSection (iSection)}
+        <div class={section.titre ? "mt-4 first:mt-0" : "mt-2 first:mt-0"}>
+          {#if section.titre}
+            <p
+              class="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-stone-400 dark:text-stone-500"
             >
-              {item.badge()}
-            </span>
+              {section.titre}
+            </p>
           {/if}
-          {#if !item.dispo}
-            <span class="text-[10px] uppercase tracking-wide text-stone-400">À venir</span>
-          {/if}
-        </button>
+          <div class="space-y-0.5">
+            {#each section.items as item (item.id)}
+              {@const actif = page === item.id}
+              <button
+                class="group relative flex w-full items-center gap-3 rounded-lg py-2 pl-4 pr-3 text-left text-sm transition-all duration-150
+                       {actif
+                         ? 'bg-emerald-50 font-semibold text-emerald-800 shadow-sm dark:bg-emerald-900/30 dark:text-emerald-300'
+                         : 'font-medium text-stone-700 hover:bg-stone-100 hover:pl-5 dark:text-stone-300 dark:hover:bg-stone-700/50'}"
+                onclick={() => (page = item.id)}
+              >
+                <!-- Barre latérale : repère plus lisible qu'un simple fond coloré -->
+                <span
+                  class="absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-emerald-600 transition-all duration-200 dark:bg-emerald-400
+                         {actif ? 'h-5 opacity-100' : 'h-0 opacity-0'}"
+                ></span>
+                <item.icon
+                  class="h-4 w-4 shrink-0 transition-transform duration-150 {actif
+                    ? ''
+                    : 'group-hover:scale-110'}"
+                />
+                <span class="flex-1 truncate">{item.label}</span>
+                {#if item.badge && item.badge() > 0}
+                  <span
+                    class="animate-[pulsation-douce_2s_ease-in-out_infinite] rounded-full bg-amber-500 px-1.5 py-0 text-[10px] font-semibold text-white shadow-sm"
+                  >
+                    {item.badge()}
+                  </span>
+                {/if}
+              </button>
+            {/each}
+          </div>
+        </div>
       {/each}
     </nav>
 

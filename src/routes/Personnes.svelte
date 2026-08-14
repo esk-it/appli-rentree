@@ -4,6 +4,7 @@
   import Users2 from "@lucide/svelte/icons/users-2";
   import Avatar from "$lib/components/Avatar.svelte";
   import CopiableTexte from "$lib/components/CopiableTexte.svelte";
+  import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
   import Nombre from "$lib/components/Nombre.svelte";
   import Segments from "$lib/components/Segments.svelte";
@@ -70,15 +71,11 @@
 </script>
 
 <section class="space-y-4">
-  <header>
-    <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">
-      Référentiel des personnes
-    </h1>
-    <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
-      Identité persistante des élèves et adultes. Créée à la première apparition,
-      jamais supprimée — le login reste figé, y compris après un départ.
-    </p>
-  </header>
+  <EnTetePage
+    icon={Users2}
+    titre="Référentiel des personnes"
+    description="Identité persistante des élèves et adultes. Créée à la première apparition, jamais supprimée — le login reste figé, y compris après un départ."
+  />
 
   {#if erreur}
     <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
