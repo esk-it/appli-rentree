@@ -7,6 +7,7 @@
   import LogOut from "@lucide/svelte/icons/log-out";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import EtatVide from "$lib/components/EtatVide.svelte";
+  import Nombre from "$lib/components/Nombre.svelte";
   import { annees, reconciliation } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -216,7 +217,9 @@
               <seau.icon class="h-4 w-4" />
               <span class="text-xs font-medium uppercase tracking-wide">{seau.label}</span>
             </div>
-            <span class="text-2xl font-semibold tabular-nums">{n}</span>
+            <span class="text-2xl font-semibold">
+              <Nombre valeur={n} />
+            </span>
           </button>
         {/each}
       </div>

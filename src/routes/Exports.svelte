@@ -7,6 +7,8 @@
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import Cloud from "@lucide/svelte/icons/cloud";
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
+  import Bouton from "$lib/components/Bouton.svelte";
+  import Segments from "$lib/components/Segments.svelte";
   import {
     annees,
     exportsCible,
@@ -212,24 +214,18 @@
   <div class="card p-5 space-y-4">
     <div class="flex items-center justify-between">
       <h2 class="text-lg font-semibold">Génération d'un CSV</h2>
-      <div class="inline-flex flex-wrap gap-1 rounded-lg border border-stone-200 p-1 dark:border-stone-700">
-        {#each [
+      <Segments
+        bind:valeur={cible}
+        taille="sm"
+        options={[
           { id: "koxo", label: "KoXo" },
           { id: "google", label: "Google" },
           { id: "groupes", label: "Groupes" },
           { id: "pmb", label: "PMB" },
           { id: "jpm", label: "JPM" },
           { id: "cardstudio", label: "CardStudio" },
-        ] as c (c.id)}
-          <button
-            class="rounded-md px-2.5 py-1 text-xs font-medium transition
-                   {cible === c.id ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700'}"
-            onclick={() => (cible = c.id)}
-          >
-            {c.label}
-          </button>
-        {/each}
-      </div>
+        ]}
+      />
     </div>
 
     <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -417,17 +413,17 @@
     {/if}
 
     <div class="flex gap-2">
-      <button
-        class="btn-primary"
+      <Bouton
+        variante="primary"
+        icon={FileDown}
+        occupe={chargement}
+        disabled={!siteId || !anneeCibleId || (anneeSourceRequise && !anneeSourceId)}
         onclick={generer}
-        disabled={!siteId || !anneeCibleId || (anneeSourceRequise && !anneeSourceId) || chargement}
       >
-        <FileDown class="h-4 w-4" />
-        {cible === "google" && fichierKoxoEnrichi ? "Générer Google avec MDP" : "Générer et télécharger"}
-      </button>
-      {#if chargement}
-        <span class="self-center text-sm text-stone-500">Génération…</span>
-      {/if}
+        {cible === "google" && fichierKoxoEnrichi
+          ? "Générer Google avec MDP"
+          : "Générer et télécharger"}
+      </Bouton>
     </div>
 
     {#if erreur}

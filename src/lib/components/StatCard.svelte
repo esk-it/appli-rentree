@@ -1,4 +1,6 @@
 <script>
+  import Nombre from "$lib/components/Nombre.svelte";
+
   /**
    * Carte statistique — le bloc chiffré réutilisé dans tous les écrans.
    *
@@ -50,8 +52,12 @@
       <p class="text-xs font-medium uppercase tracking-wide opacity-70">
         {label}
       </p>
-      <p class="mt-1 tabular-nums font-semibold {compact ? 'text-xl' : 'text-2xl'}">
-        {value}
+      <p class="mt-1 font-semibold tabular-nums {compact ? 'text-xl' : 'text-2xl'}">
+        {#if typeof value === "number"}
+          <Nombre valeur={value} />
+        {:else}
+          {value}
+        {/if}
       </p>
       {#if hint}
         <p class="mt-1 text-xs opacity-60">{hint}</p>

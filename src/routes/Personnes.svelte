@@ -3,7 +3,10 @@
   import Search from "@lucide/svelte/icons/search";
   import Users2 from "@lucide/svelte/icons/users-2";
   import Avatar from "$lib/components/Avatar.svelte";
+  import CopiableTexte from "$lib/components/CopiableTexte.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
+  import Nombre from "$lib/components/Nombre.svelte";
+  import Segments from "$lib/components/Segments.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
   import { personnes } from "$lib/api.js";
 
@@ -33,6 +36,23 @@
   let sitesDispo = $derived([
     ...new Set(liste.map((p) => p.site).filter(Boolean)),
   ].sort());
+
+  // Les compteurs affichés dans les segments donnent la répartition sans
+  // avoir à cliquer sur chaque filtre pour la découvrir.
+  let optionsType = $derived([
+    { id: "", label: "Tous", badge: liste.length },
+    { id: "eleve", label: "Élèves", badge: liste.filter((p) => p.type === "eleve").length },
+    { id: "adulte", label: "Adultes", badge: liste.filter((p) => p.type === "adulte").length },
+  ]);
+
+  let optionsSite = $derived([
+    { id: "", label: "Tous sites" },
+    ...sitesDispo.map((s) => ({
+      id: s,
+      label: s,
+      badge: liste.filter((p) => p.site === s).length,
+    })),
+  ]);
 
   onMount(rafraichir);
 
@@ -77,45 +97,14 @@
           class="w-80 rounded-lg border border-stone-300 py-1.5 pl-8 pr-3 text-sm dark:border-stone-600 dark:bg-stone-800 dark:text-stone-200"
         />
       </div>
-      <div class="flex gap-1">
-        {#each [{ v: "", l: "Tous" }, { v: "eleve", l: "Élèves" }, { v: "adulte", l: "Adultes" }] as opt (opt.v)}
-          <button
-            class="rounded-full border px-3 py-0.5 text-xs font-medium transition
-                   {filtreType === opt.v
-                     ? 'border-emerald-600 bg-emerald-50 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300'
-                     : 'border-stone-200 bg-white text-stone-600 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-400'}"
-            onclick={() => (filtreType = opt.v)}
-          >
-            {opt.l}
-          </button>
-        {/each}
-      </div>
+      <Segments bind:valeur={filtreType} taille="sm" options={optionsType} />
+
       {#if sitesDispo.length}
-        <div class="flex gap-1">
-          <button
-            class="rounded-full border px-3 py-0.5 text-xs font-medium transition
-                   {!filtreSite
-                     ? 'border-sky-600 bg-sky-50 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300'
-                     : 'border-stone-200 bg-white text-stone-600 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-400'}"
-            onclick={() => (filtreSite = "")}
-          >
-            Tous sites
-          </button>
-          {#each sitesDispo as s (s)}
-            <button
-              class="rounded-full border px-3 py-0.5 text-xs font-medium transition
-                     {filtreSite === s
-                       ? 'border-sky-600 bg-sky-50 text-sky-800 dark:bg-sky-900/30 dark:text-sky-300'
-                       : 'border-stone-200 bg-white text-stone-600 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-400'}"
-              onclick={() => (filtreSite = s)}
-            >
-              {s}
-            </button>
-          {/each}
-        </div>
+        <Segments bind:valeur={filtreSite} taille="sm" options={optionsSite} />
       {/if}
-      <span class="ml-auto text-xs text-stone-500 dark:text-stone-400 tabular-nums">
-        {listeFiltree.length} / {liste.length}
+
+      <span class="ml-auto text-xs tabular-nums text-stone-500 dark:text-stone-400">
+        <Nombre valeur={listeFiltree.length} duree={300} /> / {liste.length}
       </span>
     </div>
   </div>
@@ -174,9 +163,14 @@
                 </td>
                 <td class="whitespace-nowrap px-3 py-1.5 font-medium">{p.nom}</td>
                 <td class="whitespace-nowrap px-3 py-1.5">{p.prenom}</td>
-                <td class="whitespace-nowrap px-3 py-1.5 font-mono text-xs">{p.login}</td>
-                <td class="whitespace-nowrap px-3 py-1.5 font-mono text-xs text-stone-600 dark:text-stone-400">
-                  {p.email ?? "—"}
+                <td class="whitespace-nowrap px-3 py-1.5">
+                  <CopiableTexte valeur={p.login} classe="font-mono text-xs" />
+                </td>
+                <td class="whitespace-nowrap px-3 py-1.5">
+                  <CopiableTexte
+                    valeur={p.email ?? ""}
+                    classe="font-mono text-xs text-stone-600 dark:text-stone-400"
+                  />
                 </td>
                 <td class="px-3 py-1.5 text-stone-600 dark:text-stone-400">{p.site ?? "—"}</td>
                 <td class="whitespace-nowrap px-3 py-1.5 text-stone-600 dark:text-stone-400">{p.classe ?? "—"}</td>

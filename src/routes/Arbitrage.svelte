@@ -7,6 +7,7 @@
   import Users from "@lucide/svelte/icons/users";
   import History from "@lucide/svelte/icons/history";
   import EtatVide from "$lib/components/EtatVide.svelte";
+  import Segments from "$lib/components/Segments.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
   import { arbitrages } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
@@ -34,11 +35,6 @@
     } finally {
       chargement = false;
     }
-  }
-
-  async function basculerOnglet(o) {
-    onglet = o;
-    await charger();
   }
 
   async function trancher(arb, decision) {
@@ -123,24 +119,14 @@
     </p>
   </header>
 
-  <div class="card p-1 inline-flex gap-1 rounded-lg">
-    <button
-      class="rounded-md px-3 py-1.5 text-sm font-medium transition
-             {onglet === 'en_attente' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700'}"
-      onclick={() => basculerOnglet("en_attente")}
-    >
-      <Scale class="inline h-3.5 w-3.5" />
-      En attente
-    </button>
-    <button
-      class="rounded-md px-3 py-1.5 text-sm font-medium transition
-             {onglet === 'historique' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-700'}"
-      onclick={() => basculerOnglet("historique")}
-    >
-      <History class="inline h-3.5 w-3.5" />
-      Historique complet
-    </button>
-  </div>
+  <Segments
+    bind:valeur={onglet}
+    onChange={charger}
+    options={[
+      { id: "en_attente", label: "En attente", icon: Scale },
+      { id: "historique", label: "Historique complet", icon: History },
+    ]}
+  />
 
   {#if erreur}
     <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">

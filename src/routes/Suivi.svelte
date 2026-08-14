@@ -6,6 +6,8 @@
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
   import LogOut from "@lucide/svelte/icons/log-out";
   import EtatVide from "$lib/components/EtatVide.svelte";
+  import Nombre from "$lib/components/Nombre.svelte";
+  import Segments from "$lib/components/Segments.svelte";
   import { annees, suivi } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -124,8 +126,7 @@
     }
   }
 
-  async function changerEtat(e) {
-    etatChoisi = e;
+  async function rafraichirListe() {
     try {
       liste = await suivi.lister({ etat: etatChoisi });
     } catch (err) {
@@ -161,9 +162,11 @@
     <!-- Cards totaux par état -->
     <div class="grid grid-cols-2 gap-3 md:grid-cols-5">
       {#each ETATS as e}
-        <div class="card p-3">
+        <div class="card anim-apparition p-3">
           <p class="text-xs uppercase tracking-wide text-stone-500">{e}</p>
-          <p class="text-2xl font-semibold tabular-nums">{stats.total_par_etat[e] ?? 0}</p>
+          <p class="text-2xl font-semibold">
+            <Nombre valeur={stats.total_par_etat[e] ?? 0} />
+          </p>
         </div>
       {/each}
     </div>
@@ -352,17 +355,16 @@
         <h2 class="text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
           Comptes en état
         </h2>
-        <div class="inline-flex gap-1 rounded-lg border border-stone-200 p-0.5 dark:border-stone-700">
-          {#each ETATS as e}
-            <button
-              class="rounded-md px-2 py-0.5 text-xs font-medium transition
-                     {etatChoisi === e ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'text-stone-500 hover:bg-stone-100 dark:hover:bg-stone-700'}"
-              onclick={() => changerEtat(e)}
-            >
-              {e}
-            </button>
-          {/each}
-        </div>
+        <Segments
+          bind:valeur={etatChoisi}
+          taille="sm"
+          onChange={rafraichirListe}
+          options={ETATS.map((e) => ({
+            id: e,
+            label: e,
+            badge: stats?.total_par_etat?.[e] ?? 0,
+          }))}
+        />
       </div>
 
       {#if liste.length === 0}
