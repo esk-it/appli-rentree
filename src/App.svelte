@@ -441,7 +441,7 @@
         {:else if page === "amorcage"}
           <Amorcage />
         {:else if page === "snapshots"}
-          <Snapshots />
+          <Snapshots onNaviguer={(p) => (page = p)} />
         {:else if page === "reconciliation"}
           <Reconciliation />
         {:else if page === "arbitrage"}

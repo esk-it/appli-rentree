@@ -8,6 +8,8 @@
   import { annees, ingestion, sites } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
+  let { onNaviguer = null } = $props();
+
   let listeAnnees = $state([]);
   let listeSites = $state([]);
   let libelleAnnee = $state("");
@@ -228,8 +230,9 @@
             {rapport.classes_inconnues.length} classe(s) absente(s) de la table de correspondance
           </p>
           <p class="mt-1 text-xs text-stone-700 dark:text-stone-300">
-            Ces classes bloquent l'ingestion réelle : ajoute-les d'abord à la
-            <strong>Table de correspondance</strong>.
+            Ces classes bloquent l'ingestion réelle : déclare-les dans la
+            <strong>Table de correspondance</strong>, via le bouton
+            « Ajouter une classe ».
           </p>
           <ul class="mt-2 flex flex-wrap gap-1">
             {#each rapport.classes_inconnues as c (c)}
@@ -238,6 +241,14 @@
               </li>
             {/each}
           </ul>
+          {#if onNaviguer}
+            <button
+              class="btn-secondary mt-3 text-xs"
+              onclick={() => onNaviguer("table_correspondance")}
+            >
+              Ouvrir la Table de correspondance
+            </button>
+          {/if}
         </div>
       {/if}
 
