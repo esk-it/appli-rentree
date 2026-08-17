@@ -37,12 +37,36 @@
   function surTouche(e) {
     if (e.key === "Escape") onFermer();
   }
+
+  /**
+   * Déplace le nœud à la racine du document.
+   *
+   * `position: fixed` ne se réfère à la fenêtre que si aucun ancêtre ne
+   * porte `transform`, `filter`, `backdrop-filter` ou `will-change` : un
+   * tel ancêtre devient bloc conteneur, et la modale se cale sur lui —
+   * donc se retrouve rognée par la zone de contenu.
+   *
+   * Le défaut s'est produit ici même : l'animation de changement de page
+   * laissait un `translateY(0)` résiduel sur le conteneur des écrans.
+   * Corriger cette animation suffisait, mais dépendre de l'absence de
+   * transform chez tous les ancêtres présents et futurs est fragile.
+   * Sortir la modale de l'arbre supprime la classe de défaut entière.
+   */
+  function ancrerAuDocument(node) {
+    document.body.appendChild(node);
+    return {
+      destroy() {
+        node.remove();
+      },
+    };
+  }
 </script>
 
 <svelte:window onkeydown={surTouche} />
 
 <!-- Voile : porte le défilement pour que rien ne devienne inatteignable -->
 <div
+  use:ancrerAuDocument
   class="fixed inset-0 z-50 overflow-y-auto bg-stone-900/50 backdrop-blur-sm"
   role="presentation"
   onclick={onFermer}

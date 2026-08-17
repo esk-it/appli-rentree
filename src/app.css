@@ -134,6 +134,18 @@ th {
   animation: apparition-douce var(--duree-lente) ease-out both;
 }
 
+/* Apparition SANS transform.
+ *
+ * À utiliser sur tout conteneur susceptible d'englober une modale ou tout
+ * autre élément en `position: fixed`. Un élément porteur d'un `transform`
+ * devient le bloc conteneur de ses descendants fixes : ceux-ci se calent
+ * alors sur lui au lieu de la fenêtre, et se retrouvent rognés. Comme
+ * `animation-fill-mode: both` conserve l'état final, un `translateY(0)`
+ * en apparence inoffensif suffit à provoquer le défaut en permanence. */
+.anim-apparition-sans-transform {
+  animation: apparition-douce var(--duree-normale) ease-out both;
+}
+
 /* Décalage en cascade pour une grille de cartes — jusqu'à 6 éléments,
  * au-delà l'effet devient plus gênant qu'agréable. */
 .anim-cascade > *:nth-child(1) { animation-delay: 0ms; }

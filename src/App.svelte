@@ -429,7 +429,10 @@
          l'animation d'apparition — sinon Svelte réutilise le nœud et rien
          ne bouge visuellement. -->
     {#key page}
-      <div class="anim-apparition mx-auto max-w-7xl p-6">
+      <!-- Apparition sans `transform` : ce conteneur englobe les modales des
+           écrans, et un transform ferait d'elles des enfants de cette div
+           plutôt que de la fenêtre — elles se retrouveraient rognées. -->
+      <div class="anim-apparition-sans-transform mx-auto max-w-7xl p-6">
         {#if page === "accueil"}
           <TableauDeBord onNaviguer={(p) => (page = p)} />
         {:else if page === "personnes"}
