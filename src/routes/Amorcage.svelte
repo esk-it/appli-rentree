@@ -7,8 +7,32 @@
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
   import Info from "@lucide/svelte/icons/info";
   import Lock from "@lucide/svelte/icons/lock";
-  import { amorcage, sites as sitesApi } from "$lib/api.js";
+  import { amorcage, sites as sitesApi, statistiques } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+
+  /**
+   * État réel du référentiel, ventilé par site et population.
+   *
+   * Sans cette vue, l'écran ne gardait aucune trace entre deux imports :
+   * impossible de savoir ce qui avait déjà été chargé, ni de comprendre
+   * pourquoi une ingestion crée tant de personnes. Un site à zéro signale
+   * immédiatement un amorçage manquant.
+   */
+  let effectifs = $state([]);
+
+  async function chargerEffectifs() {
+    try {
+      const r = await statistiques.referentiel();
+      effectifs = r.effectifs_par_site_type ?? [];
+    } catch {
+      effectifs = [];
+    }
+  }
+
+  let totalCharge = $derived(effectifs.reduce((s, e) => s + e.nb, 0));
+  let sitesSansEleves = $derived(
+    effectifs.filter((e) => e.type_personne === "eleve" && e.nb === 0).map((e) => e.site),
+  );
 
   let listeSites = $state([]);
   let siteId = $state(/** @type {null | number} */ (null));
@@ -26,6 +50,7 @@
     } catch (e) {
       erreur = String(e);
     }
+    await chargerEffectifs();
   });
 
   function onSelection(e) {
@@ -44,6 +69,7 @@
         notify.succes(
           `+${rapport.nb_creations} créées, ${rapport.nb_deja_presentes} déjà là, ${rapport.nb_conflits_login} conflits`,
         );
+        await chargerEffectifs();
       } else if (rapport.est_bloque) {
         notify.erreur(rapport.erreurs.join(" ; "));
       } else {
@@ -82,6 +108,69 @@
       </p>
     </div>
   </div>
+
+  <!-- Ce qui est déjà chargé : sans cette vue, un amorçage partiel reste
+       invisible et le nombre de créations à l'ingestion devient inexplicable. -->
+  {#if effectifs.length > 0}
+    <div class="card p-4">
+      <div class="mb-3 flex items-center justify-between gap-3">
+        <h2 class="titre-section">Déjà chargé dans le référentiel</h2>
+        <span class="text-xs tabular-nums text-stone-500 dark:text-stone-400">
+          {totalCharge} personne(s)
+        </span>
+      </div>
+
+      <div class="overflow-hidden rounded-lg border border-stone-200 dark:border-stone-700">
+        <table class="tableau">
+          <thead>
+            <tr>
+              <th class="px-3 py-2 text-left">Site</th>
+              <th class="px-3 py-2 text-right">Élèves</th>
+              <th class="px-3 py-2 text-right">Adultes</th>
+              <th class="px-3 py-2 text-left">État</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each listeSites as s (s.id)}
+              {@const el = effectifs.find(
+                (e) => e.site === s.nom && e.type_personne === "eleve",
+              )?.nb ?? 0}
+              {@const ad = effectifs.find(
+                (e) => e.site === s.nom && e.type_personne === "adulte",
+              )?.nb ?? 0}
+              <tr>
+                <td class="px-3 py-2 font-medium">{s.nom}</td>
+                <td class="px-3 py-2 text-right tabular-nums">{el}</td>
+                <td class="px-3 py-2 text-right tabular-nums">{ad}</td>
+                <td class="px-3 py-2">
+                  {#if el === 0 && ad === 0}
+                    <span class="badge-sortant">aucun amorçage</span>
+                  {:else if el === 0}
+                    <span class="badge-sortant">élèves manquants</span>
+                  {:else}
+                    <span class="badge-nouveau">
+                      <CheckCircle2 class="h-3 w-3" />
+                      amorcé
+                    </span>
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+
+      {#if sitesSansEleves.length > 0}
+        <p class="mt-3 text-xs text-stone-600 dark:text-stone-400">
+          <strong>{sitesSansEleves.join(", ")}</strong> — aucun élève chargé.
+          Les élèves de ces sites seront comptés comme <em>créations</em> à
+          l'ingestion Charlemagne, avec un login calculé plutôt que leur login
+          KoXo réel. C'est attendu si aucun serveur KoXo n'existe pour ce site ;
+          sinon, importe l'export correspondant avant d'ingérer.
+        </p>
+      {/if}
+    </div>
+  {/if}
 
   {#if listeSites.length === 0}
     <div class="card border-amber-200 bg-amber-50/50 p-4 text-sm dark:border-amber-800 dark:bg-amber-900/20">

@@ -19,6 +19,12 @@ class StatValeurOut(BaseModel):
     valeur: int
 
 
+class EffectifOut(BaseModel):
+    site: str
+    type_personne: str
+    nb: int
+
+
 class ReferentielOut(BaseModel):
     nb_personnes_total: int
     nb_eleves_total: int
@@ -28,6 +34,7 @@ class ReferentielOut(BaseModel):
     nb_annees_scolaires: int
     nb_arbitrages_en_attente: int
     nb_arbitrages_tranches: int
+    effectifs_par_site_type: list[EffectifOut] = []
 
 
 class AnneeOut(BaseModel):

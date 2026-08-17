@@ -56,6 +56,43 @@ def test_stats_referentiel_compte_arbitrages(session):
     assert r.nb_arbitrages_tranches == 1
 
 
+def test_effectifs_ventiles_par_site_et_type(session, site_factory, personne_factory):
+    """Un site sans personne apparaît à zéro plutôt que d'être absent.
+
+    C'est ce qui rend un amorçage partiel visible : sans ligne à zéro, on ne
+    distingue pas « site pas encore importé » de « site inexistant », et le
+    nombre de créations à l'ingestion reste inexplicable.
+    """
+    from backend.services.statistiques import stats_referentiel
+
+    ndk = site_factory("NDK")
+    site_factory("SU")  # déclaré mais sans personne
+
+    for i in range(3):
+        personne_factory(type="eleve", site_id=ndk.id, login=f"e{i}")
+    personne_factory(type="adulte", site_id=ndk.id, login="a0")
+
+    r = stats_referentiel(session)
+    par_cle = {(e.site, e.type_personne): e.nb for e in r.effectifs_par_site_type}
+
+    assert par_cle[("NDK", "eleve")] == 3
+    assert par_cle[("NDK", "adulte")] == 1
+    # SU est déclaré : il doit apparaître, à zéro
+    assert par_cle[("SU", "eleve")] == 0
+    assert par_cle[("SU", "adulte")] == 0
+
+
+def test_effectifs_signalent_les_personnes_sans_site(session, site_factory, personne_factory):
+    from backend.services.statistiques import stats_referentiel
+
+    site_factory("NDK")
+    personne_factory(type="eleve", site_id=None, login="orphelin")
+
+    r = stats_referentiel(session)
+    par_cle = {(e.site, e.type_personne): e.nb for e in r.effectifs_par_site_type}
+    assert par_cle[("sans site", "eleve")] == 1
+
+
 def test_stats_annee_repartitions(session, site_factory, annee_factory, personne_factory, snap_factory):
     from backend.services.statistiques import stats_annee
 

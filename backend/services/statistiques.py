@@ -39,6 +39,15 @@ class StatsAnnee:
 
 
 @dataclass
+class EffectifSiteType:
+    """Effectif du référentiel pour un couple (site, type de personne)."""
+
+    site: str
+    type_personne: str
+    nb: int
+
+
+@dataclass
 class StatsReferentiel:
     """Stats indépendantes d'une année — sur l'ensemble du référentiel."""
     nb_personnes_total: int = 0
@@ -53,12 +62,40 @@ class StatsReferentiel:
     nb_arbitrages_en_attente: int = 0
     nb_arbitrages_tranches: int = 0
 
+    effectifs_par_site_type: list[EffectifSiteType] = field(default_factory=list)
+    """Ce qui est réellement chargé, site par site et population par
+    population. Sans cette ventilation, un amorçage partiel est indétectable :
+    on ne peut pas distinguer « SU pas encore importé » de « SU importé mais
+    vide », et le nombre de créations à l'ingestion devient inexplicable."""
+
 
 def stats_referentiel(session: Session) -> StatsReferentiel:
     """Vue transverse du référentiel (ne dépend pas d'une année)."""
     from backend.models import TableCorrespondance
 
+    # Ventilation site × type. Un site déclaré mais sans personne apparaît
+    # avec 0 — c'est précisément l'information utile pour repérer qu'un
+    # amorçage n'a pas encore été fait.
+    noms_sites = {s.id: s.nom for s in session.query(Site).all()}
+    compte: dict[tuple[str, str], int] = {}
+    for nom in noms_sites.values():
+        for type_p in ("eleve", "adulte"):
+            compte[(nom, type_p)] = 0
+    for site_id, type_p, n in (
+        session.query(Personne.site_id, Personne.type, func.count(Personne.id))
+        .group_by(Personne.site_id, Personne.type)
+        .all()
+    ):
+        nom = noms_sites.get(site_id, "sans site")
+        compte[(nom, type_p)] = compte.get((nom, type_p), 0) + int(n)
+
+    effectifs = [
+        EffectifSiteType(site=site, type_personne=type_p, nb=nb)
+        for (site, type_p), nb in sorted(compte.items())
+    ]
+
     return StatsReferentiel(
+        effectifs_par_site_type=effectifs,
         nb_personnes_total=session.query(Personne).count(),
         nb_eleves_total=session.query(Personne).filter_by(type="eleve").count(),
         nb_adultes_total=session.query(Personne).filter_by(type="adulte").count(),
