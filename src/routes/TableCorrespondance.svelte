@@ -11,6 +11,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
+  import Modale from "$lib/components/Modale.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
   import { tableCorrespondance, sites as sitesApi } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
@@ -452,23 +453,11 @@
 
 <!-- Formulaire de saisie manuelle -->
 {#if modale}
-  <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/50 p-4 backdrop-blur-sm"
-    role="dialog"
-    aria-modal="true"
-    tabindex="-1"
-    onclick={() => (modale = null)}
-    onkeydown={(e) => e.key === "Escape" && (modale = null)}
+  <Modale
+    largeur="lg"
+    titre={modale.mode === "creer" ? "Ajouter une classe" : "Modifier la classe"}
+    onFermer={() => (modale = null)}
   >
-    <div
-      class="card anim-apparition w-full max-w-lg space-y-4 p-5"
-      role="document"
-      onclick={(e) => e.stopPropagation()}
-    >
-      <h2 class="text-lg font-semibold text-stone-900 dark:text-stone-100">
-        {modale.mode === "creer" ? "Ajouter une classe" : "Modifier la classe"}
-      </h2>
-
       <div class="grid grid-cols-2 gap-3">
         <label class="block">
           <span class="libelle-champ">Site *</span>
@@ -547,14 +536,13 @@
         </label>
       </div>
 
-      <div class="flex justify-end gap-2 pt-1">
-        <button class="btn-secondary" onclick={() => (modale = null)} disabled={enregistrement}>
-          Annuler
-        </button>
-        <button class="btn-primary" onclick={enregistrer} disabled={!formValide || enregistrement}>
-          {modale.mode === "creer" ? "Ajouter" : "Enregistrer"}
-        </button>
-      </div>
-    </div>
-  </div>
+    {#snippet actions()}
+      <button class="btn-secondary" onclick={() => (modale = null)} disabled={enregistrement}>
+        Annuler
+      </button>
+      <button class="btn-primary" onclick={enregistrer} disabled={!formValide || enregistrement}>
+        {modale.mode === "creer" ? "Ajouter" : "Enregistrer"}
+      </button>
+    {/snippet}
+  </Modale>
 {/if}

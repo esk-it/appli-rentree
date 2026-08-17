@@ -5,6 +5,7 @@
   import Trash2 from "@lucide/svelte/icons/trash-2";
   import Pencil from "@lucide/svelte/icons/pencil";
   import EtatVide from "$lib/components/EtatVide.svelte";
+  import Modale from "$lib/components/Modale.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
   import { sites as sitesApi } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
@@ -140,37 +141,46 @@
 </section>
 
 {#if modaleOuverte}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-stone-900/40 p-4" role="dialog" onclick={() => (modaleOuverte = null)}>
-    <div class="card max-w-md w-full space-y-3 p-5" onclick={(e) => e.stopPropagation()} role="document">
-      <h2 class="text-lg font-semibold">
-        {modaleOuverte.mode === "creer" ? "Nouveau site" : "Modifier le site"}
-      </h2>
-      <label class="block text-sm">
-        <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">Nom court (NDE, NDK, SU…)</span>
-        <input type="text" bind:value={form.nom} class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm dark:border-stone-600 dark:bg-stone-800" />
+  <Modale
+    titre={modaleOuverte.mode === "creer" ? "Nouveau site" : "Modifier le site"}
+    onFermer={() => (modaleOuverte = null)}
+  >
+    <label class="block">
+      <span class="libelle-champ">Nom court (NDE, NDK, SU…)</span>
+      <input type="text" bind:value={form.nom} class="champ mt-1" />
+    </label>
+    <label class="block">
+      <span class="libelle-champ">Nom complet</span>
+      <input type="text" bind:value={form.nom_complet} class="champ mt-1" />
+    </label>
+    <label class="block">
+      <span class="libelle-champ">Domaine mail (Google Workspace)</span>
+      <input
+        type="text"
+        bind:value={form.domaine_mail}
+        placeholder="lekreisker.fr"
+        class="champ mt-1"
+      />
+    </label>
+    <div class="grid grid-cols-2 gap-3">
+      <label class="block">
+        <span class="libelle-champ">Préfixe année OU</span>
+        <input
+          type="text"
+          bind:value={form.prefixe_annee_ou}
+          placeholder="NDK"
+          class="champ mt-1"
+        />
       </label>
-      <label class="block text-sm">
-        <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">Nom complet</span>
-        <input type="text" bind:value={form.nom_complet} class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm dark:border-stone-600 dark:bg-stone-800" />
+      <label class="block">
+        <span class="libelle-champ">N° d'ordre</span>
+        <input type="number" min="1" bind:value={form.numero_ordre} class="champ mt-1 w-24" />
       </label>
-      <label class="block text-sm">
-        <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">Domaine mail (Google Workspace)</span>
-        <input type="text" bind:value={form.domaine_mail} placeholder="lekreisker.fr" class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm dark:border-stone-600 dark:bg-stone-800" />
-      </label>
-      <div class="grid grid-cols-2 gap-2">
-        <label class="block text-sm">
-          <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">Préfixe année OU</span>
-          <input type="text" bind:value={form.prefixe_annee_ou} placeholder="NDK" class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm dark:border-stone-600 dark:bg-stone-800" />
-        </label>
-        <label class="block text-sm">
-          <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">N° d'ordre</span>
-          <input type="number" min="1" bind:value={form.numero_ordre} class="mt-1 w-24 rounded-lg border border-stone-300 px-3 py-2 text-sm dark:border-stone-600 dark:bg-stone-800" />
-        </label>
-      </div>
-      <div class="flex justify-end gap-2 pt-2">
-        <button class="btn-secondary" onclick={() => (modaleOuverte = null)}>Annuler</button>
-        <button class="btn-primary" onclick={sauvegarder}>Enregistrer</button>
-      </div>
     </div>
-  </div>
+
+    {#snippet actions()}
+      <button class="btn-secondary" onclick={() => (modaleOuverte = null)}>Annuler</button>
+      <button class="btn-primary" onclick={sauvegarder}>Enregistrer</button>
+    {/snippet}
+  </Modale>
 {/if}
