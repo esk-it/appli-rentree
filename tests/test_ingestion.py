@@ -370,3 +370,113 @@ class TestIngestionAdultes:
         assert eleve.cle_pivot == "E60"
         assert adulte.cle_pivot == "A60"
         assert eleve.id != adulte.id
+
+
+class TestCaptureEmailConstate:
+    """L'adresse d'un compte existant est relevée depuis l'export.
+
+    Charlemagne porte l'adresse réelle de chaque compte déjà ouvert. La
+    mémoriser évite de la recalculer — un calcul ne retrouve qu'environ
+    93 % des adresses en place sur l'export réel.
+    """
+
+    def test_adresse_ecole_est_memorisee(self, session, table_corr):
+        df = _df_eleves(
+            {
+                "id_charlemagne": 5292,
+                "nom": "DANIELOU",
+                "prenom": "Ambre",
+                "code_classe": "31",
+                "email": "ambre.danielou@lekreisker.fr",
+            }
+        )
+        _ingerer_eleves(session, df, "2025-2026", "reel", _rapport_vide())
+        p = session.query(Personne).filter_by(type="eleve", id_charlemagne=5292).one()
+        assert p.email_constate == "ambre.danielou@lekreisker.fr"
+        assert p.email == "ambre.danielou@lekreisker.fr"
+
+    def test_adresse_hors_convention_est_conservee_telle_quelle(
+        self, session, table_corr
+    ):
+        """Nom composé tronqué : le calcul donnerait autre chose."""
+        df = _df_eleves(
+            {
+                "id_charlemagne": 5293,
+                "nom": "HENOCQ KERAUTRET",
+                "prenom": "Sarah",
+                "code_classe": "31",
+                "email": "sarah.henocq@lekreisker.fr",
+            }
+        )
+        _ingerer_eleves(session, df, "2025-2026", "reel", _rapport_vide())
+        p = session.query(Personne).filter_by(type="eleve", id_charlemagne=5293).one()
+        assert p.email == "sarah.henocq@lekreisker.fr"
+
+    def test_adresse_personnelle_est_ignoree(self, session, table_corr):
+        """gmail/orange/icloud : adresse de contact, pas un compte de l'ESK."""
+        df = _df_eleves(
+            {
+                "id_charlemagne": 5294,
+                "nom": "CALVEZ",
+                "prenom": "Shanisse",
+                "code_classe": "31",
+                "email": "shanisse.c11@gmail.com",
+            }
+        )
+        _ingerer_eleves(session, df, "2025-2026", "reel", _rapport_vide())
+        p = session.query(Personne).filter_by(type="eleve", id_charlemagne=5294).one()
+        assert p.email_constate is None
+        # L'adresse reste calculée sur le domaine du site
+        assert p.email == "shanisse.calvez@lekreisker.fr"
+
+    def test_sans_email_l_adresse_est_calculee(self, session, table_corr):
+        """Nouvel arrivant : pas encore de compte, donc pas d'adresse constatée."""
+        df = _df_eleves(
+            {
+                "id_charlemagne": 5295,
+                "nom": "LE GALL",
+                "prenom": "Maël",
+                "code_classe": "31",
+            }
+        )
+        _ingerer_eleves(session, df, "2025-2026", "reel", _rapport_vide())
+        p = session.query(Personne).filter_by(type="eleve", id_charlemagne=5295).one()
+        assert p.email_constate is None
+        assert p.email == "mael.le.gall@lekreisker.fr"
+
+    def test_adresse_constatee_n_est_jamais_ecrasee(self, session, table_corr):
+        """Une seconde ingestion ne réécrit pas l'adresse d'un compte en place."""
+        base = {
+            "id_charlemagne": 5296,
+            "nom": "MOAL",
+            "prenom": "Lena",
+            "code_classe": "31",
+        }
+        _ingerer_eleves(
+            session, _df_eleves({**base, "email": "lena.moal@lekreisker.fr"}),
+            "2025-2026", "reel", _rapport_vide(),
+        )
+        # Charlemagne change d'avis l'année suivante
+        _ingerer_eleves(
+            session, _df_eleves({**base, "email": "lena.moal2@lekreisker.fr"}),
+            "2026-2027", "reel", _rapport_vide(),
+        )
+        p = session.query(Personne).filter_by(type="eleve", id_charlemagne=5296).one()
+        assert p.email_constate == "lena.moal@lekreisker.fr"
+
+    def test_adulte_utilise_email_professionnel(self, session, sites_amorces):
+        df = pd.DataFrame(
+            [
+                {
+                    "id_charlemagne": 60,
+                    "nom": "BARS",
+                    "prenom": "Julien",
+                    "poste_occupe": "PROF",
+                    "email_professionnel": "julien.bars@lekreisker.fr",
+                    "email_personnel": "jbars@orange.fr",
+                }
+            ]
+        )
+        _ingerer_adultes(session, df, "2025-2026", "reel", _rapport_vide("adulte"))
+        p = session.query(Personne).filter_by(type="adulte", id_charlemagne=60).one()
+        assert p.email_constate == "julien.bars@lekreisker.fr"

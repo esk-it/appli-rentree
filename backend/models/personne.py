@@ -18,9 +18,22 @@ Jamais régénéré. `pdupont2` reste `pdupont2` même après le départ de
 
 ## Email
 
-Dérivé du login et du domaine du site : `<login>@<site.domaine_mail>`.
-Il n'est PAS persisté : c'est une propriété calculée pour éviter la
-divergence entre login et email.
+**L'adresse constatée fait autorité.** Si un compte existe déjà, son adresse
+est mémorisée telle quelle dans `email_constate` et n'est jamais recalculée.
+
+Ce n'est pas une précaution théorique : sur l'export réel, une formule ne
+retrouve que ~93 % des 1251 adresses en place. Les comptes ont été créés à
+la main au fil des ans avec des conventions divergentes — espaces tantôt
+remplacés par un point (`ana.comtet.goupille`) tantôt supprimés
+(`madelon.arnaultdelamenardiere`), noms composés tronqués (`sarah.henocq`
+pour HENOCQ KERAUTRET), et jusqu'à des prénoms orthographiés autrement dans
+Charlemagne que dans le compte (`tiphaine` vs `thifaine`). Recalculer
+casserait un compte sur quatorze.
+
+Pour une personne **sans compte** (nouvel arrivant), l'adresse est calculée
+par `calculer_email` : `prenom.nom@<site.domaine_mail>` — la convention de
+l'établissement. Surtout pas `login@domaine` : le login est
+`initiale+nom` (`adanielou`) là où l'adresse est `ambre.danielou`.
 
 ## Badge
 
@@ -70,6 +83,11 @@ class Personne(Base):
 
     google_user_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     """Identifiant interne immuable Google Workspace. Capturé à l'amorçage/création via API."""
+
+    email_constate: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
+    """Adresse du compte **existant**, relevée à l'amorçage ou dans l'export
+    Charlemagne. Fait autorité et n'est jamais régénérée, exactement comme le
+    login. `None` tant qu'aucun compte n'est constaté."""
 
     # ------------------------------------------------------------------
     # État courant — mis à jour à chaque ingestion
@@ -135,10 +153,27 @@ class Personne(Base):
 
     @property
     def email(self) -> str | None:
-        """Email dérivé : `<login>@<site.domaine_mail>`. `None` si site inconnu."""
-        if not self.login or not self.site:
+        """Adresse constatée si elle existe, sinon adresse calculée.
+
+        `None` si aucun compte n'est constaté et que le site est inconnu — on
+        ne devine pas un domaine.
+        """
+        if self.email_constate:
+            return self.email_constate
+        if not self.site:
             return None
-        return f"{self.login}@{self.site.domaine_mail}"
+        from backend.services.regles_metier import calculer_email
+
+        return calculer_email(self.prenom, self.nom, self.site.domaine_mail) or None
+
+    @property
+    def email_est_constate(self) -> bool:
+        """True si l'adresse vient d'un compte existant plutôt que d'un calcul.
+
+        Distingue « ce compte est en place » de « voici l'adresse qu'il
+        faudrait créer » — un export de création ne doit porter que la seconde.
+        """
+        return bool(self.email_constate)
 
     @staticmethod
     def calculer_badge(type_personne: str, id_charlemagne: int) -> int:

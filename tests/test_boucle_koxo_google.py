@@ -100,6 +100,50 @@ def test_google_avec_mdp_enrichit_les_lignes_correspondantes(
     assert rapport.nb_lignes_avec_mdp == 1
 
 
+def test_mdp_apparie_sur_une_adresse_hors_convention(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    """L'appariement passe par le référentiel, pas par la forme de l'adresse.
+
+    Régression : la version initiale retrouvait le login en coupant l'adresse
+    avant le `@`. Ça ne marchait que sous l'hypothèse fausse
+    `email == login@domaine`. Ici l'adresse constatée (`sarah.henocq`) n'a
+    aucun rapport avec le login KoXo (`shenocqker`) — couper l'adresse
+    laisserait le mot de passe orphelin et le compte créé sans accès.
+    """
+    from backend.services.exports_google import generer_csv_google_avec_mdp
+
+    site = site_factory("NDK")
+    an_prec = annee_factory("2024-2025")
+    an_cour = annee_factory("2025-2026")
+
+    p = personne_factory(
+        site_id=site.id,
+        nom="HENOCQ KERAUTRET",
+        prenom="Sarah",
+        login="shenocqker",
+        email_constate="sarah.henocq@lekreisker.fr",
+    )
+    snap_factory(p.id, an_cour.id, classe="3B")
+
+    csv_koxo = _mini_csv_koxo([
+        {"Identifiant": "shenocqker", "Nom": "HENOCQ KERAUTRET",
+         "Prénom": "Sarah", "Mot de passe": "Sateku68"},
+    ])
+
+    contenu, rapport = generer_csv_google_avec_mdp(
+        session=session, csv_koxo_bytes=csv_koxo, site_id=site.id,
+        type_personne="eleve", categorie="tous",
+        annee_cible_id=an_cour.id, annee_source_id=an_prec.id,
+    )
+
+    rows = _lire_google(contenu)
+    assert rows[0]["Email Address [Required]"] == "sarah.henocq@lekreisker.fr"
+    assert rows[0]["Password [Required]"] == "Sateku68"
+    assert rapport.nb_lignes_avec_mdp == 1
+    assert rapport.nb_mdp_orphelins == 0
+
+
 def test_google_avec_mdp_signale_orphelins(
     session, site_factory, annee_factory, personne_factory, snap_factory
 ):

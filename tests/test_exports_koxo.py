@@ -94,12 +94,12 @@ def test_export_encodage_cp1252(session, site_factory, annee_factory, personne_f
     assert "Hélène" in texte
 
 
-def test_export_email_calcule_depuis_login_et_domaine(session, site_factory, annee_factory, personne_factory, snap_factory):
+def test_export_email_calcule_depuis_nom_prenom_et_domaine(session, site_factory, annee_factory, personne_factory, snap_factory):
     from backend.services.exports_koxo import generer_csv_koxo
 
     site = site_factory("NDK")  # domaine lekreisker.fr par défaut
     annee = annee_factory()
-    p = personne_factory(site_id=site.id, login="jdupont")
+    p = personne_factory(site_id=site.id, nom="DUPONT", prenom="Jean", login="jdupont")
     snap_factory(p.id, annee.id)
 
     contenu, _ = generer_csv_koxo(
@@ -107,7 +107,9 @@ def test_export_email_calcule_depuis_login_et_domaine(session, site_factory, ann
         categorie="tous", annee_cible_id=annee.id,
     )
     rows = _lire_csv_koxo(contenu)
-    assert rows[0]["Email"] == "jdupont@lekreisker.fr"
+    # Le login reste `jdupont`, l'adresse est `jean.dupont` : deux règles distinctes
+    assert rows[0]["Identifiant"] == "jdupont"
+    assert rows[0]["Email"] == "jean.dupont@lekreisker.fr"
 
 
 def test_export_groupe_primaire_eleve_vs_adulte(session, site_factory, annee_factory, personne_factory, snap_factory):

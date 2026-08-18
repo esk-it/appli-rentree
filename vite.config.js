@@ -3,7 +3,9 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath, URL } from "node:url";
 
-const BACKEND_PORT = 8020;
+// 8020 par défaut — surchargeable pour développer pendant que l'application
+// installée tourne et occupe déjà ce port.
+const BACKEND_PORT = process.env.BACKEND_PORT || 8020;
 
 // https://vite.dev/config/
 export default defineConfig({

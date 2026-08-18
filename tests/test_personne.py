@@ -75,25 +75,82 @@ class TestUnicite:
 
 
 class TestEmailCalcule:
-    """Email = login + '@' + site.domaine_mail. NDE utilise ndecleder.fr,
-    NDK et SU utilisent lekreisker.fr."""
+    """Email = `prenom.nom@site.domaine_mail` — surtout pas `login@domaine`.
+
+    Le login est `initiale+nom` (`jdupont`), l'adresse est `jean.dupont`.
+    Les confondre produirait des adresses inexistantes dans tous les exports.
+    """
 
     def test_ndk_donne_lekreisker(self, session, site_factory, personne_factory):
         ndk = site_factory("NDK")
-        p = personne_factory(login="jdupont", site_id=ndk.id)
+        p = personne_factory(
+            nom="DUPONT", prenom="Jean", login="jdupont", site_id=ndk.id
+        )
         # Recharge avec la relation site chargée
         session.refresh(p)
-        assert p.email == "jdupont@lekreisker.fr"
+        assert p.email == "jean.dupont@lekreisker.fr"
 
     def test_nde_donne_ndecleder(self, session, site_factory, personne_factory):
         nde = site_factory("NDE")
-        p = personne_factory(login="mmartin", site_id=nde.id)
+        p = personne_factory(
+            nom="MARTIN", prenom="Marie", login="mmartin", site_id=nde.id
+        )
         session.refresh(p)
-        assert p.email == "mmartin@ndecleder.fr"
+        assert p.email == "marie.martin@ndecleder.fr"
+
+    def test_accents_et_apostrophes_normalises(
+        self, session, site_factory, personne_factory
+    ):
+        ndk = site_factory("NDK")
+        p = personne_factory(
+            nom="L'HÉLIAS", prenom="Gwenaëlle", login="glhelias", site_id=ndk.id
+        )
+        session.refresh(p)
+        assert p.email == "gwenaelle.lhelias@lekreisker.fr"
 
     def test_sans_site_donne_none(self, session, personne_factory):
         p = personne_factory(login="orphelin", site_id=None)
         assert p.email is None
+
+
+class TestEmailConstate:
+    """Une adresse constatée fait autorité et n'est jamais recalculée.
+
+    Sur l'export réel, une formule ne retrouve que ~93 % des adresses en
+    place : noms composés tronqués, séparateurs incohérents, prénoms
+    orthographiés autrement dans Charlemagne. Recalculer casserait les
+    comptes concernés.
+    """
+
+    def test_constate_prime_sur_le_calcul(
+        self, session, site_factory, personne_factory
+    ):
+        ndk = site_factory("NDK")
+        p = personne_factory(
+            nom="HENOCQ KERAUTRET",
+            prenom="Sarah",
+            login="shenocqker",
+            site_id=ndk.id,
+            email_constate="sarah.henocq@lekreisker.fr",
+        )
+        session.refresh(p)
+        # Le calcul donnerait sarah.henocq.kerautret — le compte réel est autre
+        assert p.email == "sarah.henocq@lekreisker.fr"
+        assert p.email_est_constate is True
+
+    def test_calcule_sans_constat(self, session, site_factory, personne_factory):
+        ndk = site_factory("NDK")
+        p = personne_factory(nom="NEUF", prenom="Jean", login="jneuf", site_id=ndk.id)
+        session.refresh(p)
+        assert p.email == "jean.neuf@lekreisker.fr"
+        assert p.email_est_constate is False
+
+    def test_constate_sans_site_reste_disponible(self, session, personne_factory):
+        """Une adresse constatée n'a pas besoin du site : elle est complète."""
+        p = personne_factory(
+            login="sanssite", site_id=None, email_constate="a.b@lekreisker.fr"
+        )
+        assert p.email == "a.b@lekreisker.fr"
 
 
 class TestSitePrefixeRacineOU:

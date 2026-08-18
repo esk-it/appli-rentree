@@ -99,14 +99,17 @@ def test_enregistrer_prevus_renseigne_identifiant_externe(
     from backend.services.cycle_vie import enregistrer_prevus
 
     site = site_factory("NDK")  # domaine lekreisker.fr
-    p = personne_factory(site_id=site.id, login="jdupont", id_charlemagne=5824)
+    p = personne_factory(
+        site_id=site.id, nom="DUPONT", prenom="Jean", login="jdupont",
+        id_charlemagne=5824,
+    )
 
     enregistrer_prevus(session, [p.id], ["google", "koxo_ndk"])
     session.commit()
 
     google = session.query(CompteCible).filter_by(personne_id=p.id, cible="google").one()
     koxo = session.query(CompteCible).filter_by(personne_id=p.id, cible="koxo_ndk").one()
-    assert google.identifiant_externe == "jdupont@lekreisker.fr"
+    assert google.identifiant_externe == "jean.dupont@lekreisker.fr"
     assert koxo.identifiant_externe == str(p.badge)
 
 

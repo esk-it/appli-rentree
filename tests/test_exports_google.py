@@ -122,7 +122,7 @@ def test_export_google_email_utilise_domaine_du_site(
     site = site_factory("NDK")  # lekreisker.fr
     annee = annee_factory()
     tc_factory(site.id, "3B")
-    p = personne_factory(site_id=site.id, login="jdupont")
+    p = personne_factory(site_id=site.id, nom="DUPONT", prenom="Jean", login="jdupont")
     snap_factory(p.id, annee.id, classe="3B")
 
     contenu, _ = generer_csv_google(
@@ -130,7 +130,37 @@ def test_export_google_email_utilise_domaine_du_site(
         categorie="tous", annee_cible_id=annee.id,
     )
     r = _lire_csv_google(contenu)[0]
-    assert r["Email Address [Required]"] == "jdupont@lekreisker.fr"
+    # `prenom.nom`, pas `login@` : le login `jdupont` ne fait pas l'adresse
+    assert r["Email Address [Required]"] == "jean.dupont@lekreisker.fr"
+
+
+def test_export_google_reprend_l_adresse_constatee(
+    session, site_factory, annee_factory, personne_factory, snap_factory, tc_factory
+):
+    """Un compte existant garde son adresse, même hors convention.
+
+    Sinon l'export créerait un doublon à côté du compte déjà en service.
+    """
+    from backend.services.exports_google import generer_csv_google
+
+    site = site_factory("NDK")
+    annee = annee_factory()
+    tc_factory(site.id, "3B")
+    p = personne_factory(
+        site_id=site.id,
+        nom="HENOCQ KERAUTRET",
+        prenom="Sarah",
+        login="shenocqker",
+        email_constate="sarah.henocq@lekreisker.fr",
+    )
+    snap_factory(p.id, annee.id, classe="3B")
+
+    contenu, _ = generer_csv_google(
+        session=session, site_id=site.id, type_personne="eleve",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    r = _lire_csv_google(contenu)[0]
+    assert r["Email Address [Required]"] == "sarah.henocq@lekreisker.fr"
 
 
 def test_export_google_employee_id_est_id_charlemagne(

@@ -71,6 +71,16 @@ export const personnes = {
   async parClePivot(cle) {
     return jsonOrThrow(await fetch(`${BASE}/personnes/par-cle-pivot/${encodeURIComponent(cle)}`));
   },
+  /** Fige l'adresse mail. `""` rétablit l'adresse calculée. */
+  async definirEmail(id, email) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/personnes/${id}/email`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      }),
+    );
+  },
 };
 
 // ---------------------------------------------------------------------------

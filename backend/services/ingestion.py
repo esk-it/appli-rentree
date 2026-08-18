@@ -188,6 +188,55 @@ def _int(v: Any) -> int | None:
         return None
 
 
+def _domaines_ecole(session: Session) -> set[str]:
+    """Domaines déclarés sur les Sites, en minuscules.
+
+    L'export Charlemagne mêle les deux natures d'adresse : celles de
+    l'établissement (1251 sur l'export réel) et des adresses personnelles
+    (gmail, orange, icloud... — 40 environ). Seules les premières désignent un
+    compte Workspace ; retenir une adresse personnelle comme identifiant de
+    compte serait une faute.
+
+    Mis en cache sur `session.info` : la liste des sites ne bouge pas pendant
+    une ingestion, et la relire par ligne ferait un millier de requêtes.
+    """
+    cache = session.info.get("_domaines_ecole")
+    if cache is None:
+        cache = {
+            s.domaine_mail.strip().lower()
+            for s in session.query(Site).all()
+            if s.domaine_mail
+        }
+        session.info["_domaines_ecole"] = cache
+    return cache
+
+
+def _capturer_email_constate(
+    session: Session,
+    personne: Personne,
+    ligne: dict,
+    cles: tuple[str, ...] = ("email",),
+) -> None:
+    """Mémorise l'adresse d'un compte **existant** si l'export en donne une.
+
+    `cles` liste les colonnes candidates, par ordre de préférence : les
+    adultes portent leur adresse d'établissement dans `email_professionnel`.
+
+    Jamais réécrite une fois posée : c'est l'identifiant d'un compte en place,
+    au même titre que le login.
+    """
+    if personne.email_constate:
+        return
+    for cle in cles:
+        brut = _s(ligne.get(cle))
+        if not brut or "@" not in brut:
+            continue
+        adresse = brut.strip().lower()
+        if adresse.rsplit("@", 1)[-1] in _domaines_ecole(session):
+            personne.email_constate = adresse
+            return
+
+
 def _hash_etat_snapshot(**champs: Any) -> str:
     """Empreinte stable des champs constatés d'un snapshot — sert l'idempotence."""
     parts = []
@@ -259,6 +308,10 @@ def ingerer_export(
     rapport = RapportIngestion(
         type_personne=type_personne, annee_libelle=libelle_annee, mode=mode
     )
+
+    # Invalide le cache des domaines : un site a pu être déclaré depuis la
+    # dernière ingestion sur cette même session.
+    session.info.pop("_domaines_ecole", None)
 
     # 1. Parse
     try:
@@ -449,6 +502,10 @@ def _traiter_ligne_eleve(
         # Mise à jour de l'état courant — le login est FIGÉ, on ne touche pas
         _maj_champs_courants_eleve(personne, ligne, code_classe, site_id)
         rapport.nb_personnes_mises_a_jour += 1
+
+    # Adresse du compte existant — posée aussi sur une personne déjà connue,
+    # qui peut avoir été amorcée depuis KoXo sans que son adresse soit relevée.
+    _capturer_email_constate(session, personne, ligne)
 
     # Snapshot : ne crée qu'un nouveau si l'état diffère
     _peut_etre_creer_snapshot(
@@ -655,6 +712,8 @@ def _traiter_ligne_adulte(
     else:
         _maj_champs_courants_adulte(personne, ligne)
         rapport.nb_personnes_mises_a_jour += 1
+
+    _capturer_email_constate(session, personne, ligne, ("email", "email_professionnel"))
 
     _peut_etre_creer_snapshot(
         session=session,

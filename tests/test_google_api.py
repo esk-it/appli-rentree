@@ -198,7 +198,7 @@ def test_plan_creation_avec_mot_de_passe(
     assert plan.nb_creations == 1
     op = plan.operations[0]
     assert op.action == "creer"
-    assert op.email == "jneuf@lekreisker.fr"
+    assert op.email == "jean.neuf@lekreisker.fr"
     assert op.payload["orgUnitPath"] == "/3. NDK/NDK2026"  # OU pré-rentrée
 
 

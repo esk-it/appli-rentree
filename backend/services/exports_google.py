@@ -413,6 +413,31 @@ def _extraire_mdp_depuis_csv_koxo(contenu_csv: bytes) -> dict[str, str]:
     return mdp_par_login
 
 
+def _logins_par_email(
+    session: Session, site_id: int, type_personne: str
+) -> dict[str, str]:
+    """Index `adresse → login` pour la population d'un site.
+
+    Sert à retrouver le login derrière une adresse figurant dans le CSV
+    Google, sans supposer de lien de forme entre les deux.
+    """
+    from backend.models import Personne, Site
+    from backend.services.regles_metier import calculer_email
+
+    site = session.query(Site).filter_by(id=site_id).one_or_none()
+    if site is None:
+        return {}
+
+    index: dict[str, str] = {}
+    for p in (
+        session.query(Personne).filter_by(site_id=site_id, type=type_personne).all()
+    ):
+        adresse = p.email_constate or calculer_email(p.prenom, p.nom, site.domaine_mail)
+        if adresse:
+            index[adresse.strip().lower()] = p.login
+    return index
+
+
 @dataclass
 class RapportExportGoogleAvecMdp:
     site_nom: str
@@ -463,7 +488,15 @@ def generer_csv_google_avec_mdp(
         annee_source_id=annee_source_id,
     )
 
-    # 3. Ré-injecter les MDP par correspondance de login (partie avant @)
+    # 3. Ré-injecter les MDP, appariés par **login** via le référentiel.
+    #
+    #    Surtout pas en découpant l'adresse avant le `@` : le login est
+    #    `initiale+nom` (`adanielou`) là où l'adresse est `prenom.nom`
+    #    (`ambre.danielou`). Et pour un compte déjà en place, l'adresse
+    #    constatée peut ne suivre aucune règle. Déduire l'un de l'autre
+    #    laisserait tous les mots de passe orphelins.
+    login_par_email = _logins_par_email(session, site_id, type_personne)
+
     contenu_str = contenu_google
     if contenu_str.startswith(BOM_UTF8):
         contenu_str = contenu_str[3:]
@@ -476,8 +509,10 @@ def generer_csv_google_avec_mdp(
     logins_google = set()
     nb_avec_mdp = 0
     for row in rows:
-        email = row.get("Email Address [Required]", "") or ""
-        login = email.split("@", 1)[0] if "@" in email else ""
+        email = (row.get("Email Address [Required]", "") or "").strip().lower()
+        login = login_par_email.get(email)
+        if not login:
+            continue
         logins_google.add(login)
         mdp = mdp_par_login.get(login)
         if mdp:

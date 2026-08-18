@@ -174,3 +174,67 @@ class TestParametres:
         assert len(liste) > 0
         cles = {p["cle"] for p in liste}
         assert "email.domaine" in cles
+
+
+# ---------------------------------------------------------------------------
+# PATCH /api/personnes/{id}/email
+# ---------------------------------------------------------------------------
+
+
+def test_patch_email_fige_l_adresse(client, session, site_factory, personne_factory):
+    site = site_factory("NDK")
+    p = personne_factory(nom="GUILLOU", prenom="Hugo", login="hguillou", site_id=site.id)
+
+    r = client.patch(
+        f"/api/personnes/{p.id}/email",
+        json={"email": "  Hugo.Guillou2@LEKREISKER.fr "},
+    )
+    assert r.status_code == 200
+    corps = r.json()
+    assert corps["email"] == "hugo.guillou2@lekreisker.fr"  # normalisée
+    assert corps["email_est_constate"] is True
+
+
+def test_patch_email_vide_retablit_le_calcul(
+    client, session, site_factory, personne_factory
+):
+    site = site_factory("NDK")
+    p = personne_factory(
+        nom="GUILLOU", prenom="Hugo", login="hguillou", site_id=site.id,
+        email_constate="autre@lekreisker.fr",
+    )
+
+    r = client.patch(f"/api/personnes/{p.id}/email", json={"email": ""})
+    assert r.status_code == 200
+    assert r.json()["email"] == "hugo.guillou@lekreisker.fr"
+    assert r.json()["email_est_constate"] is False
+
+
+def test_patch_email_refuse_une_adresse_deja_prise(
+    client, session, site_factory, personne_factory
+):
+    site = site_factory("NDK")
+    personne_factory(
+        nom="GUILLOU", prenom="Hugo", login="hguillou", site_id=site.id,
+        email_constate="hugo.guillou@lekreisker.fr",
+    )
+    p2 = personne_factory(nom="GUILLOU", prenom="Hugo", login="hguillou2", site_id=site.id)
+
+    r = client.patch(
+        f"/api/personnes/{p2.id}/email", json={"email": "hugo.guillou@lekreisker.fr"}
+    )
+    assert r.status_code == 409
+    assert "déjà l'adresse" in r.json()["detail"]
+
+
+def test_patch_email_refuse_une_adresse_malformee(
+    client, session, site_factory, personne_factory
+):
+    site = site_factory("NDK")
+    p = personne_factory(site_id=site.id, login="test1")
+    assert client.patch(f"/api/personnes/{p.id}/email", json={"email": "sansarobase"}).status_code == 400
+
+
+def test_patch_email_personne_inconnue(client):
+    r = client.patch("/api/personnes/999999/email", json={"email": "a@b.fr"})
+    assert r.status_code == 404

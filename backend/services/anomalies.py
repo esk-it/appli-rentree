@@ -10,6 +10,7 @@ avant une campagne de rentrée (§ statistiques du prompt de refonte) :
 | `photo_orpheline` | Fichier photo attendu mais introuvable sur le partage → badge sans visuel |
 | `personne_sans_site` | Personne sans site rattaché → aucune cible calculable |
 | `personne_sans_email` | Login ou domaine manquant → ligne inexploitable côté Google |
+| `collision_email` | Deux personnes viseraient la même adresse → création Google refusée |
 | `compte_purge_echue` | Quarantaine terminée → suppression à décider |
 | `classe_sans_groupe` | Classe sans adresse de groupe Google configurée |
 
@@ -109,6 +110,7 @@ def detecter_anomalies(
         _arbitrages_en_attente,
         _personnes_sans_site,
         _personnes_sans_email,
+        _collisions_email,
         _comptes_purge_echue,
         _classes_sans_groupe,
     ):
@@ -212,6 +214,62 @@ def _personnes_sans_email(session: Session, annee_id: int | None) -> Anomalie | 
         nb_concernes=len(sans_email),
         details=[f"{p.cle_pivot} {p.nom} {p.prenom}" for p in sans_email[:_MAX_DETAILS]],
         action_suggeree="Ces personnes seront absentes des exports Google et groupes.",
+    )
+
+
+def _collisions_email(session: Session, annee_id: int | None) -> Anomalie | None:
+    """Deux personnes qui viseraient la même adresse mail.
+
+    Cas typique : deux homonymes, l'un déjà titulaire du compte
+    `prenom.nom@`, l'autre nouvel arrivant pour qui la même adresse serait
+    calculée. Le login, lui, reçoit bien un suffixe d'homonymie — pas
+    l'adresse, qui ne se déduit pas du login.
+
+    Non résolu automatiquement : les adresses existantes montrent tantôt
+    un suffixe `1`, tantôt `2`, sans règle déductible. Le choix revient à
+    un humain (§ « un cas ambigu n'est jamais résolu par une heuristique »).
+    """
+    sites = {s.id: s for s in session.query(Site).all()}
+    from backend.services.regles_metier import calculer_email
+
+    par_adresse: dict[str, list[Personne]] = {}
+    for p in session.query(Personne).all():
+        if p.email_constate:
+            adresse = p.email_constate
+        else:
+            site = sites.get(p.site_id) if p.site_id else None
+            if site is None:
+                continue
+            adresse = calculer_email(p.prenom, p.nom, site.domaine_mail)
+        if adresse:
+            par_adresse.setdefault(adresse.strip().lower(), []).append(p)
+
+    conflits = {a: ps for a, ps in par_adresse.items() if len(ps) > 1}
+    if not conflits:
+        return None
+
+    nb = sum(len(ps) for ps in conflits.values())
+    details = []
+    for adresse, ps in sorted(conflits.items())[:_MAX_DETAILS]:
+        qui = ", ".join(
+            f"{p.cle_pivot} {p.prenom} {p.nom}"
+            + (" (compte existant)" if p.email_constate else " (à créer)")
+            for p in ps
+        )
+        details.append(f"{adresse} ← {qui}")
+
+    return Anomalie(
+        type="collision_email",
+        gravite="bloquant",
+        libelle=f"{len(conflits)} adresse(s) mail visée(s) par plusieurs personnes",
+        nb_concernes=nb,
+        details=details,
+        action_suggeree=(
+            "Google refusera la création du doublon. Choisis une adresse "
+            "distincte pour la personne « à créer » (les homonymes existants "
+            "portent un suffixe numérique : prenom.nom2@…) et saisis-la comme "
+            "adresse constatée avant de générer l'export."
+        ),
     )
 
 

@@ -326,3 +326,66 @@ def test_amorcage_adulte(tmp_path, session, site_factory):
     p = session.query(Personne).filter_by(type="adulte", id_charlemagne=313).one()
     assert p.login == "jbars"
     assert p.badge == 313
+
+
+# ---------------------------------------------------------------------------
+# Adresse constatée
+# ---------------------------------------------------------------------------
+
+
+def test_amorcage_releve_l_adresse_du_compte(session, site_factory, tmp_path):
+    """L'export KoXo porte l'adresse réelle : on la mémorise sans la recalculer."""
+    from backend.services.amorcage import amorcer_depuis_koxo
+
+    site = site_factory("NDK")
+    fic = tmp_path / "k.csv"
+    ligne = _ligne_koxo_eleve("HENOCQ KERAUTRET", "Sarah", "shenocqker", 68240)
+    ligne["Email"] = "sarah.henocq@lekreisker.fr"  # hors convention
+    _ecrire_csv_koxo(fic, [ligne])
+
+    amorcer_depuis_koxo(
+        session, fic, site_id=site.id, type_personne="eleve", mode="reel"
+    )
+
+    from backend.models import Personne
+
+    p = session.query(Personne).filter_by(login="shenocqker").one()
+    assert p.email_constate == "sarah.henocq@lekreisker.fr"
+    assert p.email == "sarah.henocq@lekreisker.fr"
+
+
+def test_amorcage_ignore_une_adresse_personnelle(session, site_factory, tmp_path):
+    from backend.services.amorcage import amorcer_depuis_koxo
+
+    site = site_factory("NDK")
+    fic = tmp_path / "k.csv"
+    ligne = _ligne_koxo_eleve("CALVEZ", "Shanisse", "scalvez", 68250)
+    ligne["Email"] = "shanisse.c11@gmail.com"
+    _ecrire_csv_koxo(fic, [ligne])
+
+    amorcer_depuis_koxo(
+        session, fic, site_id=site.id, type_personne="eleve", mode="reel"
+    )
+
+    from backend.models import Personne
+
+    p = session.query(Personne).filter_by(login="scalvez").one()
+    assert p.email_constate is None
+
+
+def test_amorcage_simulation_ne_persiste_pas_l_adresse(
+    session, site_factory, tmp_path
+):
+    from backend.services.amorcage import amorcer_depuis_koxo
+
+    site = site_factory("NDK")
+    fic = tmp_path / "k.csv"
+    _ecrire_csv_koxo(fic, [_ligne_koxo_eleve("DUPONT", "Jean", "jdupont", 68240)])
+
+    amorcer_depuis_koxo(
+        session, fic, site_id=site.id, type_personne="eleve", mode="simulation"
+    )
+
+    from backend.models import Personne
+
+    assert session.query(Personne).count() == 0

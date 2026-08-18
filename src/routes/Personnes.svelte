@@ -2,14 +2,19 @@
   import { onMount } from "svelte";
   import Search from "@lucide/svelte/icons/search";
   import Users2 from "@lucide/svelte/icons/users-2";
+  import Pencil from "@lucide/svelte/icons/pencil";
+  import Lock from "@lucide/svelte/icons/lock";
   import Avatar from "$lib/components/Avatar.svelte";
+  import Bouton from "$lib/components/Bouton.svelte";
   import CopiableTexte from "$lib/components/CopiableTexte.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
+  import Modale from "$lib/components/Modale.svelte";
   import Nombre from "$lib/components/Nombre.svelte";
   import Segments from "$lib/components/Segments.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
   import { personnes } from "$lib/api.js";
+  import { notify } from "$lib/toasts.js";
 
   let liste = $state(/** @type {any[]} */ ([]));
   let chargement = $state(true);
@@ -66,6 +71,38 @@
       erreur = String(e);
     } finally {
       chargement = false;
+    }
+  }
+
+  // --- Adresse mail : saisie manuelle -------------------------------------
+  // Nécessaire pour les cas que le programme refuse de trancher seul : deux
+  // homonymes qui viseraient la même adresse, ou une adresse historique hors
+  // convention qu'aucun export n'a fait remonter.
+  let enEdition = $state(/** @type {any} */ (null));
+  let saisie = $state("");
+  let enregistrement = $state(false);
+
+  function ouvrirEdition(p) {
+    enEdition = p;
+    saisie = p.email_est_constate ? (p.email ?? "") : "";
+  }
+
+  async function enregistrerEmail() {
+    if (!enEdition) return;
+    enregistrement = true;
+    try {
+      const maj = await personnes.definirEmail(enEdition.id, saisie.trim());
+      liste = liste.map((x) => (x.id === maj.id ? maj : x));
+      notify.succes(
+        saisie.trim()
+          ? `Adresse figée : ${maj.email}`
+          : `Adresse recalculée : ${maj.email}`,
+      );
+      enEdition = null;
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      enregistrement = false;
     }
   }
 </script>
@@ -164,10 +201,34 @@
                   <CopiableTexte valeur={p.login} classe="font-mono text-xs" />
                 </td>
                 <td class="whitespace-nowrap px-3 py-1.5">
-                  <CopiableTexte
-                    valeur={p.email ?? ""}
-                    classe="font-mono text-xs text-stone-600 dark:text-stone-400"
-                  />
+                  <div class="group/mail flex items-center gap-1.5">
+                    {#if p.email_est_constate}
+                      <!-- Adresse d'un compte en place : ne sera jamais recalculée -->
+                      <Lock
+                        class="h-3 w-3 shrink-0 text-emerald-600 dark:text-emerald-400"
+                      />
+                    {/if}
+                    <CopiableTexte
+                      valeur={p.email ?? ""}
+                      classe="font-mono text-xs {p.email_est_constate
+                        ? 'text-stone-800 dark:text-stone-200'
+                        : 'text-stone-500 italic dark:text-stone-400'}"
+                    />
+                    <!--
+                      Discret mais toujours visible : caché jusqu'au survol,
+                      l'action serait introuvable pour qui ne pense pas à
+                      promener la souris sur la colonne.
+                    -->
+                    <button
+                      type="button"
+                      title="Figer ou corriger l'adresse"
+                      aria-label="Modifier l'adresse de {p.prenom} {p.nom}"
+                      onclick={() => ouvrirEdition(p)}
+                      class="rounded p-0.5 text-stone-300 opacity-60 transition hover:bg-stone-200 hover:text-stone-700 focus:opacity-100 group-hover/mail:opacity-100 dark:text-stone-600 dark:hover:bg-stone-700 dark:hover:text-stone-200"
+                    >
+                      <Pencil class="h-3 w-3" />
+                    </button>
+                  </div>
                 </td>
                 <td class="px-3 py-1.5 text-stone-600 dark:text-stone-400">{p.site ?? "—"}</td>
                 <td class="whitespace-nowrap px-3 py-1.5 text-stone-600 dark:text-stone-400">{p.classe ?? "—"}</td>
@@ -177,6 +238,49 @@
           </tbody>
         </table>
       </div>
+
+      <p class="border-t border-stone-100 px-3 py-2 text-xs text-stone-500 dark:border-stone-800 dark:text-stone-400">
+        <Lock class="inline h-3 w-3 text-emerald-600 dark:text-emerald-400" />
+        adresse d'un compte existant, jamais recalculée —
+        <span class="italic">en gris clair</span>, adresse calculée pour un compte
+        à créer.
+      </p>
     {/if}
   </div>
 </section>
+
+{#if enEdition}
+  <Modale titre="Adresse mail — {enEdition.prenom} {enEdition.nom}" onFermer={() => (enEdition = null)}>
+    <div class="space-y-3">
+      <p class="text-sm text-stone-600 dark:text-stone-300">
+        Laisse vide pour utiliser l'adresse calculée à partir du nom et du
+        prénom. Saisis une adresse pour la figer — c'est ce qu'il faut faire
+        quand un homonyme possède déjà l'adresse calculée.
+      </p>
+
+      <div>
+        <label class="libelle-champ" for="champ-email">Adresse</label>
+        <input
+          id="champ-email"
+          type="email"
+          class="champ font-mono"
+          placeholder={enEdition.email ?? "prenom.nom@domaine"}
+          bind:value={saisie}
+          onkeydown={(e) => e.key === "Enter" && enregistrerEmail()}
+        />
+      </div>
+
+      <p class="text-xs text-stone-500 dark:text-stone-400">
+        Login réseau : <span class="font-mono">{enEdition.login}</span> — il
+        reste figé et n'a pas à correspondre à l'adresse.
+      </p>
+    </div>
+
+    {#snippet actions()}
+      <Bouton onclick={() => (enEdition = null)}>Annuler</Bouton>
+      <Bouton variante="primary" occupe={enregistrement} onclick={enregistrerEmail}>
+        Enregistrer
+      </Bouton>
+    {/snippet}
+  </Modale>
+{/if}

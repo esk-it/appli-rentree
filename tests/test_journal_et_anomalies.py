@@ -398,3 +398,69 @@ def test_anomalies_annee_introuvable(session):
 
     with pytest.raises(ValueError, match="introuvable"):
         detecter_anomalies(session, annee_id=99999)
+
+
+# ---------------------------------------------------------------------------
+# Collision d'adresse mail
+# ---------------------------------------------------------------------------
+
+
+def test_collision_email_entre_homonymes(session, site_factory, personne_factory):
+    """Deux homonymes visent `hugo.guillou@` : cas réel de l'export 2025.
+
+    Le login reçoit un suffixe d'homonymie, pas l'adresse — qui ne se déduit
+    pas du login. Sans détection, Google refuserait la création du doublon.
+    """
+    from backend.services.anomalies import detecter_anomalies
+
+    site = site_factory("NDK")
+    personne_factory(
+        nom="GUILLOU", prenom="Hugo", login="hguillou", site_id=site.id,
+        id_charlemagne=8148, email_constate="hugo.guillou@lekreisker.fr",
+    )
+    personne_factory(
+        nom="GUILLOU", prenom="Hugo", login="hguillou2", site_id=site.id,
+        id_charlemagne=8695,
+    )
+
+    r = detecter_anomalies(session)
+    a = next((x for x in r.anomalies if x.type == "collision_email"), None)
+    assert a is not None
+    assert a.gravite == "bloquant"
+    assert a.nb_concernes == 2
+    assert "hugo.guillou@lekreisker.fr" in a.details[0]
+    assert "compte existant" in a.details[0]
+    assert "à créer" in a.details[0]
+
+
+def test_pas_de_collision_email_sur_des_noms_distincts(
+    session, site_factory, personne_factory
+):
+    from backend.services.anomalies import detecter_anomalies
+
+    site = site_factory("NDK")
+    personne_factory(nom="GUILLOU", prenom="Hugo", login="hguillou", site_id=site.id)
+    personne_factory(nom="GUILLOU", prenom="Lea", login="lguillou", site_id=site.id)
+
+    r = detecter_anomalies(session)
+    assert not [x for x in r.anomalies if x.type == "collision_email"]
+
+
+def test_adresse_figee_leve_la_collision(session, site_factory, personne_factory):
+    """Figer une adresse distincte suffit à résoudre le cas."""
+    from backend.services.anomalies import detecter_anomalies
+
+    site = site_factory("NDK")
+    personne_factory(
+        nom="GUILLOU", prenom="Hugo", login="hguillou", site_id=site.id,
+        id_charlemagne=8148, email_constate="hugo.guillou@lekreisker.fr",
+    )
+    p2 = personne_factory(
+        nom="GUILLOU", prenom="Hugo", login="hguillou2", site_id=site.id,
+        id_charlemagne=8695,
+    )
+    p2.email_constate = "hugo.guillou2@lekreisker.fr"
+    session.commit()
+
+    r = detecter_anomalies(session)
+    assert not [x for x in r.anomalies if x.type == "collision_email"]

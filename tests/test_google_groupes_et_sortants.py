@@ -66,7 +66,7 @@ def test_groupes_format_4_colonnes(
     site = site_factory("NDK")
     annee = annee_factory()
     tc_factory(site.id, "3B", groupe_google="3eme-b@lekreisker.fr")
-    p = personne_factory(site_id=site.id, login="jdupont")
+    p = personne_factory(site_id=site.id, nom="DUPONT", prenom="Jean", login="jdupont")
     snap_factory(p.id, annee.id, classe="3B")
 
     contenu, _ = generer_csv_groupes_google(
@@ -76,7 +76,7 @@ def test_groupes_format_4_colonnes(
 
     assert list(rows[0].keys()) == COLONNES_GROUPES
     assert rows[0]["Group Email [Required]"] == "3eme-b@lekreisker.fr"
-    assert rows[0]["Member Email"] == "jdupont@lekreisker.fr"
+    assert rows[0]["Member Email"] == "jean.dupont@lekreisker.fr"
     assert rows[0]["Member Type"] == "USER"
     assert rows[0]["Member Role"] == "MEMBER"
 
@@ -146,7 +146,9 @@ def test_groupes_profs_depuis_classes_prof_principal(
     tc_factory(site.id, "3B", groupe_profs_google="profs-3b@lekreisker.fr")
     tc_factory(site.id, "4A", groupe_profs_google="profs-4a@lekreisker.fr")
 
-    prof = personne_factory(type="adulte", site_id=site.id, login="jbars")
+    prof = personne_factory(
+        type="adulte", site_id=site.id, nom="BARS", prenom="Julien", login="jbars"
+    )
     snap_factory(prof.id, annee.id, classes_prof_principal="3B;4A")
 
     contenu, r = generer_csv_groupes_google(
@@ -157,7 +159,7 @@ def test_groupes_profs_depuis_classes_prof_principal(
     assert r.nb_lignes_profs == 2
     groupes = {row["Group Email [Required]"] for row in rows}
     assert groupes == {"profs-3b@lekreisker.fr", "profs-4a@lekreisker.fr"}
-    assert all(row["Member Email"] == "jbars@lekreisker.fr" for row in rows)
+    assert all(row["Member Email"] == "julien.bars@lekreisker.fr" for row in rows)
 
 
 def test_groupes_profs_pas_de_doublon(

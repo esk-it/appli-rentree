@@ -1,18 +1,21 @@
 """Endpoints de consultation du référentiel Personne.
 
-Pour le Lot 1, seule la lecture est exposée. La création se fait via
-l'ingestion (Lot 3) et l'amorçage (Lot 9).
+La création se fait via l'ingestion (Lot 3) et l'amorçage (Lot 9) — pas
+ici. Seule écriture exposée : figer l'adresse mail d'une personne, pour
+les cas que le programme refuse de trancher seul (homonymes visant la
+même adresse, adresse historique hors convention).
 """
 from __future__ import annotations
 
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
 from backend.models import Personne, Site
+from backend.services.regles_metier import calculer_email
 
 router = APIRouter(prefix="/api/personnes", tags=["personnes"])
 
@@ -25,6 +28,8 @@ class PersonneOut(BaseModel):
     badge: int
     login: str
     email: str | None
+    email_est_constate: bool
+    """True si l'adresse vient d'un compte existant, False si elle est calculée."""
     google_user_id: str | None
     nom: str
     prenom: str
@@ -44,8 +49,14 @@ class PersonneOut(BaseModel):
 
 def _serialiser(p: Personne, sites_par_id: dict[int, Site]) -> PersonneOut:
     site = sites_par_id.get(p.site_id) if p.site_id else None
-    # Recompute email via la relation site (déjà chargée dans sites_par_id)
-    email = f"{p.login}@{site.domaine_mail}" if site else None
+    # Recalcul local plutôt que `p.email` : la relation `p.site` déclencherait
+    # une requête par personne alors que les sites sont déjà chargés ici.
+    if p.email_constate:
+        email = p.email_constate
+    elif site:
+        email = calculer_email(p.prenom, p.nom, site.domaine_mail) or None
+    else:
+        email = None
     return PersonneOut(
         id=p.id,
         type=p.type,
@@ -54,6 +65,7 @@ def _serialiser(p: Personne, sites_par_id: dict[int, Site]) -> PersonneOut:
         badge=p.badge,
         login=p.login,
         email=email,
+        email_est_constate=bool(p.email_constate),
         google_user_id=p.google_user_id,
         nom=p.nom,
         prenom=p.prenom,
@@ -123,5 +135,57 @@ def obtenir_par_cle_pivot(
     )
     if p is None:
         raise HTTPException(404, f"Personne introuvable : {cle}")
+    sites_par_id = {s.id: s for s in session.query(Site).all()}
+    return _serialiser(p, sites_par_id)
+
+
+class EmailPayload(BaseModel):
+    email: str | None = Field(
+        None,
+        description=(
+            "Adresse à figer pour cette personne. `null` ou chaîne vide "
+            "rétablit l'adresse calculée."
+        ),
+        max_length=200,
+    )
+
+
+@router.patch("/{personne_id}/email", response_model=PersonneOut)
+def definir_email_constate(
+    personne_id: int,
+    payload: EmailPayload,
+    session: Session = Depends(db_session),
+) -> PersonneOut:
+    """Fige l'adresse mail d'une personne, ou rétablit le calcul.
+
+    Sert aux cas que le programme refuse de trancher seul : deux homonymes
+    dont l'un possède déjà `prenom.nom@`, une adresse historique hors
+    convention. Une fois saisie, elle fait autorité comme si elle avait été
+    relevée dans un export.
+    """
+    p = session.query(Personne).filter_by(id=personne_id).one_or_none()
+    if p is None:
+        raise HTTPException(404, f"Personne introuvable : {personne_id}")
+
+    adresse = (payload.email or "").strip().lower()
+    if adresse:
+        if "@" not in adresse or adresse.startswith("@") or adresse.endswith("@"):
+            raise HTTPException(400, f"Adresse invalide : {payload.email!r}")
+        deja_pris = (
+            session.query(Personne)
+            .filter(Personne.email_constate == adresse, Personne.id != personne_id)
+            .first()
+        )
+        if deja_pris is not None:
+            raise HTTPException(
+                409,
+                f"{adresse} est déjà l'adresse de {deja_pris.prenom} "
+                f"{deja_pris.nom} ({deja_pris.cle_pivot})",
+            )
+        p.email_constate = adresse
+    else:
+        p.email_constate = None
+
+    session.commit()
     sites_par_id = {s.id: s for s in session.query(Site).all()}
     return _serialiser(p, sites_par_id)

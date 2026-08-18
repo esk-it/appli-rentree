@@ -10,6 +10,11 @@ est l'autorité (§7.1 du prompt).
 lit même pas côté persistance (§7.1 : « le mot de passe n'est jamais
 persisté »).
 
+L'**adresse mail** est relevée au passage, quand elle est sur un domaine de
+l'ESK : comme le login, l'adresse d'un compte en place fait autorité et ne
+sera jamais recalculée. Une adresse personnelle (gmail…) est écartée — elle
+ne désigne pas un compte de l'établissement.
+
 ## Rapprochement
 
 Clé pivot : `(type, id_charlemagne)` déduit du badge :
@@ -141,8 +146,14 @@ def amorcer_depuis_koxo(
         rapport.est_bloque = True
         return rapport
 
+    domaines = {
+        s.domaine_mail.strip().lower()
+        for s in session.query(Site).all()
+        if s.domaine_mail
+    }
+
     for i, ligne in enumerate(df.to_dict(orient="records"), start=2):
-        _traiter_ligne(session, ligne, i, site_id, type_personne, rapport)
+        _traiter_ligne(session, ligne, i, site_id, type_personne, rapport, domaines)
 
     if mode == "reel" and not rapport.est_bloque:
         session.commit()
@@ -157,6 +168,23 @@ def amorcer_depuis_koxo(
 # ---------------------------------------------------------------------------
 
 
+def _relever_email(personne: Personne, ligne: dict, domaines: set[str]) -> None:
+    """Relève l'adresse du compte KoXo si elle est sur un domaine de l'ESK.
+
+    Même principe que le login : l'adresse d'un compte en place fait autorité
+    et n'est jamais recalculée. Une adresse personnelle (gmail…) est écartée,
+    elle ne désigne pas un compte de l'établissement.
+    """
+    if personne.email_constate:
+        return
+    brut = ligne.get("email")
+    if not brut or "@" not in str(brut):
+        return
+    adresse = str(brut).strip().lower()
+    if adresse.rsplit("@", 1)[-1] in domaines:
+        personne.email_constate = adresse
+
+
 def _traiter_ligne(
     session: Session,
     ligne: dict,
@@ -164,6 +192,7 @@ def _traiter_ligne(
     site_id: int,
     type_personne: str,
     rapport: RapportAmorcage,
+    domaines: set[str],
 ) -> None:
     num_badge = ligne.get("num_badge")
     nom = ligne.get("nom")
@@ -210,6 +239,7 @@ def _traiter_ligne(
     )
 
     if existante is not None:
+        _relever_email(existante, ligne, domaines)
         if existante.login == login:
             rapport.nb_deja_presentes += 1
             rapport.personnes.append(
@@ -271,6 +301,7 @@ def _traiter_ligne(
         prenom=str(prenom),
         site_id=site_id,
     )
+    _relever_email(personne, ligne, domaines)
     session.add(personne)
     session.flush()
     rapport.nb_creations += 1
