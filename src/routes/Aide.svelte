@@ -8,12 +8,14 @@
   import Zap from "@lucide/svelte/icons/zap";
   import FileDown from "@lucide/svelte/icons/file-down";
   import Activity from "@lucide/svelte/icons/activity";
+  import UserPlus from "@lucide/svelte/icons/user-plus";
 
   const sections = [
     { id: "flux", label: "Flux global", icon: BookOpen },
     { id: "amorcage", label: "Amorçage", icon: Rocket },
     { id: "ingestion", label: "Ingestion", icon: BookOpen },
     { id: "seaux", label: "Les 5 seaux", icon: GitCompareArrows },
+    { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
     { id: "arbitrage", label: "Arbitrage", icon: Scale },
     { id: "simulation", label: "Simulation", icon: Zap },
     { id: "exports", label: "Exports", icon: FileDown },
@@ -67,6 +69,47 @@
           <li><strong>Boucle KoXo → Google</strong> — récupération des MDP KoXo pour
             enrichir le CSV Google.</li>
         </ol>
+
+      {:else if sectionActive === "nouveaux"}
+        <h2>Nouveaux arrivants</h2>
+        <p>
+          La liste des personnes pour lesquelles un compte reste à créer, faite
+          pour être <strong>imprimée et relue par un collègue</strong> avant de
+          générer quoi que ce soit. À ne pas confondre avec l'export
+          « Nouveaux » de l'onglet Exports, qui produit un fichier destiné à
+          KoXo ou Google, avec des colonnes techniques.
+        </p>
+
+        <h3>Comment un arrivant est reconnu</h3>
+        <p>
+          Si <strong>deux années</strong> ont été ingérées, la comparaison
+          tranche : est arrivant celui qui n'était pas là l'an dernier.
+        </p>
+        <p>
+          Sinon — c'est le cas la première année — le programme croise deux
+          signaux indépendants :
+        </p>
+        <ul>
+          <li><strong>aucun compte constaté</strong> : personne ne lui a jamais
+            ouvert d'adresse ;</li>
+          <li><strong>aucune classe l'an dernier</strong> selon Charlemagne.</li>
+        </ul>
+        <p>
+          Quand les deux concordent, la personne est marquée
+          <strong>Nouveau</strong>. Quand ils se contredisent, elle est marquée
+          <strong>À vérifier</strong> avec le motif — un élève qui poursuit sa
+          scolarité sans compte, ou un élève réinscrit après une absence. Ce
+          sont précisément les cas à faire confirmer par un collègue, donc ils
+          restent sur la liste plutôt que d'être tranchés par une règle.
+        </p>
+
+        <h3>Sortir la liste</h3>
+        <ul>
+          <li><strong>Imprimer</strong> — met en page sans la navigation ni les
+            filtres, une classe par bloc, avec une ligne de signature en bas.</li>
+          <li><strong>Export Excel</strong> — CSV point-virgule avec accents,
+            qui s'ouvre directement en colonnes dans Excel.</li>
+        </ul>
 
       {:else if sectionActive === "amorcage"}
         <h2>Amorçage</h2>

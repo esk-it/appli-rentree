@@ -13,6 +13,7 @@
   import Building2 from "@lucide/svelte/icons/building-2";
   import TableIcon from "@lucide/svelte/icons/table";
   import GitCompareArrows from "@lucide/svelte/icons/git-compare-arrows";
+  import UserPlus from "@lucide/svelte/icons/user-plus";
   import Scale from "@lucide/svelte/icons/scale";
   import Rocket from "@lucide/svelte/icons/rocket";
   import FileDown from "@lucide/svelte/icons/file-down";
@@ -26,6 +27,7 @@
   import TableCorrespondance from "./routes/TableCorrespondance.svelte";
   import Amorcage from "./routes/Amorcage.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
+  import Nouveaux from "./routes/Nouveaux.svelte";
   import Reconciliation from "./routes/Reconciliation.svelte";
   import Arbitrage from "./routes/Arbitrage.svelte";
   import Simulation from "./routes/Simulation.svelte";
@@ -207,6 +209,7 @@
       items: [
         { id: "snapshots", label: "Snapshots d'années", icon: Database },
         { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
+        { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
         {
           id: "arbitrage",
           label: "Arbitrage",
@@ -447,6 +450,8 @@
           <Snapshots onNaviguer={(p) => (page = p)} />
         {:else if page === "reconciliation"}
           <Reconciliation />
+        {:else if page === "nouveaux"}
+          <Nouveaux />
         {:else if page === "arbitrage"}
           <Arbitrage />
         {:else if page === "simulation"}

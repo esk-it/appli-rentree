@@ -555,6 +555,26 @@ export const arbitrages = {
 // ---------------------------------------------------------------------------
 // Années scolaires
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Nouveaux arrivants — liste de relecture humaine (≠ exports vers les cibles)
+// ---------------------------------------------------------------------------
+export const nouveaux = {
+  _qs({ anneeId, siteId = null, type = null, anneeSourceId = null, inclureAVerifier = true }) {
+    const p = new URLSearchParams({ annee_id: String(anneeId) });
+    if (siteId) p.set("site_id", String(siteId));
+    if (type) p.set("type", type);
+    if (anneeSourceId) p.set("annee_source_id", String(anneeSourceId));
+    if (!inclureAVerifier) p.set("inclure_a_verifier", "false");
+    return p.toString();
+  },
+  async lister(options) {
+    return jsonOrThrow(await fetch(`${BASE}/nouveaux?${nouveaux._qs(options)}`));
+  },
+  async csv(options) {
+    return jsonOrThrow(await fetch(`${BASE}/nouveaux/csv?${nouveaux._qs(options)}`));
+  },
+};
+
 export const annees = {
   async lister() {
     return jsonOrThrow(await fetch(`${BASE}/annees`));

@@ -258,3 +258,79 @@ th {
 .tableau tbody tr {
   @apply transition-colors duration-100 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10;
 }
+
+/* ---------------------------------------------------------------------------
+   Impression
+   ---------------------------------------------------------------------------
+   Une liste montrée à un collègue finit sur papier. Sans ces règles, la
+   navigation, les filtres et le fond sombre partent à l'imprimante, et un
+   tableau se coupe au milieu d'une classe.
+--------------------------------------------------------------------------- */
+
+.impression-seule {
+  display: none;
+}
+
+@media print {
+  /* Le thème sombre gaspille l'encre et rend le texte illisible sur papier */
+  :root,
+  :root[data-theme="dark"] {
+    color-scheme: light;
+    background: #fff !important;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* Barre latérale, filtres, boutons : sans objet une fois imprimé */
+  nav,
+  aside,
+  .sans-impression {
+    display: none !important;
+  }
+
+  .impression-seule {
+    display: block;
+  }
+
+  /* Les cartes deviennent de simples blocs : ni ombre, ni coins arrondis */
+  .card {
+    border: 1px solid #999 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+  }
+
+  /* Une classe ne doit pas être coupée entre deux pages si elle peut tenir */
+  .groupe-impression {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* L'en-tête du tableau se répète en haut de chaque page */
+  thead {
+    display: table-header-group;
+  }
+  tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Le survol n'existe pas sur papier — mais la mise en garde, si */
+  .tableau tbody tr:hover {
+    background: transparent !important;
+  }
+  .ligne-douteuse {
+    background: #fdf6e3 !important;
+  }
+
+  a[href]::after {
+    content: "";
+  }
+}
+
+/* À l'écran aussi, une ligne douteuse se signale */
+.ligne-douteuse {
+  @apply bg-amber-50/70 dark:bg-amber-900/15;
+}
