@@ -338,6 +338,30 @@ export const googleApi = {
       }),
     );
   },
+  /** Lance l'exécution suivie ; retourne le job à interroger ensuite. */
+  async lancerJob({ siteId, typePersonne, anneeCibleId, anneeSourceId, csvKoxoBase64 = null, phase = "pre_rentree" }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/jobs`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId, type_personne: typePersonne,
+          annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+          csv_koxo_base64: csvKoxoBase64, phase, confirmation: true,
+        }),
+      }),
+    );
+  },
+  async suivreJob(jobId) {
+    return jsonOrThrow(await fetch(`${BASE}/google/jobs/${jobId}`));
+  },
+  async annulerJob(jobId) {
+    return jsonOrThrow(await fetch(`${BASE}/google/jobs/${jobId}/annuler`, { method: "POST" }));
+  },
+  async rejouerEchecs(jobId) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/jobs/${jobId}/rejouer-echecs`, { method: "POST" }),
+    );
+  },
   async executer({ siteId, typePersonne, anneeCibleId, anneeSourceId, csvKoxoBase64 = null, phase = "pre_rentree" }) {
     return jsonOrThrow(
       await fetch(`${BASE}/google/executer`, {

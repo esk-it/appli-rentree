@@ -216,3 +216,200 @@ def executer(
         echecs=resultat.echecs,
         tout_reussi=resultat.tout_reussi,
     )
+
+
+# ---------------------------------------------------------------------------
+# Exécution suivie — l'avancement élève par élève
+# ---------------------------------------------------------------------------
+
+
+class EtapeOut(BaseModel):
+    index: int
+    action: str
+    email: str
+    libelle: str
+    ou_visee: str | None
+    statut: str
+    message: str | None
+
+
+class JobOut(BaseModel):
+    id: str
+    phase: str
+    libelle: str
+    total: int
+    nb_reussies: int
+    nb_echecs: int
+    nb_traitees: int
+    progression: float
+    est_termine: bool
+    annule: bool
+    erreur_fatale: str | None
+    etapes: list[EtapeOut]
+
+
+def _job_vers_out(job) -> JobOut:
+    return JobOut(
+        id=job.id,
+        phase=job.phase,
+        libelle=job.libelle,
+        total=job.total,
+        nb_reussies=job.nb_reussies,
+        nb_echecs=job.nb_echecs,
+        nb_traitees=job.nb_traitees,
+        progression=job.progression,
+        est_termine=job.est_termine,
+        annule=job.annule,
+        erreur_fatale=job.erreur_fatale,
+        etapes=[
+            EtapeOut(
+                index=e.index, action=e.action, email=e.email, libelle=e.libelle,
+                ou_visee=e.ou_visee, statut=e.statut, message=e.message,
+            )
+            for e in job.etapes
+        ],
+    )
+
+
+def _memoriser_dans_sa_propre_session(appliquees: list[tuple[int, str]]) -> None:
+    """Enregistre les OU appliquées depuis le thread du job.
+
+    La session de la requête HTTP est close depuis longtemps quand le job
+    se termine : il lui en faut une à lui, ouverte et fermée ici.
+    """
+    from backend.database import _SessionLocal
+    from backend.services.google_api import enregistrer_ou_appliquees
+
+    session = _SessionLocal()
+    try:
+        enregistrer_ou_appliquees(session, appliquees)
+    finally:
+        session.close()
+
+
+@router.post("/jobs", response_model=JobOut)
+def lancer_job(
+    payload: ExecutionPayload, session: Session = Depends(db_session)
+) -> JobOut:
+    """Applique le plan côté Google en tâche de fond, avec suivi.
+
+    Rend la main immédiatement : l'interface interroge ensuite
+    `GET /jobs/{id}` pour afficher l'avancement.
+    """
+    if not payload.confirmation:
+        raise HTTPException(
+            400,
+            "Confirmation requise : relis le plan puis renvoie "
+            "`confirmation: true` pour appliquer.",
+        )
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    plan = _construire(session, payload)
+    if not plan.est_executable:
+        raise HTTPException(
+            409,
+            f"{plan.nb_bloques} élève(s) sans OU calculable — complète la Table "
+            "de correspondance avant d'exécuter.",
+        )
+    if not plan.operations:
+        raise HTTPException(400, "Aucune opération à appliquer.")
+
+    from backend.services.jobs_google import creer_job, lancer_en_tache_de_fond
+
+    libelle = (
+        "Placement en OU de pré-rentrée"
+        if payload.phase == "pre_rentree"
+        else "Bascule vers les OU définitives"
+    )
+    job = creer_job(phase=payload.phase, libelle=libelle, operations=plan.operations)
+    lancer_en_tache_de_fond(
+        job,
+        plan.operations,
+        appliquer=client.appliquer_operation,
+        au_succes=_memoriser_dans_sa_propre_session,
+    )
+    return _job_vers_out(job)
+
+
+@router.get("/jobs/{job_id}", response_model=JobOut)
+def suivre_job(job_id: str) -> JobOut:
+    """État d'avancement — interrogé en boucle par l'interface."""
+    from backend.services.jobs_google import obtenir_job
+
+    job = obtenir_job(job_id)
+    if job is None:
+        raise HTTPException(404, f"Traitement introuvable : {job_id}")
+    return _job_vers_out(job)
+
+
+@router.get("/jobs", response_model=list[JobOut])
+def lister_les_jobs() -> list[JobOut]:
+    """Les traitements récents, le plus récent en tête."""
+    from backend.services.jobs_google import lister_jobs
+
+    return [_job_vers_out(j) for j in lister_jobs()]
+
+
+@router.post("/jobs/{job_id}/annuler", response_model=JobOut)
+def annuler_job(job_id: str) -> JobOut:
+    """Arrête le traitement après l'étape en cours.
+
+    On ne coupe jamais au milieu d'un appel : une opération est envoyée ou
+    ne l'est pas.
+    """
+    from backend.services.jobs_google import demander_annulation, obtenir_job
+
+    if not demander_annulation(job_id):
+        job = obtenir_job(job_id)
+        if job is None:
+            raise HTTPException(404, f"Traitement introuvable : {job_id}")
+        raise HTTPException(409, "Traitement déjà terminé.")
+    return _job_vers_out(obtenir_job(job_id))
+
+
+@router.post("/jobs/{job_id}/rejouer-echecs", response_model=JobOut)
+def rejouer_echecs(job_id: str, session: Session = Depends(db_session)) -> JobOut:
+    """Relance uniquement les opérations qui ont échoué.
+
+    Ce qui a abouti n'est pas refait : on complète un traitement partiel,
+    on ne le recommence pas.
+    """
+    from backend.services.jobs_google import (
+        creer_job,
+        lancer_en_tache_de_fond,
+        obtenir_job,
+        operations_en_echec,
+    )
+
+    precedent = obtenir_job(job_id)
+    if precedent is None:
+        raise HTTPException(404, f"Traitement introuvable : {job_id}")
+    if not precedent.est_termine:
+        raise HTTPException(409, "Traitement encore en cours.")
+
+    operations = operations_en_echec(job_id)
+    if not operations:
+        raise HTTPException(400, "Aucun échec à rejouer.")
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    job = creer_job(
+        phase=precedent.phase,
+        libelle=f"{precedent.libelle} — reprise des échecs",
+        operations=operations,
+    )
+    lancer_en_tache_de_fond(
+        job, operations,
+        appliquer=client.appliquer_operation,
+        au_succes=_memoriser_dans_sa_propre_session,
+    )
+    return _job_vers_out(job)

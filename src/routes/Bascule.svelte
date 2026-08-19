@@ -11,7 +11,12 @@
   import Modale from "$lib/components/Modale.svelte";
   import Segments from "$lib/components/Segments.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
-  import { annees, bascule, enregistrerFichierBase64, sites } from "$lib/api.js";
+  import Cloud from "@lucide/svelte/icons/cloud";
+  import Check2 from "@lucide/svelte/icons/check";
+  import X from "@lucide/svelte/icons/x";
+  import Loader from "@lucide/svelte/icons/loader-2";
+  import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import { annees, bascule, enregistrerFichierBase64, googleApi, sites } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
   let listeAnnees = $state(/** @type {any[]} */ ([]));
@@ -32,6 +37,99 @@
     { id: "pre_rentree", label: "1. Placement pré-rentrée" },
     { id: "definitive", label: "2. Bascule de rentrée" },
   ];
+
+  // --- Canal d'application ------------------------------------------------
+  // Le CSV reste le mode nominal et le secours : si Google refuse un compte,
+  // on ne veut pas être bloqué. L'API évite l'aller-retour par la console.
+  let canal = $state(/** @type {"csv"|"api"} */ ("csv"));
+  let statutApi = $state(/** @type {any} */ (null));
+
+  let job = $state(/** @type {any} */ (null));
+  let lancement = $state(false);
+  let sondage = /** @type {any} */ (null);
+
+  let apiUtilisable = $derived(
+    statutApi?.bibliotheques_disponibles && statutApi?.configuration_complete,
+  );
+
+  // Les lignes traitées d'abord, puis celle en cours : on regarde ce qui
+  // vient de se passer, pas la fin d'une liste de mille noms.
+  let etapesAffichees = $derived.by(() => {
+    if (!job) return [];
+    const faites = job.etapes.filter((e) => e.statut !== "attente");
+    const echecs = faites.filter((e) => e.statut === "echec");
+    // Les échecs restent visibles en tête : ce sont eux qui demandent une action
+    return [...echecs, ...faites.filter((e) => e.statut !== "echec").slice(-60).reverse()];
+  });
+
+  async function lancerJob() {
+    if (!anneeId) return;
+    lancement = true;
+    try {
+      job = await googleApi.lancerJob({
+        siteId: filtreSite || null,
+        typePersonne: "eleve",
+        anneeCibleId: anneeId,
+        anneeSourceId: null,
+        phase,
+      });
+      demarrerSondage();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      lancement = false;
+    }
+  }
+
+  function demarrerSondage() {
+    arreterSondage();
+    sondage = setInterval(async () => {
+      if (!job) return arreterSondage();
+      try {
+        job = await googleApi.suivreJob(job.id);
+        if (job.est_termine) {
+          arreterSondage();
+          await rafraichir();
+          if (job.nb_echecs === 0) {
+            notify.succes(`${job.nb_reussies} déplacement(s) appliqué(s)`);
+          } else {
+            notify.erreur(
+              `${job.nb_echecs} échec(s) sur ${job.total} — voir le détail`,
+            );
+          }
+        }
+      } catch (e) {
+        arreterSondage();
+        notify.erreur(String(e).replace(/^Error:\s*/, ""));
+      }
+    }, 700);
+  }
+
+  function arreterSondage() {
+    if (sondage) clearInterval(sondage);
+    sondage = null;
+  }
+
+  async function annuler() {
+    if (!job) return;
+    try {
+      job = await googleApi.annulerJob(job.id);
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""));
+    }
+  }
+
+  async function rejouer() {
+    if (!job) return;
+    try {
+      job = await googleApi.rejouerEchecs(job.id);
+      demarrerSondage();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""));
+    }
+  }
+
+  $effect(() => () => arreterSondage());
 
   // Les mouvements réellement à faire d'abord : c'est ce qu'on relit avant
   // d'importer. Les « déjà en place » n'apportent rien à la relecture.
@@ -56,6 +154,11 @@
   onMount(async () => {
     try {
       [listeAnnees, listeSites] = await Promise.all([annees.lister(), sites.lister()]);
+      try {
+        statutApi = await googleApi.statut();
+      } catch {
+        statutApi = null; // mode API indisponible : le CSV suffit
+      }
       const triees = [...listeAnnees].sort((a, b) => b.libelle.localeCompare(a.libelle));
       anneeId = triees[0]?.id ?? null;
     } catch (e) {
@@ -152,28 +255,55 @@
         </select>
       </div>
 
-      <div class="ml-auto flex gap-2">
-        <!--
-          Bloqué aussi quand des élèves n'ont pas d'OU : télécharger un CSV
-          partiel mènerait à l'importer sans pouvoir l'enregistrer ensuite,
-          et la trace des OU appliquées divergerait de la réalité.
-        -->
-        <Bouton
-          icon={Download}
-          occupe={telechargement}
-          disabled={!rapport || rapport.nb_a_deplacer === 0 || !rapport.est_applicable}
-          onclick={telechargerCsv}
-        >
-          Télécharger le CSV
-        </Bouton>
-        <Bouton
-          variante="primary"
-          icon={Check}
-          disabled={!rapport || rapport.nb_a_deplacer === 0 || !rapport.est_applicable}
-          onclick={() => (demandeConfirmation = true)}
-        >
-          J'ai importé
-        </Bouton>
+      <div class="ml-auto flex items-end gap-2">
+        {#if apiUtilisable}
+          <div>
+            <span class="libelle-champ">Canal</span>
+            <Segments
+              bind:valeur={canal}
+              taille="sm"
+              options={[
+                { id: "csv", label: "Fichier CSV" },
+                { id: "api", label: "API Google" },
+              ]}
+            />
+          </div>
+        {/if}
+
+        {#if canal === "csv"}
+          <!--
+            Bloqué aussi quand des élèves n'ont pas d'OU : télécharger un CSV
+            partiel mènerait à l'importer sans pouvoir l'enregistrer ensuite,
+            et la trace des OU appliquées divergerait de la réalité.
+          -->
+          <Bouton
+            icon={Download}
+            occupe={telechargement}
+            disabled={!rapport || rapport.nb_a_deplacer === 0 || !rapport.est_applicable}
+            onclick={telechargerCsv}
+          >
+            Télécharger le CSV
+          </Bouton>
+          <Bouton
+            variante="primary"
+            icon={Check}
+            disabled={!rapport || rapport.nb_a_deplacer === 0 || !rapport.est_applicable}
+            onclick={() => (demandeConfirmation = true)}
+          >
+            J'ai importé
+          </Bouton>
+        {:else}
+          <Bouton
+            variante="primary"
+            icon={Cloud}
+            occupe={lancement}
+            disabled={!rapport || rapport.nb_a_deplacer === 0 || !rapport.est_applicable
+              || (job && !job.est_termine)}
+            onclick={lancerJob}
+          >
+            Déplacer {rapport?.nb_a_deplacer ?? 0} élève(s)
+          </Bouton>
+        {/if}
       </div>
     </div>
 
@@ -188,6 +318,91 @@
       {/if}
     </p>
   </div>
+
+  {#if job}
+    <div class="card overflow-hidden">
+      <div class="flex flex-wrap items-center gap-3 border-b border-stone-200 px-3 py-2 dark:border-stone-700">
+        <h2 class="text-sm font-semibold">{job.libelle}</h2>
+        <span class="text-xs tabular-nums text-stone-500 dark:text-stone-400">
+          {job.nb_traitees} / {job.total}
+        </span>
+        {#if job.nb_reussies > 0}
+          <span class="text-xs text-emerald-700 dark:text-emerald-400">
+            {job.nb_reussies} appliqué(s)
+          </span>
+        {/if}
+        {#if job.nb_echecs > 0}
+          <span class="text-xs font-medium text-red-700 dark:text-red-400">
+            {job.nb_echecs} en échec
+          </span>
+        {/if}
+
+        <div class="ml-auto flex gap-2">
+          {#if !job.est_termine}
+            <Bouton taille="sm" onclick={annuler}>Arrêter</Bouton>
+          {:else if job.nb_echecs > 0}
+            <Bouton taille="sm" icon={RotateCcw} onclick={rejouer}>
+              Rejouer les {job.nb_echecs} échec(s)
+            </Bouton>
+          {/if}
+          {#if job.est_termine}
+            <Bouton taille="sm" onclick={() => (job = null)}>Fermer</Bouton>
+          {/if}
+        </div>
+      </div>
+
+      <!-- Barre d'avancement : la seule information lisible d'un coup d'œil
+           quand mille lignes défilent. -->
+      <div class="h-1.5 w-full bg-stone-200 dark:bg-stone-700">
+        <div
+          class="h-full transition-all duration-300 {job.nb_echecs > 0
+            ? 'bg-amber-500'
+            : 'bg-emerald-600'}"
+          style="width: {Math.round(job.progression * 100)}%"
+        ></div>
+      </div>
+
+      {#if job.erreur_fatale}
+        <p class="border-b border-stone-200 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-stone-700 dark:bg-red-900/20 dark:text-red-300">
+          {job.erreur_fatale}
+        </p>
+      {/if}
+      {#if job.annule}
+        <p class="border-b border-stone-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-stone-700 dark:bg-amber-900/20 dark:text-amber-200">
+          Arrêté à ta demande. Ce qui était déjà appliqué l'est resté — relance
+          pour traiter le reste.
+        </p>
+      {/if}
+
+      <div class="max-h-96 overflow-auto">
+        <table class="tableau w-full text-sm">
+          <tbody>
+            {#each etapesAffichees as e (e.index)}
+              <tr class:ligne-douteuse={e.statut === "echec"}>
+                <td class="w-8 px-3 py-1.5">
+                  {#if e.statut === "reussi"}
+                    <Check2 class="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
+                  {:else if e.statut === "echec"}
+                    <X class="h-4 w-4 text-red-600 dark:text-red-400" />
+                  {:else}
+                    <Loader class="h-4 w-4 animate-spin text-stone-400" />
+                  {/if}
+                </td>
+                <td class="whitespace-nowrap px-3 py-1.5 font-mono text-xs">{e.email}</td>
+                <td class="px-3 py-1.5 text-xs text-stone-600 dark:text-stone-400">
+                  {#if e.statut === "echec"}
+                    <span class="text-red-700 dark:text-red-400">{e.message}</span>
+                  {:else}
+                    {e.ou_visee ?? e.libelle}
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  {/if}
 
   {#if chargement}
     <div class="card p-4">

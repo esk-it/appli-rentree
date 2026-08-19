@@ -497,6 +497,19 @@ class ClientGoogle:
             "nb_utilisateurs_visibles": len(reponse.get("users", [])),
         }
 
+    def appliquer_operation(self, operation: OperationGoogle) -> None:
+        """Envoie une opération unitaire. Lève si Google la refuse.
+
+        Extrait de `executer_plan` pour que l'exécution suivie puisse
+        traiter les opérations une par une et rendre compte de chacune.
+        """
+        if operation.action == "creer":
+            self._service.users().insert(body=operation.payload).execute()
+        else:
+            self._service.users().update(
+                userKey=operation.email, body=operation.payload
+            ).execute()
+
     def executer_plan(self, plan: PlanGoogle, session=None) -> ResultatExecution:
         """Applique les opérations du plan, une par une.
 
@@ -516,12 +529,7 @@ class ClientGoogle:
 
         for operation in plan.operations:
             try:
-                if operation.action == "creer":
-                    self._service.users().insert(body=operation.payload).execute()
-                else:
-                    self._service.users().update(
-                        userKey=operation.email, body=operation.payload
-                    ).execute()
+                self.appliquer_operation(operation)
                 resultat.nb_reussies += 1
                 if operation.personne_id and operation.ou_visee:
                     appliquees.append((operation.personne_id, operation.ou_visee))

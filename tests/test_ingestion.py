@@ -624,12 +624,15 @@ class TestExportAvecSortants:
         assert r.sortants == []
         assert [e.nom for e in r.modifies] == ["RESTE"]
 
-    def test_le_parti_avant_est_mis_en_quarantaine(self, session, table_corr, site_factory):
-        """Son compte Google existe encore : son échéance doit être suivie."""
-        from datetime import date
+    def test_le_parti_avant_ne_touche_aucun_compte(self, session, table_corr):
+        """Un import charge des données, il ne décide pas du sort des comptes.
 
+        Sur l'export 2026-2027, ces lignes sont les sortants de la rentrée en
+        cours : leur traitement passe par l'action « Traiter les sortants »,
+        délibérée et confirmée. Les basculer ici mettrait 428 comptes en
+        quarantaine à l'insu de l'utilisateur.
+        """
         from backend.models import CompteCible, Personne as P
-        from backend.services.suivi import QUARANTAINE_GOOGLE
 
         site = session.query(__import__("backend.models", fromlist=["Site"]).Site).first()
         session.add(P(type="eleve", id_charlemagne=5410, badge=64100,
@@ -645,21 +648,5 @@ class TestExportAvecSortants:
             "2025-2026", "reel", rapport,
         )
 
-        assert rapport.nb_sorties_anterieures == 1
-        c = session.query(CompteCible).filter_by(cible="google").one()
-        assert c.etat == "quarantaine"
-        # Départ fin 2024-2025, pas aujourd'hui
-        assert c.date_prevue_purge == date(2025, 8, 31) + QUARANTAINE_GOOGLE
-
-    def test_simulation_ne_met_personne_en_quarantaine(self, session, table_corr):
-        from backend.models import CompteCible
-
-        rapport = _rapport_vide()
-        _ingerer_eleves(
-            session,
-            _df_eleves({"id_charlemagne": 5411, "nom": "PARTI", "prenom": "Luc",
-                        "code_classe": None, "code_classe_precedente": "T_G1A"}),
-            "2025-2026", "simulation", rapport,
-        )
-        assert rapport.nb_sorties_anterieures == 0
+        assert rapport.nb_lignes_sans_classe == 1
         assert session.query(CompteCible).count() == 0
