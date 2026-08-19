@@ -612,18 +612,74 @@ export const parametres = {
 };
 
 // ---------------------------------------------------------------------------
-// Helpers de téléchargement — utiles pour les futurs exports
+// Enregistrement de fichiers
 // ---------------------------------------------------------------------------
+//
+// Dans l'application packagée, un simple lien `download` fait déposer le
+// fichier par WebView2 dans le dossier Téléchargements, sans rien demander :
+// l'utilisateur ne sait pas où son export a atterri. On passe donc par la
+// boîte d'enregistrement de Tauri, qui laisse choisir l'emplacement et
+// retourne le chemin exact — affichable ensuite dans une notification.
+//
+// Le navigateur reste utilisé en dev, et en secours si l'écriture est
+// refusée (dossier hors du périmètre autorisé).
+
+function estDansTauri() {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+function base64EnOctets(contenuBase64) {
+  const binaire = atob(contenuBase64);
+  const octets = new Uint8Array(binaire.length);
+  for (let i = 0; i < binaire.length; i++) octets[i] = binaire.charCodeAt(i);
+  return octets;
+}
+
+/**
+ * Propose d'enregistrer un fichier et retourne où il a été écrit.
+ *
+ * @returns {Promise<{chemin: string|null, annule: boolean}>}
+ *   `chemin` vaut `null` quand le navigateur a pris le relais (dossier de
+ *   téléchargement par défaut) ; `annule` est vrai si l'utilisateur a fermé
+ *   la boîte de dialogue.
+ */
+export async function enregistrerFichierBase64(nom, contenuBase64, mime) {
+  const octets = base64EnOctets(contenuBase64);
+
+  if (estDansTauri()) {
+    try {
+      const { save } = await import("@tauri-apps/plugin-dialog");
+      const extension = nom.split(".").pop() ?? "";
+      const chemin = await save({
+        defaultPath: nom,
+        filters: extension ? [{ name: extension.toUpperCase(), extensions: [extension] }] : [],
+      });
+      if (chemin === null) return { chemin: null, annule: true };
+
+      const { writeFile } = await import("@tauri-apps/plugin-fs");
+      await writeFile(chemin, octets);
+      return { chemin, annule: false };
+    } catch (e) {
+      // Écriture refusée (hors périmètre) ou plugin indisponible : plutôt que
+      // de perdre l'export, on retombe sur le téléchargement navigateur.
+      console.warn("Enregistrement Tauri impossible, repli navigateur :", e);
+    }
+  }
+
+  declencherDownload(nom, new Blob([octets], { type: mime ?? "application/octet-stream" }));
+  return { chemin: null, annule: false };
+}
+
 export function telechargerFichier(nom, contenu, mime = "text/csv") {
   const blob = new Blob([contenu], { type: `${mime};charset=utf-8` });
   declencherDownload(nom, blob);
 }
 
+/** @deprecated Préférer `enregistrerFichierBase64`, qui dit où le fichier va. */
 export function telechargerFichierBase64(nom, contenuBase64, mime) {
-  const binaire = atob(contenuBase64);
-  const octets = new Uint8Array(binaire.length);
-  for (let i = 0; i < binaire.length; i++) octets[i] = binaire.charCodeAt(i);
-  const blob = new Blob([octets], { type: mime ?? "application/octet-stream" });
+  const blob = new Blob([base64EnOctets(contenuBase64)], {
+    type: mime ?? "application/octet-stream",
+  });
   declencherDownload(nom, blob);
 }
 

@@ -10,7 +10,7 @@
   import Nombre from "$lib/components/Nombre.svelte";
   import Segments from "$lib/components/Segments.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
-  import { annees, nouveaux, sites, telechargerFichierBase64 } from "$lib/api.js";
+  import { annees, enregistrerFichierBase64, nouveaux, sites } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
   let listeAnnees = $state(/** @type {any[]} */ ([]));
@@ -97,8 +97,20 @@
         type: filtreType || null,
         anneeSourceId: anneeSourceId || null,
       });
-      telechargerFichierBase64(r.nom_fichier, r.contenu_base64, "text/csv");
-      notify.succes(`${r.nb_lignes} ligne(s) exportée(s)`);
+      const { chemin, annule } = await enregistrerFichierBase64(
+        r.nom_fichier,
+        r.contenu_base64,
+        "text/csv",
+      );
+      if (annule) return;
+      // Donner le chemin exact : sans lui, l'utilisateur doit deviner où
+      // l'export a atterri.
+      notify.succes(
+        chemin
+          ? `${r.nb_lignes} ligne(s) enregistrées dans ${chemin}`
+          : `${r.nb_lignes} ligne(s) — fichier dans ton dossier Téléchargements`,
+        { duree: 8000 },
+      );
     } catch (e) {
       notify.erreur(String(e).replace(/^Error:\s*/, ""));
     } finally {

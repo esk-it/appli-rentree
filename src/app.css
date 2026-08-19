@@ -283,6 +283,32 @@ th {
     color: #000 !important;
   }
 
+  /* ------------------------------------------------------------------
+     Dé-clipage de la coque applicative.
+
+     L'interface tient dans une boîte `h-screen overflow-hidden` où seul
+     `<main>` défile. À l'impression, tout ce qui dépasse de cette boîte
+     n'existe pas : la liste s'arrêtait à la première page, quel que soit
+     son nombre de lignes. Il faut rendre la hauteur au flux du document.
+     ------------------------------------------------------------------ */
+  html,
+  body {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  body * {
+    overflow: visible !important;
+  }
+  .h-screen,
+  .max-h-\[640px\] {
+    height: auto !important;
+    max-height: none !important;
+  }
+  main {
+    display: block !important;
+    flex: none !important;
+  }
+
   /* Barre latérale, filtres, boutons : sans objet une fois imprimé */
   nav,
   aside,

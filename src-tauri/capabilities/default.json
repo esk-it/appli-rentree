@@ -8,6 +8,14 @@
     "shell:allow-execute",
     "dialog:default",
     "fs:default",
+    {
+      "identifier": "fs:allow-write-file",
+      "allow": [
+        { "path": "$DESKTOP/**" },
+        { "path": "$DOCUMENT/**" },
+        { "path": "$DOWNLOAD/**" }
+      ]
+    },
     "updater:default",
     "process:default"
   ]

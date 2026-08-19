@@ -14,7 +14,7 @@
     exportsCible,
     googleApi,
     sites as sitesApi,
-    telechargerFichierBase64,
+    enregistrerFichierBase64,
   } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -167,13 +167,19 @@
       }
       const labelCible = cible === "google" && fichierKoxoEnrichi ? "google (avec MDP)" : cible;
       dernierRapport = { ...r, cible: labelCible };
-      telechargerFichierBase64(r.nom_fichier, r.contenu_base64, "text/csv");
+      const { chemin, annule } = await enregistrerFichierBase64(
+        r.nom_fichier, r.contenu_base64, "text/csv",
+      );
+      if (annule) return;
       const parts = [];
       if (r.nb_sans_ou > 0) parts.push(`${r.nb_sans_ou} sans OU — classe hors table`);
       if (r.nb_prevus_enregistres > 0) parts.push(`${r.nb_prevus_enregistres} compte(s) suivi(s)`);
       const suffixe = parts.length ? ` (${parts.join(" ; ")})` : "";
       const nb = r.nb_lignes ?? r.nb_total ?? 0;
-      notify.succes(`${nb} ligne(s) exportée(s) — ${r.nom_fichier}${suffixe}`);
+      notify.succes(
+        `${nb} ligne(s) — ${chemin ?? `${r.nom_fichier} dans ton dossier Téléchargements`}${suffixe}`,
+        { duree: 8000 },
+      );
     } catch (e) {
       erreur = String(e);
       notify.erreur(erreur);
@@ -552,10 +558,10 @@
         </div>
         <button
           class="btn-secondary text-xs"
-          onclick={() => telechargerFichierBase64(dernierRapport.nom_fichier, dernierRapport.contenu_base64, "text/csv")}
+          onclick={() => enregistrerFichierBase64(dernierRapport.nom_fichier, dernierRapport.contenu_base64, "text/csv")}
         >
           <Download class="h-3.5 w-3.5" />
-          Re-télécharger
+          Ré-enregistrer
         </button>
       </div>
     </div>

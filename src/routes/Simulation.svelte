@@ -4,7 +4,7 @@
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import FileDown from "@lucide/svelte/icons/file-down";
-  import { annees, simulation, telechargerFichierBase64 } from "$lib/api.js";
+  import { annees, enregistrerFichierBase64, simulation } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
   let listeAnnees = $state([]);
@@ -53,12 +53,16 @@
     if (!anneeSourceId || !anneeCibleId) return;
     try {
       const r = await simulation.exporter({ anneeSourceId, anneeCibleId, format });
-      telechargerFichierBase64(
+      const { chemin, annule } = await enregistrerFichierBase64(
         r.nom_fichier,
         r.contenu_base64,
         format === "csv" ? "text/csv" : "text/plain",
       );
-      notify.succes(`Rapport exporté — ${r.nom_fichier}`);
+      if (annule) return;
+      notify.succes(
+        `Rapport enregistré — ${chemin ?? `${r.nom_fichier} dans ton dossier Téléchargements`}`,
+        { duree: 8000 },
+      );
     } catch (e) {
       notify.erreur(String(e));
     }
