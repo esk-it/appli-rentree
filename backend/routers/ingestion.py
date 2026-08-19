@@ -43,6 +43,7 @@ class RapportOut(BaseModel):
     nb_lignes_lues: int
     nb_lignes_ingerees: int
     nb_lignes_ignorees: int
+    nb_lignes_sans_classe: int = 0
     nb_personnes_creees: int
     nb_personnes_mises_a_jour: int
     nb_snapshots_crees: int

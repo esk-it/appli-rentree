@@ -569,3 +569,57 @@ class TestOrdreDesIngestions:
         r = reconcilier(session, ids["2025-2026"], ids["2026-2027"], type_personne="eleve")
         assert [e.nom for e in r.sortants] == ["TERMINALE"]
         assert r.avertissements == []  # un vrai sortant : plus de garde-fou
+
+
+class TestExportAvecSortants:
+    """L'option « inclure les sortants » de Charlemagne remonte aussi les
+    élèves partis les années précédentes, sans classe pour l'année exportée.
+
+    Mesuré sur le fichier réel 2025-2026 : 2127 lignes, dont 437 sans classe
+    — des sortants de 2024-2025, qui n'ont pas fait 2025-2026.
+    """
+
+    def test_ligne_sans_classe_est_ecartee(self, session, table_corr):
+        df = _df_eleves(
+            {"id_charlemagne": 5400, "nom": "PRESENT", "prenom": "Ana",
+             "code_classe": "31", "code_classe_precedente": "41"},
+            {"id_charlemagne": 5401, "nom": "PARTI AVANT", "prenom": "Luc",
+             "code_classe": None, "code_classe_precedente": "T_G1A"},
+        )
+        rapport = _rapport_vide()
+        _ingerer_eleves(session, df, "2025-2026", "reel", rapport)
+
+        assert rapport.nb_lignes_sans_classe == 1
+        assert rapport.nb_lignes_ingerees == 1
+        assert session.query(Personne).filter_by(type="eleve", id_charlemagne=5401).first() is None
+        assert any("sans classe" in a for a in rapport.avertissements)
+
+    def test_un_parti_avant_ne_devient_pas_sortant_de_cette_rentree(
+        self, session, table_corr
+    ):
+        """Sinon on archiverait un compte disparu il y a deux ans comme s'il
+        venait de partir — et il faudrait le chercher dans le mauvais dossier."""
+        from backend.models import AnneeScolaire
+        from backend.services.reconciliation import reconcilier
+
+        # L'année passée, export avec sortants : un présent, un parti avant
+        _ingerer_eleves(
+            session,
+            _df_eleves(
+                {"id_charlemagne": 5402, "nom": "RESTE", "prenom": "Ana", "code_classe": "31"},
+                {"id_charlemagne": 5403, "nom": "PARTI AVANT", "prenom": "Luc",
+                 "code_classe": None, "code_classe_precedente": "T_G1A"},
+            ),
+            "2025-2026", "reel", _rapport_vide(),
+        )
+        # Cette année : seul celui qui reste
+        _ingerer_eleves(
+            session,
+            _df_eleves({"id_charlemagne": 5402, "nom": "RESTE", "prenom": "Ana", "code_classe": "61"}),
+            "2026-2027", "reel", _rapport_vide(),
+        )
+
+        ids = {a.libelle: a.id for a in session.query(AnneeScolaire).all()}
+        r = reconcilier(session, ids["2025-2026"], ids["2026-2027"], type_personne="eleve")
+        assert r.sortants == []
+        assert [e.nom for e in r.modifies] == ["RESTE"]

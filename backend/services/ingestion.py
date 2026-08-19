@@ -95,6 +95,11 @@ class RapportIngestion:
     nb_lignes_ignorees: int = 0
     """Lignes sans nom+prénom ou sans id_charlemagne exploitable."""
 
+    nb_lignes_sans_classe: int = 0
+    """Élèves sans classe pour l'année exportée — donc absents de cette
+    année-là. Typiquement des sortants d'une année antérieure, remontés par
+    l'option « inclure les sortants » de Charlemagne."""
+
     nb_personnes_creees: int = 0
     nb_personnes_mises_a_jour: int = 0
     nb_snapshots_crees: int = 0
@@ -403,6 +408,14 @@ def _ingerer_eleves(
             "n'est pas réécrite."
         )
 
+    if nb_sans_classe := sum(1 for l in lignes if not _s(l.get("code_classe"))):
+        rapport.avertissements.append(
+            f"{nb_sans_classe} ligne(s) sans classe pour {annee.libelle} : ces "
+            "personnes n'étaient pas inscrites cette année-là — sorties "
+            "précédemment, elles ne figurent dans l'export que parce qu'il "
+            "inclut les sortants. Elles sont écartées."
+        )
+
     # f. Boucle d'ingestion
     for ligne in lignes:
         id_ch = _int(ligne.get("id_charlemagne"))
@@ -412,10 +425,22 @@ def _ingerer_eleves(
             rapport.nb_lignes_ignorees += 1
             continue
 
-        # Résolution site — si classe inconnue, on saute la personne
         code_classe = _s(ligne.get("code_classe"))
-        site_id = classe_vers_site.get(code_classe) if code_classe else None
-        if code_classe and site_id is None:
+
+        # Aucune classe pour l'année exportée : la personne n'y était pas.
+        #
+        # Le cas vient des exports « avec les sortants », qui remontent aussi
+        # les élèves partis les années d'avant : ils n'ont qu'une classe
+        # précédente. Les ingérer les inscrirait dans une année qu'ils n'ont
+        # pas faite, sans classe ni site — et les ferait passer pour des
+        # sortants de cette rentrée-ci alors qu'ils sont partis avant.
+        if not code_classe:
+            rapport.nb_lignes_sans_classe += 1
+            continue
+
+        # Résolution site — si classe inconnue, on saute la personne
+        site_id = classe_vers_site.get(code_classe)
+        if site_id is None:
             # Déjà comptabilisé dans classes_inconnues
             rapport.nb_lignes_ignorees += 1
             continue
