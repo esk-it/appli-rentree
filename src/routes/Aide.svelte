@@ -205,14 +205,23 @@
             les droits viendront de la délégation, pas d'IAM.</li>
           <li>Ouvre le compte créé, onglet <strong>Clés → Ajouter une clé →
             Créer une clé → JSON</strong>. Le fichier se télécharge.</li>
-          <li>Toujours sur cette page, note le <strong>Client ID</strong> :
-            un long nombre. C'est lui qu'attend l'étape suivante, pas
-            l'adresse du compte de service.</li>
+          <li>Retourne sur l'onglet <strong>Détails</strong> et note
+            l'<strong>ID unique</strong> : une suite d'environ 21 chiffres,
+            visible aussi dans le fil d'Ariane
+            (<em>Compte de service : 1048…</em>).</li>
         </ol>
         <p>
           Ce fichier JSON est une clé privée : il donne accès à ton domaine.
           Range-le dans un dossier local protégé, jamais sur un partage
           réseau ouvert ni dans un dossier synchronisé.
+        </p>
+        <p>
+          <strong>Le piège :</strong> l'onglet <em>Clés</em> affiche aussi un
+          long identifiant, en chiffres <em>et lettres</em>
+          (<code>5de2280de9…</code>). C'est l'empreinte de la clé, pas le
+          compte de service. La collée dans la délégation donne
+          « ID client incorrect ». Celui qu'il faut ne contient que des
+          chiffres.
         </p>
 
         <h3>3. La délégation — console d'administration Google</h3>
@@ -253,9 +262,17 @@
 
         <h3>Si ça ne marche pas</h3>
         <ul>
-          <li><em>unauthorized_client</em> — le Client ID ou les portées ne
-            correspondent pas à ce qui est déclaré dans la délégation.
-            Vérifie qu'il s'agit bien du Client ID numérique.</li>
+          <li><em>ID client incorrect</em>, au moment d'enregistrer la
+            délégation — c'est l'empreinte de la clé qui a été collée à la
+            place de l'ID unique du compte de service. Le bon ne contient
+            que des chiffres.</li>
+          <li><em>unauthorized_client</em> — l'ID unique ou les portées ne
+            correspondent pas à ce qui est déclaré dans la délégation.</li>
+          <li><em>Admin SDK API has not been used in project…</em> — l'API
+            n'est pas activée dans le projet <strong>où vit le compte de
+            service</strong>. Vérifie le sélecteur de projet en haut de la
+            console : réutiliser un projet créé pour autre chose est possible,
+            mais il faut y activer l'Admin SDK.</li>
           <li><em>Not Authorized to access this resource</em> — l'adresse
             impersonnée n'est pas super-administrateur.</li>
           <li>La délégation peut mettre quelques minutes à se propager :
