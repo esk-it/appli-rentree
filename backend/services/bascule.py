@@ -31,6 +31,23 @@ Un cas `bloque` n'est jamais résolu par un placement par défaut : sans
 OU connue, on s'arrête et on l'explique (§8 « jamais d'affectation par
 défaut »).
 
+## Le site vient de la classe, pas de la personne
+
+`Personne.site_id` est un **état courant** : il reflète la dernière année
+ingérée, qui n'est pas forcément celle qu'on prépare. Une élève de 3e à
+Sainte-Ursule qui passe en 2nde au Kreisker reste enregistrée à SU tant
+qu'on n'a pas réingéré l'année suivante — et si l'on réingère l'année
+précédente après, elle y revient.
+
+S'appuyer sur ce champ ferait dépendre le résultat de l'ordre des
+ingestions. Le rattachement est donc résolu par la **Table de
+correspondance**, qui dit à quel site appartient une classe : c'est déjà
+elle qui fait autorité au moment de l'ingestion.
+
+Conséquence pour le filtre par site : il porte sur le site **de
+destination** (celui de la classe visée), pas sur celui où la personne
+était l'an dernier.
+
 ## Périmètre
 
 Élèves uniquement. L'OU des adultes ne se déduit pas d'une classe — la
@@ -117,47 +134,58 @@ def planifier_bascule(
     if annee is None:
         raise ValueError(f"Année introuvable : {annee_id}")
 
-    sites = session.query(Site)
-    if site_id is not None:
-        sites = sites.filter(Site.id == site_id)
-    sites_par_id = {s.id: s for s in sites.all()}
-    if site_id is not None and not sites_par_id:
+    sites_par_id = {s.id: s for s in session.query(Site).all()}
+    if site_id is not None and site_id not in sites_par_id:
         raise ValueError(f"Site introuvable : {site_id}")
 
     rapport = RapportBascule(
         phase=phase,
         annee_libelle=annee.libelle,
-        sites=sorted(s.nom for s in sites_par_id.values()),
+        sites=(
+            [sites_par_id[site_id].nom]
+            if site_id is not None
+            else sorted(s.nom for s in sites_par_id.values())
+        ),
     )
 
-    ou_par_classe = {
-        (tc.site_id, tc.classe_code_court): (tc.ou_pre_rentree, tc.ou_definitive)
-        for tc in session.query(TableCorrespondance).all()
-    }
+    # Rattachement classe -> site, sans presumer du site de la personne.
+    par_classe: dict[str, list[TableCorrespondance]] = {}
+    for tc in session.query(TableCorrespondance).all():
+        par_classe.setdefault(tc.classe_code_court, []).append(tc)
+
     comptes = {
         c.personne_id: c
         for c in session.query(CompteCible).filter(CompteCible.cible == "google").all()
     }
 
-    for personne, snapshot in _derniers_snapshots_eleves(
-        session, annee_id, list(sites_par_id)
-    ):
-        site = sites_par_id[personne.site_id]
+    for personne, snapshot in _derniers_snapshots_eleves(session, annee_id):
         compte = comptes.get(personne.id)
         classe = snapshot.classe or personne.classe
+        lignes = par_classe.get(classe or "", [])
 
-        ous = ou_par_classe.get((site.id, classe or ""))
-        if ous is None:
-            visee, statut, motif = (
-                None,
-                "bloque",
-                f"classe {classe!r} absente de la Table de correspondance",
+        site = None
+        visee = statut = motif = None
+
+        if not lignes:
+            statut = "bloque"
+            motif = f"classe {classe!r} absente de la Table de correspondance"
+        elif len(lignes) > 1:
+            noms = ", ".join(
+                sorted(sites_par_id[t.site_id].nom for t in lignes if t.site_id in sites_par_id)
+            )
+            statut = "bloque"
+            motif = (
+                f"classe {classe!r} declaree pour plusieurs sites ({noms}) — "
+                "impossible de choisir sans arbitrage"
             )
         else:
-            visee = ous[0] if phase == "pre_rentree" else ous[1]
+            tc = lignes[0]
+            site = sites_par_id.get(tc.site_id)
+            visee = tc.ou_pre_rentree if phase == "pre_rentree" else tc.ou_definitive
             if not visee:
                 colonne = "OU de pré-rentrée" if phase == "pre_rentree" else "OU définitive"
-                visee, statut, motif = None, "bloque", f"{colonne} non renseignée pour {classe}"
+                statut, motif = "bloque", f"{colonne} non renseignée pour {classe}"
+                visee = None
             else:
                 appliquee = compte.ou_appliquee if compte else None
                 if appliquee == visee:
@@ -168,9 +196,18 @@ def planifier_bascule(
                         f"depuis {appliquee}" if appliquee else "aucun placement enregistré"
                     )
 
+        # Classe inconnue : le site de destination n'est pas determinable. On
+        # retombe sur celui enregistre pour la personne, pour l'affichage
+        # seulement — et sans jamais masquer un bloquant, filtre ou pas.
+        site_affiche = site or sites_par_id.get(personne.site_id)
+        if site_id is not None and statut != "bloque":
+            if site is None or site.id != site_id:
+                continue
+
+        domaine = site_affiche.domaine_mail if site_affiche else ""
         email = personne.email_constate
-        if not email:
-            email = calculer_email(personne.prenom, personne.nom, site.domaine_mail) or None
+        if not email and domaine:
+            email = calculer_email(personne.prenom, personne.nom, domaine) or None
 
         rapport.mouvements.append(
             MouvementOU(
@@ -179,7 +216,7 @@ def planifier_bascule(
                 nom=snapshot.nom or personne.nom,
                 prenom=snapshot.prenom or personne.prenom,
                 classe=classe,
-                site=site.nom,
+                site=site_affiche.nom if site_affiche else "sans site",
                 email=email,
                 ou_appliquee=compte.ou_appliquee if compte else None,
                 ou_visee=visee,
@@ -259,18 +296,19 @@ def enregistrer_bascule(
 
 
 def _derniers_snapshots_eleves(
-    session: Session, annee_id: int, site_ids: list[int]
+    session: Session, annee_id: int
 ) -> list[tuple[Personne, Snapshot]]:
-    """Snapshot le plus récent de chaque élève pour l'année et les sites donnés."""
-    if not site_ids:
-        return []
+    """Snapshot le plus récent de chaque élève pour l'année donnée.
+
+    Pas de filtre par site ici : le rattachement se décide à partir de la
+    classe du snapshot, pas du site enregistré sur la personne.
+    """
     q = (
         session.query(Personne, Snapshot)
         .join(Snapshot, Snapshot.personne_id == Personne.id)
         .filter(
             Snapshot.annee_scolaire_id == annee_id,
             Personne.type == "eleve",
-            Personne.site_id.in_(site_ids),
         )
     )
     retenus: dict[int, tuple[Personne, Snapshot]] = {}

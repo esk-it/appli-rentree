@@ -27,6 +27,7 @@ from typing import Literal
 
 import openpyxl
 from sqlalchemy.orm import Session
+from backend.services.rattachement import ids_personnes_du_site
 
 from backend.models import Personne, Site, Snapshot
 
@@ -87,7 +88,12 @@ def _snapshots_par_personne(session, annee_id, site):
         .join(Personne, Snapshot.personne_id == Personne.id)
         .filter(
             Snapshot.annee_scolaire_id == annee_id,
-            Personne.site_id == site.id,
+            Personne.id.in_(
+                ids_personnes_du_site(
+                    session, site_id=site.id,
+                    annee_id=annee_id, type_personne="eleve",
+                )
+            ),
             Personne.type == "eleve",
         )
         .order_by(Snapshot.personne_id, Snapshot.date_ingestion.desc())

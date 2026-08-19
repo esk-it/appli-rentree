@@ -159,6 +159,86 @@ def test_ou_non_renseignee_bloque(
 def test_filtre_par_site(
     session, site_factory, annee_factory, personne_factory, snap_factory
 ):
+    """Le filtre porte sur le site de destination, celui de la classe visée."""
+    from backend.models import TableCorrespondance
+    from backend.services.bascule import planifier_bascule
+
+    ndk = site_factory("NDK")
+    su = site_factory("SU")
+    annee = annee_factory("2026-2027")
+    # Les codes classe sont uniques tous sites confondus — c'est déjà
+    # l'hypothèse de l'ingestion, qui mappe classe → site sur le seul code.
+    for s, code in ((ndk, "2_1"), (su, "31")):
+        session.add(
+            TableCorrespondance(
+                site_id=s.id, classe_charlemagne_long=f"C{code}", classe_code_court=code,
+                ou_pre_rentree=f"/{s.nom}/2026", ou_definitive=f"/{s.nom}/2026/{code}",
+            )
+        )
+    session.commit()
+    for i, (s, code) in enumerate(((ndk, "2_1"), (su, "31"))):
+        p = personne_factory(nom=f"N{i}", prenom="P", login=f"l{i}", site_id=s.id)
+        snap_factory(p.id, annee.id, nom=f"N{i}", classe=code)
+
+    tous = planifier_bascule(session, annee_id=annee.id, phase="definitive")
+    assert tous.nb_total == 2
+    assert tous.sites == ["NDK", "SU"]
+
+    un = planifier_bascule(session, annee_id=annee.id, phase="definitive", site_id=ndk.id)
+    assert un.nb_total == 1
+    assert un.sites == ["NDK"]
+    assert un.mouvements[0].classe == "2_1"
+
+
+def test_site_vient_de_la_classe_pas_de_la_personne(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    """Cas réel : une 3e de SU qui monte en 2nde à NDK.
+
+    `Personne.site_id` vaut encore SU (dernière année ingérée), mais la
+    classe visée `2_1` appartient à NDK. S'appuyer sur le champ de la
+    personne faisait échouer toute la cohorte avec « classe absente de la
+    Table » alors qu'elle y figurait.
+    """
+    from backend.models import TableCorrespondance
+    from backend.services.bascule import planifier_bascule
+
+    ndk = site_factory("NDK")
+    su = site_factory("SU")
+    annee = annee_factory("2026-2027")
+    session.add(
+        TableCorrespondance(
+            site_id=ndk.id, classe_charlemagne_long="SECONDE 1",
+            classe_code_court="2_1",
+            ou_pre_rentree="/3. NDK/NDK2026", ou_definitive="/3. NDK/NDK2026/2_1",
+        )
+    )
+    session.commit()
+
+    p = personne_factory(
+        nom="BERTEVAS", prenom="Zoé", login="zbertevas",
+        site_id=su.id, classe="36",  # état courant : encore au collège
+    )
+    snap_factory(p.id, annee.id, nom="BERTEVAS", prenom="Zoé", classe="2_1")
+
+    r = planifier_bascule(session, annee_id=annee.id, phase="definitive")
+    assert r.nb_bloques == 0
+    m = r.mouvements[0]
+    assert m.site == "NDK"  # site de destination, pas SU
+    assert m.ou_visee == "/3. NDK/NDK2026/2_1"
+    # Et elle apparaît bien sous le filtre NDK, pas sous SU
+    assert planifier_bascule(
+        session, annee_id=annee.id, phase="definitive", site_id=ndk.id
+    ).nb_total == 1
+    assert planifier_bascule(
+        session, annee_id=annee.id, phase="definitive", site_id=su.id
+    ).nb_total == 0
+
+
+def test_classe_declaree_pour_deux_sites_est_bloquee(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    """Garde-fou : sans unicité du code, on ne choisit pas au hasard."""
     from backend.models import TableCorrespondance
     from backend.services.bascule import planifier_bascule
 
@@ -173,17 +253,31 @@ def test_filtre_par_site(
             )
         )
     session.commit()
-    for i, s in enumerate((ndk, su)):
-        p = personne_factory(nom=f"N{i}", prenom="P", login=f"l{i}", site_id=s.id)
-        snap_factory(p.id, annee.id, classe="31")
+    p = personne_factory(nom="X", prenom="Y", login="xy", site_id=ndk.id)
+    snap_factory(p.id, annee.id, nom="X", classe="31")
 
-    tous = planifier_bascule(session, annee_id=annee.id, phase="definitive")
-    assert tous.nb_total == 2
-    assert tous.sites == ["NDK", "SU"]
+    r = planifier_bascule(session, annee_id=annee.id, phase="definitive")
+    assert r.nb_bloques == 1
+    assert "plusieurs sites" in r.mouvements[0].motif
+    assert "NDK" in r.mouvements[0].motif and "SU" in r.mouvements[0].motif
 
-    un = planifier_bascule(session, annee_id=annee.id, phase="definitive", site_id=ndk.id)
-    assert un.nb_total == 1
-    assert un.sites == ["NDK"]
+
+def test_bloquant_reste_visible_sous_un_filtre_de_site(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    """Un filtre ne doit jamais masquer un cas qui empêche la bascule."""
+    from backend.services.bascule import planifier_bascule
+
+    ndk = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    p = personne_factory(nom="X", prenom="Y", login="xy", site_id=ndk.id)
+    snap_factory(p.id, annee.id, nom="X", classe="4Z")  # hors table
+
+    r = planifier_bascule(
+        session, annee_id=annee.id, phase="definitive", site_id=ndk.id
+    )
+    assert r.nb_bloques == 1
+    assert r.est_applicable is False
 
 
 def test_adultes_exclus(session, contexte, personne_factory, snap_factory):

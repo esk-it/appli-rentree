@@ -38,6 +38,7 @@ import io
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
+from backend.services.rattachement import ids_personnes_du_site
 
 from backend.models import Personne, Site, Snapshot, TableCorrespondance
 
@@ -248,7 +249,12 @@ def _derniers_snapshots(
         .join(Personne, Snapshot.personne_id == Personne.id)
         .filter(
             Snapshot.annee_scolaire_id == annee_id,
-            Personne.site_id == site.id,
+            Personne.id.in_(
+                ids_personnes_du_site(
+                    session, site_id=site.id,
+                    annee_id=annee_id, type_personne=type_personne,
+                )
+            ),
             Personne.type == type_personne,
         )
         .order_by(Snapshot.personne_id, Snapshot.date_ingestion.desc())

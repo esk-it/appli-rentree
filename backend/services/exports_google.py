@@ -42,6 +42,7 @@ from datetime import date
 from typing import Literal
 
 from sqlalchemy.orm import Session
+from backend.services.rattachement import ids_personnes_du_site
 
 from backend.models import Personne, Site, Snapshot, TableCorrespondance
 
@@ -235,7 +236,12 @@ def _ids_personnes_annee(session: Session, annee_id: int, ctx: ContexteExport) -
         .join(Personne, Snapshot.personne_id == Personne.id)
         .filter(
             Snapshot.annee_scolaire_id == annee_id,
-            Personne.site_id == ctx.site.id,
+            Personne.id.in_(
+                ids_personnes_du_site(
+                    session, site_id=ctx.site.id,
+                    annee_id=annee_id, type_personne=ctx.type_personne,
+                )
+            ),
             Personne.type == ctx.type_personne,
         )
     )
@@ -250,7 +256,12 @@ def _snapshots_annee_par_personne(
         .join(Personne, Snapshot.personne_id == Personne.id)
         .filter(
             Snapshot.annee_scolaire_id == annee_id,
-            Personne.site_id == ctx.site.id,
+            Personne.id.in_(
+                ids_personnes_du_site(
+                    session, site_id=ctx.site.id,
+                    annee_id=annee_id, type_personne=ctx.type_personne,
+                )
+            ),
             Personne.type == ctx.type_personne,
         )
         .order_by(Snapshot.personne_id, Snapshot.date_ingestion.desc())
