@@ -97,7 +97,7 @@ app = FastAPI(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.47.0",
+    version="0.48.0",
     lifespan=lifespan,
 )
 

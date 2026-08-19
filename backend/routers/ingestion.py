@@ -51,6 +51,7 @@ class RapportOut(BaseModel):
     homonymes_intra_export: list[dict]
     collisions_login: list[dict]
     erreurs: list[str]
+    avertissements: list[str] = []
     est_bloquee: bool
 
 

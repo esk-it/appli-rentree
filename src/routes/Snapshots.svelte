@@ -287,6 +287,16 @@
         </div>
       {/if}
 
+      {#if rapport.avertissements?.length > 0}
+        <div class="rounded-lg border-l-4 border-amber-500 bg-amber-50 p-3 text-sm dark:bg-amber-900/20">
+          <ul class="space-y-1 text-amber-900 dark:text-amber-200">
+            {#each rapport.avertissements as a (a)}
+              <li>{a}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+
       {#if rapport.erreurs?.length > 0}
         <div class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm dark:border-red-800 dark:bg-red-900/20">
           <p class="font-medium text-red-900 dark:text-red-200">Erreurs</p>

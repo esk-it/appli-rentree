@@ -480,3 +480,92 @@ class TestCaptureEmailConstate:
         _ingerer_adultes(session, df, "2025-2026", "reel", _rapport_vide("adulte"))
         p = session.query(Personne).filter_by(type="adulte", id_charlemagne=60).one()
         assert p.email_constate == "julien.bars@lekreisker.fr"
+
+
+class TestOrdreDesIngestions:
+    """Réimporter une année ancienne ne doit pas faire reculer le référentiel.
+
+    C'est une manipulation nécessaire : pour détecter les sortants, il faut
+    réimporter l'année passée en incluant les élèves partis — donc après
+    l'année nouvelle.
+    """
+
+    def test_annee_ancienne_ne_reecrit_pas_la_classe(self, session, table_corr):
+        base = {"id_charlemagne": 5300, "nom": "MONTANT", "prenom": "Zoe"}
+        _ingerer_eleves(
+            session, _df_eleves({**base, "code_classe": "31"}),
+            "2026-2027", "reel", _rapport_vide(),
+        )
+        rapport = _rapport_vide()
+        _ingerer_eleves(
+            session, _df_eleves({**base, "code_classe": "61"}),
+            "2025-2026", "reel", rapport,
+        )
+
+        p = session.query(Personne).filter_by(type="eleve", id_charlemagne=5300).one()
+        assert p.classe == "31"  # la situation présente reste celle de 2026-2027
+        assert any("plus récente" in a for a in rapport.avertissements)
+
+    def test_le_snapshot_ancien_est_bien_cree(self, session, table_corr):
+        base = {"id_charlemagne": 5301, "nom": "MONTANT", "prenom": "Lou"}
+        _ingerer_eleves(
+            session, _df_eleves({**base, "code_classe": "31"}),
+            "2026-2027", "reel", _rapport_vide(),
+        )
+        _ingerer_eleves(
+            session, _df_eleves({**base, "code_classe": "61"}),
+            "2025-2026", "reel", _rapport_vide(),
+        )
+
+        p = session.query(Personne).filter_by(type="eleve", id_charlemagne=5301).one()
+        classes = {
+            s.annee_scolaire.libelle: s.classe
+            for s in session.query(Snapshot).filter_by(personne_id=p.id).all()
+        }
+        assert classes == {"2026-2027": "31", "2025-2026": "61"}
+
+    def test_annee_la_plus_recente_met_bien_a_jour(self, session, table_corr):
+        base = {"id_charlemagne": 5302, "nom": "MONTANT", "prenom": "Ana"}
+        _ingerer_eleves(
+            session, _df_eleves({**base, "code_classe": "61"}),
+            "2025-2026", "reel", _rapport_vide(),
+        )
+        rapport = _rapport_vide()
+        _ingerer_eleves(
+            session, _df_eleves({**base, "code_classe": "31"}),
+            "2026-2027", "reel", rapport,
+        )
+
+        p = session.query(Personne).filter_by(type="eleve", id_charlemagne=5302).one()
+        assert p.classe == "31"
+        assert rapport.avertissements == []
+
+    def test_sortant_reapparait_apres_reimport_avec_les_partis(
+        self, session, table_corr
+    ):
+        """Le scénario complet : la case « sortants » cochée sur l'année source."""
+        from backend.services.reconciliation import reconcilier
+
+        reste = {"id_charlemagne": 5303, "nom": "RESTE", "prenom": "Ana"}
+        parti = {"id_charlemagne": 5304, "nom": "TERMINALE", "prenom": "Luc"}
+
+        # L'année nouvelle : seul celui qui reste
+        _ingerer_eleves(
+            session, _df_eleves({**reste, "code_classe": "31"}),
+            "2026-2027", "reel", _rapport_vide(),
+        )
+        # L'année passée, réimportée avec les sortants
+        _ingerer_eleves(
+            session,
+            _df_eleves(
+                {**reste, "code_classe": "61"},
+                {**parti, "code_classe": "61"},
+            ),
+            "2025-2026", "reel", _rapport_vide(),
+        )
+
+        from backend.models import AnneeScolaire
+        ids = {a.libelle: a.id for a in session.query(AnneeScolaire).all()}
+        r = reconcilier(session, ids["2025-2026"], ids["2026-2027"], type_personne="eleve")
+        assert [e.nom for e in r.sortants] == ["TERMINALE"]
+        assert r.avertissements == []  # un vrai sortant : plus de garde-fou

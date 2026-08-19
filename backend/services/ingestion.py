@@ -108,6 +108,8 @@ class RapportIngestion:
     homonymes_intra_export: list[HomonymeDansExport] = field(default_factory=list)
     collisions_login: list[CollisionLoginIngestion] = field(default_factory=list)
     erreurs: list[str] = field(default_factory=list)
+    avertissements: list[str] = field(default_factory=list)
+    """Remarques sur le déroulement, sans empêcher l'ingestion."""
 
     est_bloquee: bool = False
     """True si l'ingestion s'est arrêtée avant commit à cause de classes
@@ -393,6 +395,14 @@ def _ingerer_eleves(
     # e-bis. Persiste les homonymies détectées comme Arbitrage en attente.
     _persister_arbitrages_homonymies(session, rapport, "eleve")
 
+    maj_etat_courant = _est_annee_la_plus_recente(session, annee)
+    if not maj_etat_courant:
+        rapport.avertissements.append(
+            f"{annee.libelle} n'est pas l'année la plus récente : les snapshots "
+            "sont créés, mais la situation courante des personnes (classe, site) "
+            "n'est pas réécrite."
+        )
+
     # f. Boucle d'ingestion
     for ligne in lignes:
         id_ch = _int(ligne.get("id_charlemagne"))
@@ -420,6 +430,7 @@ def _ingerer_eleves(
             site_id=site_id,
             annee=annee,
             rapport=rapport,
+            maj_etat_courant=maj_etat_courant,
         )
 
     # g. Commit ou rollback selon le mode
@@ -442,6 +453,7 @@ def _traiter_ligne_eleve(
     site_id: int | None,
     annee: AnneeScolaire,
     rapport: RapportIngestion,
+    maj_etat_courant: bool = True,
 ) -> None:
     """Traite une ligne d'export élève : Personne + Snapshot."""
     personne = (
@@ -500,7 +512,10 @@ def _traiter_ligne_eleve(
         rapport.nb_personnes_creees += 1
     else:
         # Mise à jour de l'état courant — le login est FIGÉ, on ne touche pas
-        _maj_champs_courants_eleve(personne, ligne, code_classe, site_id)
+        # Une ingestion d'année ancienne crée bien son snapshot, mais ne
+        # réécrit pas la situation présente de la personne.
+        if maj_etat_courant:
+            _maj_champs_courants_eleve(personne, ligne, code_classe, site_id)
         rapport.nb_personnes_mises_a_jour += 1
 
     # Adresse du compte existant — posée aussi sur une personne déjà connue,
@@ -547,20 +562,33 @@ def _peut_etre_creer_snapshot(
     type_personne: str,
     rapport: RapportIngestion,
 ) -> None:
-    """Crée un Snapshot si les valeurs constatées diffèrent du dernier snapshot."""
+    """Crée un Snapshot si les valeurs constatées diffèrent du dernier snapshot.
+
+    Les valeurs viennent de la **ligne**, pas de l'état courant de la
+    personne. Ces deux sources coïncidaient tant que la personne était
+    systématiquement mise à jour depuis la même ligne juste avant — ce qui
+    n'est plus le cas en ingérant une année ancienne. Un snapshot décrit ce
+    que disait *ce fichier-là* : le lire ailleurs le rendrait faux.
+
+    Le repli sur la personne ne sert qu'aux colonnes absentes du format.
+    """
     champs_snapshot = {
         "nom": _s(ligne.get("nom")) or personne.nom,
         "prenom": _s(ligne.get("prenom")) or personne.prenom,
         "nom_usage": _s(ligne.get("nom_usage")),
-        "classe": personne.classe,
+        "classe": _s(ligne.get("code_classe")) or personne.classe,
         "niveau": _s(ligne.get("code_niveau")),
-        "code_etablissement": personne.code_etablissement,
-        "regime": personne.regime,
-        "chemin_photo": personne.chemin_photo_constate,
-        "date_entree": personne.date_entree,
-        "poste_occupe": personne.poste_occupe,
-        "matieres": personne.matieres,
-        "classes_prof_principal": personne.classes_prof_principal,
+        "code_etablissement": (
+            _s(ligne.get("code_etablissement")) or personne.code_etablissement
+        ),
+        "regime": _s(ligne.get("code_regime")) or personne.regime,
+        "chemin_photo": _s(ligne.get("photo_chemin")) or personne.chemin_photo_constate,
+        "date_entree": _date(ligne.get("date_entree")) or personne.date_entree,
+        "poste_occupe": _s(ligne.get("poste_occupe")) or personne.poste_occupe,
+        "matieres": _s(ligne.get("matieres")) or personne.matieres,
+        "classes_prof_principal": (
+            _s(ligne.get("classes_prof_principal")) or personne.classes_prof_principal
+        ),
         "classe_precedente": _s(ligne.get("code_classe_precedente")),
         "classe_an_prochain": _s(ligne.get("code_classe_an_prochain")),
     }
@@ -622,6 +650,13 @@ def _ingerer_adultes(
 
     _persister_arbitrages_homonymies(session, rapport, "adulte")
 
+    maj_etat_courant = _est_annee_la_plus_recente(session, annee)
+    if not maj_etat_courant:
+        rapport.avertissements.append(
+            f"{annee.libelle} n'est pas l'année la plus récente : les snapshots "
+            "sont créés, mais la situation courante des personnes n'est pas réécrite."
+        )
+
     for ligne in lignes:
         id_ch = _int(ligne.get("id_charlemagne"))
         nom = _s(ligne.get("nom"))
@@ -637,6 +672,7 @@ def _ingerer_adultes(
             prenom=prenom,
             annee=annee,
             rapport=rapport,
+            maj_etat_courant=maj_etat_courant,
         )
 
     if mode == "reel":
@@ -655,6 +691,7 @@ def _traiter_ligne_adulte(
     prenom: str,
     annee: AnneeScolaire,
     rapport: RapportIngestion,
+    maj_etat_courant: bool = True,
 ) -> None:
     personne = (
         session.query(Personne)
@@ -710,7 +747,8 @@ def _traiter_ligne_adulte(
         session.flush()
         rapport.nb_personnes_creees += 1
     else:
-        _maj_champs_courants_adulte(personne, ligne)
+        if maj_etat_courant:
+            _maj_champs_courants_adulte(personne, ligne)
         rapport.nb_personnes_mises_a_jour += 1
 
     _capturer_email_constate(session, personne, ligne, ("email", "email_professionnel"))
@@ -746,6 +784,25 @@ def _maj_champs_courants_adulte(personne: Personne, ligne: dict) -> None:
 # ---------------------------------------------------------------------------
 # Utilitaires
 # ---------------------------------------------------------------------------
+
+
+def _est_annee_la_plus_recente(session: Session, annee: AnneeScolaire) -> bool:
+    """L'année ingérée est-elle la plus récente que l'on connaisse ?
+
+    Les champs d'état courant de `Personne` (classe, site, régime…) décrivent
+    la situation d'aujourd'hui. Les laisser écraser par n'importe quelle
+    ingestion les rend dépendants de l'**ordre** des imports : réingérer
+    2025-2026 après 2026-2027 ferait redescendre tout le monde d'une classe.
+
+    Le cas est concret : pour détecter les sortants, il faut réimporter
+    l'année passée avec les élèves partis — donc forcément après l'année
+    nouvelle. Sans ce garde-fou, cette manipulation nécessaire abîmerait le
+    référentiel.
+
+    Comparaison sur le libellé `AAAA-AAAA`, qui s'ordonne alphabétiquement.
+    """
+    libelles = [a.libelle for a in session.query(AnneeScolaire).all()]
+    return not libelles or annee.libelle >= max(libelles)
 
 
 def _resoudre_annee(session: Session, libelle: str) -> AnneeScolaire:
