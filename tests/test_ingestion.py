@@ -623,3 +623,43 @@ class TestExportAvecSortants:
         r = reconcilier(session, ids["2025-2026"], ids["2026-2027"], type_personne="eleve")
         assert r.sortants == []
         assert [e.nom for e in r.modifies] == ["RESTE"]
+
+    def test_le_parti_avant_est_mis_en_quarantaine(self, session, table_corr, site_factory):
+        """Son compte Google existe encore : son échéance doit être suivie."""
+        from datetime import date
+
+        from backend.models import CompteCible, Personne as P
+        from backend.services.suivi import QUARANTAINE_GOOGLE
+
+        site = session.query(__import__("backend.models", fromlist=["Site"]).Site).first()
+        session.add(P(type="eleve", id_charlemagne=5410, badge=64100,
+                      login="lpartiavant", nom="PARTI AVANT", prenom="Luc",
+                      site_id=site.id))
+        session.commit()
+
+        rapport = _rapport_vide()
+        _ingerer_eleves(
+            session,
+            _df_eleves({"id_charlemagne": 5410, "nom": "PARTI AVANT", "prenom": "Luc",
+                        "code_classe": None, "code_classe_precedente": "T_G1A"}),
+            "2025-2026", "reel", rapport,
+        )
+
+        assert rapport.nb_sorties_anterieures == 1
+        c = session.query(CompteCible).filter_by(cible="google").one()
+        assert c.etat == "quarantaine"
+        # Départ fin 2024-2025, pas aujourd'hui
+        assert c.date_prevue_purge == date(2025, 8, 31) + QUARANTAINE_GOOGLE
+
+    def test_simulation_ne_met_personne_en_quarantaine(self, session, table_corr):
+        from backend.models import CompteCible
+
+        rapport = _rapport_vide()
+        _ingerer_eleves(
+            session,
+            _df_eleves({"id_charlemagne": 5411, "nom": "PARTI", "prenom": "Luc",
+                        "code_classe": None, "code_classe_precedente": "T_G1A"}),
+            "2025-2026", "simulation", rapport,
+        )
+        assert rapport.nb_sorties_anterieures == 0
+        assert session.query(CompteCible).count() == 0

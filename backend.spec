@@ -41,6 +41,22 @@ a = Analysis(
         # SQLAlchemy (certains dialectes sont chargés dynamiquement)
         "sqlalchemy.dialects.sqlite",
         "sqlalchemy.sql.default_comparator",
+        # Google Workspace API — la découverte de service et les modules
+        # crypto sont chargés dynamiquement, PyInstaller ne les voit pas.
+        "googleapiclient",
+        "googleapiclient.discovery",
+        "googleapiclient.http",
+        "googleapiclient.model",
+        "googleapiclient.discovery_cache",
+        "googleapiclient.discovery_cache.base",
+        "google.auth",
+        "google.auth.transport.requests",
+        "google.oauth2",
+        "google.oauth2.service_account",
+        "google_auth_httplib2",
+        "httplib2",
+        "pyasn1_modules",
+        "pyasn1_modules.rfc2459",
     ],
     hookspath=[],
     hooksconfig={},
@@ -58,6 +74,26 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
+
+# googleapiclient embarque les fiches de découverte de TOUTES les API Google :
+# 586 fichiers pour 102 Mo, soit plus que tout le reste de l'application. On
+# n'appelle que l'Admin SDK Directory. Les garder doublerait le poids de
+# l'exécutable, donc le temps de téléchargement de chaque mise à jour.
+_FICHES_UTILES = {"admin.directory_v1.json", "admin.directoryv1.json"}
+
+
+def _sans_fiches_inutiles(datas):
+    gardees = []
+    for entree in datas:
+        chemin = entree[0].replace("\\", "/")
+        if "discovery_cache/documents/" in chemin:
+            if chemin.rsplit("/", 1)[-1] not in _FICHES_UTILES:
+                continue
+        gardees.append(entree)
+    return gardees
+
+
+a.datas = _sans_fiches_inutiles(a.datas)
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

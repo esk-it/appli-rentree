@@ -18,17 +18,17 @@ aiosqlite>=0.20
 unidecode>=1.3
 python-dotenv>=1.0
 
-# Google Workspace API — OPTIONNEL
+# Google Workspace API
 #
-# Volontairement non installé pour l'instant : ajouter ces paquets impose de
-# les bundler dans PyInstaller (hidden imports, poids, risque de casser le
-# build). Le code détecte leur absence et désactive proprement le mode API —
-# le mode fichier CSV, qui est le mode nominal, reste entièrement fonctionnel.
+# Le mode fichier CSV reste le mode nominal et le secours : si Google refuse
+# un compte, on ne veut pas être bloqué. Le code teste la présence de ces
+# paquets et désactive proprement le mode API s'ils manquent.
 #
-# À décommenter le jour où le mode API sera réellement utilisé, en vérifiant
-# le build packagé dans la foulée :
-# google-api-python-client>=2.100
-# google-auth>=2.23
+# Bundlés via les hiddenimports de backend.spec — la découverte de service
+# et les modules crypto sont chargés dynamiquement, PyInstaller ne les voit
+# pas tout seul.
+google-api-python-client>=2.100
+google-auth>=2.23
 
 # Tests
 pytest>=8.3

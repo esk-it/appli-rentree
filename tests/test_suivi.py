@@ -122,3 +122,55 @@ def test_lister_etat_invalide(session):
     from backend.services.suivi import lister_par_etat
     with pytest.raises(ValueError, match="etat"):
         lister_par_etat(session, "n_importe_quoi")
+
+
+# ---------------------------------------------------------------------------
+# Rattrapage des sorties antérieures
+# ---------------------------------------------------------------------------
+
+
+def test_sortie_anterieure_date_depuis_lannee_de_depart(
+    session, site_factory, personne_factory
+):
+    """L'échéance court depuis la fin de scolarité, pas depuis aujourd'hui.
+
+    Sinon rattraper un départ de 2025 lui offrirait 18 mois de plus à
+    compter de maintenant — et son compte survivrait deux ans de trop.
+    """
+    from datetime import date
+
+    from backend.models import CompteCible
+    from backend.services.suivi import QUARANTAINE_GOOGLE, enregistrer_sortie_anterieure
+
+    site = site_factory("NDK")
+    p = personne_factory(nom="PARTI", prenom="Luc", login="lparti", site_id=site.id)
+
+    assert enregistrer_sortie_anterieure(session, p.id, 2025) is True
+    c = session.query(CompteCible).filter_by(personne_id=p.id, cible="google").one()
+    assert c.etat == "quarantaine"
+    assert c.date_prevue_purge == date(2025, 8, 31) + QUARANTAINE_GOOGLE
+    assert "2024-2025" in c.note
+
+
+def test_sortie_anterieure_ne_retouche_pas_une_quarantaine(
+    session, site_factory, personne_factory
+):
+    from backend.services.suivi import enregistrer_sortie_anterieure
+
+    site = site_factory("NDK")
+    p = personne_factory(nom="PARTI", prenom="Luc", login="lparti", site_id=site.id)
+    enregistrer_sortie_anterieure(session, p.id, 2025)
+    echeance = (
+        session.query(__import__("backend.models", fromlist=["CompteCible"]).CompteCible)
+        .filter_by(personne_id=p.id)
+        .one()
+        .date_prevue_purge
+    )
+
+    assert enregistrer_sortie_anterieure(session, p.id, 2026) is False
+    from backend.models import CompteCible
+
+    assert (
+        session.query(CompteCible).filter_by(personne_id=p.id).one().date_prevue_purge
+        == echeance
+    )

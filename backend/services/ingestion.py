@@ -100,6 +100,10 @@ class RapportIngestion:
     année-là. Typiquement des sortants d'une année antérieure, remontés par
     l'option « inclure les sortants » de Charlemagne."""
 
+    nb_sorties_anterieures: int = 0
+    """Parmi eux, ceux dont le compte Google a été placé en quarantaine avec
+    l'échéance calculée depuis leur dernière année de scolarité."""
+
     nb_personnes_creees: int = 0
     nb_personnes_mises_a_jour: int = 0
     nb_snapshots_crees: int = 0
@@ -413,7 +417,8 @@ def _ingerer_eleves(
             f"{nb_sans_classe} ligne(s) sans classe pour {annee.libelle} : ces "
             "personnes n'étaient pas inscrites cette année-là — sorties "
             "précédemment, elles ne figurent dans l'export que parce qu'il "
-            "inclut les sortants. Elles sont écartées."
+            "inclut les sortants. Elles sont écartées de l'année, mais leur "
+            "compte Google est mis en quarantaine avec son échéance réelle."
         )
 
     # f. Boucle d'ingestion
@@ -436,6 +441,13 @@ def _ingerer_eleves(
         # sortants de cette rentrée-ci alors qu'ils sont partis avant.
         if not code_classe:
             rapport.nb_lignes_sans_classe += 1
+            # Leur compte Google existe pourtant encore : la politique est de
+            # le conserver 18 mois. On le place en quarantaine avec l'échéance
+            # calculée depuis leur dernière année, faute de quoi personne ne
+            # verrait passer la date de suppression.
+            if mode == "reel" and _s(ligne.get("code_classe_precedente")):
+                if _rattraper_sortie_anterieure(session, id_ch, annee, rapport):
+                    rapport.nb_sorties_anterieures += 1
             continue
 
         # Résolution site — si classe inconnue, on saute la personne
@@ -809,6 +821,37 @@ def _maj_champs_courants_adulte(personne: Personne, ligne: dict) -> None:
 # ---------------------------------------------------------------------------
 # Utilitaires
 # ---------------------------------------------------------------------------
+
+
+def _rattraper_sortie_anterieure(
+    session: Session, id_ch: int, annee: AnneeScolaire, rapport: RapportIngestion
+) -> bool:
+    """Met en quarantaine le compte d'un élève parti avant l'année exportée.
+
+    Sans classe pour l'année N mais avec une classe précédente, l'élève a
+    quitté l'établissement à la fin de N-1 : c'est de cette année-là que
+    court sa quarantaine.
+    """
+    from backend.services.suivi import enregistrer_sortie_anterieure
+
+    personne = (
+        session.query(Personne)
+        .filter_by(type="eleve", id_charlemagne=id_ch)
+        .one_or_none()
+    )
+    # Inconnu au référentiel : aucun compte à suivre, rien à rattraper.
+    if personne is None:
+        return False
+
+    try:
+        annee_fin = int(annee.libelle.split("-")[0])
+    except (ValueError, IndexError):
+        return False
+    try:
+        return enregistrer_sortie_anterieure(session, personne.id, annee_fin)
+    except Exception as e:  # pragma: no cover — ne doit jamais casser l'ingestion
+        rapport.avertissements.append(f"Rattrapage impossible pour {id_ch} : {e}")
+        return False
 
 
 def _est_annee_la_plus_recente(session: Session, annee: AnneeScolaire) -> bool:

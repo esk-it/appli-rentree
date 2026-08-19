@@ -71,6 +71,47 @@ def marquer_sortant(
     )
 
 
+def enregistrer_sortie_anterieure(
+    session: Session, personne_id: int, annee_fin: int
+) -> bool:
+    """Place en quarantaine un compte parti lors d'une année antérieure.
+
+    Sert au rattrapage : un export « avec les sortants » remonte aussi les
+    élèves partis les années d'avant. Leur compte Google existe encore — la
+    politique est de le garder 18 mois, le temps d'une éventuelle demande de
+    réactivation — mais rien ne le suivait, donc son échéance passait
+    inaperçue.
+
+    L'échéance se calcule depuis la **fin de la dernière année scolaire
+    fréquentée** (31 août), et non depuis aujourd'hui : sans cela, rattraper
+    un départ de 2025 lui donnerait 18 mois de plus à partir de maintenant.
+    L'export ne portant pas de date de sortie précise, c'est l'approximation
+    la plus fidèle disponible.
+
+    Un compte déjà en quarantaine ou purgé n'est pas retouché.
+
+    Returns:
+        True si une transition a eu lieu.
+    """
+    compte = (
+        session.query(CompteCible)
+        .filter_by(personne_id=personne_id, cible="google")
+        .one_or_none()
+    )
+    if compte is not None and compte.etat in ("quarantaine", "purge"):
+        return False
+
+    depart = date(annee_fin, 8, 31)
+    if compte is None:
+        compte = CompteCible(personne_id=personne_id, cible="google")
+        session.add(compte)
+    compte.etat = "quarantaine"
+    compte.date_prevue_purge = depart + QUARANTAINE_GOOGLE
+    compte.note = f"Sortie constatée en fin d'année scolaire {annee_fin - 1}-{annee_fin}"
+    session.flush()
+    return True
+
+
 def comptes_a_purger(session: Session, *, aujourd_hui: date | None = None) -> list[CompteCible]:
     """Retourne les comptes en quarantaine dont la date de purge est échue."""
     today = aujourd_hui or date.today()
