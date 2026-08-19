@@ -225,9 +225,10 @@ def test_plan_exclut_les_nouveaux_sans_mot_de_passe(
     assert any("mot de passe" in a for a in plan.avertissements)
 
 
-def test_plan_deplacement_si_classe_change(
+def test_plan_suit_les_deux_phases(
     session, site_factory, annee_factory, personne_factory, snap_factory, tc_factory
 ):
+    """L'API vise la même OU que le CSV, phase par phase."""
     from backend.services.google_api import construire_plan
 
     site = site_factory("NDK")
@@ -240,19 +241,28 @@ def test_plan_deplacement_si_classe_change(
     snap_factory(p.id, an_prec.id, classe="3B")
     snap_factory(p.id, an_cour.id, classe="2NDE1")
 
-    plan = construire_plan(
-        session, site_id=site.id, type_personne="eleve",
+    commun = dict(
+        site_id=site.id, type_personne="eleve",
         annee_cible_id=an_cour.id, annee_source_id=an_prec.id,
     )
 
-    assert plan.nb_deplacements == 1
-    assert plan.operations[0].payload["orgUnitPath"] == "/3. NDK/NDK2026/2NDE1"
+    pre = construire_plan(session, phase="pre_rentree", **commun)
+    assert pre.nb_deplacements == 1
+    assert pre.operations[0].payload["orgUnitPath"] == "/3. NDK/NDK2026"
+
+    definitive = construire_plan(session, phase="definitive", **commun)
+    assert definitive.nb_deplacements == 1
+    assert definitive.operations[0].payload["orgUnitPath"] == "/3. NDK/NDK2026/2NDE1"
 
 
-def test_plan_ignore_les_modifs_hors_classe(
+def test_plan_deplace_aussi_qui_ne_change_pas_de_classe(
     session, site_factory, annee_factory, personne_factory, snap_factory, tc_factory
 ):
-    """Un changement de régime ne justifie pas un déplacement d'OU."""
+    """Le pilote est l'OU visée, pas le changement de classe.
+
+    Un élève qui redouble reste en 3B, mais il est encore dans l'OU de
+    l'an dernier : il doit rejoindre l'OU d'attente comme les autres.
+    """
     from backend.services.google_api import construire_plan
 
     site = site_factory("NDK")
@@ -267,8 +277,93 @@ def test_plan_ignore_les_modifs_hors_classe(
     plan = construire_plan(
         session, site_id=site.id, type_personne="eleve",
         annee_cible_id=an_cour.id, annee_source_id=an_prec.id,
+        phase="pre_rentree",
+    )
+    assert plan.nb_deplacements == 1
+
+
+def test_plan_ne_redeplace_pas_ce_qui_est_en_place(
+    session, site_factory, annee_factory, personne_factory, snap_factory, tc_factory
+):
+    """Une fois l'OU enregistrée, l'API ne la repropose plus."""
+    from backend.services.bascule import enregistrer_bascule, planifier_bascule
+    from backend.services.google_api import construire_plan
+
+    site = site_factory("NDK")
+    an_prec = annee_factory("2024-2025")
+    an_cour = annee_factory("2025-2026")
+    tc_factory(site.id, "3B")
+
+    p = personne_factory(site_id=site.id, login="mod")
+    snap_factory(p.id, an_prec.id, classe="3B")
+    snap_factory(p.id, an_cour.id, classe="3B")
+
+    r = planifier_bascule(session, annee_id=an_cour.id, phase="pre_rentree")
+    enregistrer_bascule(session, r, mode="reel")
+
+    plan = construire_plan(
+        session, site_id=site.id, type_personne="eleve",
+        annee_cible_id=an_cour.id, annee_source_id=an_prec.id,
+        phase="pre_rentree",
     )
     assert plan.nb_deplacements == 0
+
+
+def test_plan_bloque_si_classe_hors_table(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    """Même règle que le CSV : pas de bascule à moitié."""
+    from backend.services.google_api import construire_plan
+
+    site = site_factory("NDK")
+    an_prec = annee_factory("2024-2025")
+    an_cour = annee_factory("2025-2026")
+    p = personne_factory(site_id=site.id, login="mod")
+    snap_factory(p.id, an_prec.id, classe="4Z")
+    snap_factory(p.id, an_cour.id, classe="4Z")
+
+    plan = construire_plan(
+        session, site_id=site.id, type_personne="eleve",
+        annee_cible_id=an_cour.id, annee_source_id=an_prec.id,
+    )
+    assert plan.nb_bloques == 1
+    assert plan.est_executable is False
+    assert any("4Z" in a for a in plan.avertissements)
+
+
+def test_plan_phase_invalide(
+    session, site_factory, annee_factory
+):
+    import pytest as _pytest
+
+    from backend.services.google_api import construire_plan
+
+    site = site_factory("NDK")
+    an_prec = annee_factory("2024-2025")
+    an_cour = annee_factory("2025-2026")
+    with _pytest.raises(ValueError, match="phase invalide"):
+        construire_plan(
+            session, site_id=site.id, type_personne="eleve",
+            annee_cible_id=an_cour.id, annee_source_id=an_prec.id,
+            phase="plus_tard",
+        )
+
+
+def test_enregistrer_ou_appliquees_cree_le_compte(
+    session, site_factory, personne_factory
+):
+    """Le pendant API de la confirmation manuelle du canal CSV."""
+    from backend.models import CompteCible
+    from backend.services.google_api import enregistrer_ou_appliquees
+
+    site = site_factory("NDK")
+    p = personne_factory(site_id=site.id, login="mod")
+
+    n = enregistrer_ou_appliquees(session, [(p.id, "/3. NDK/NDK2026")])
+    assert n == 1
+    c = session.query(CompteCible).filter_by(cible="google").one()
+    assert c.ou_appliquee == "/3. NDK/NDK2026"
+    assert c.etat == "actif"
 
 
 def test_plan_sortant_suspend_sans_supprimer(

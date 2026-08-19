@@ -157,6 +157,19 @@
           Complète la table, puis reviens.
         </p>
 
+        <h3>Par CSV ou par API</h3>
+        <p>
+          Les deux canaux suivent les mêmes phases et <strong>partagent le même
+          calcul</strong> : le plan API délègue ses déplacements à ce service.
+          Ils ne peuvent donc pas diverger. Un sélecteur de phase identique
+          figure dans l'onglet Exports, section API Google.
+        </p>
+        <p>
+          Différence : par API, l'appel a répondu, donc l'OU appliquée est
+          mémorisée automatiquement. Par CSV, le programme n'a pas vu ton
+          import — d'où le bouton « J'ai importé ».
+        </p>
+
         <h3>Et les adultes ?</h3>
         <p>
           Hors périmètre : leur OU ne se déduit pas d'une classe. La Table de
@@ -312,6 +325,35 @@
         <p>
           Une échéance déjà posée n'est jamais repoussée — rejouer l'opération
           ne prolonge pas la quarantaine.
+        </p>
+
+        <h3>L'OU d'archivage Google</h3>
+        <p>
+          Un sortant est <strong>suspendu puis déplacé</strong> dans une OU
+          datée, dont le nom porte l'échéance de suppression :
+        </p>
+        <pre><code>/7. Sortis/Comptes à supprimer au 31-12-2027</code></pre>
+        <p>
+          Convention reprise du fichier de ton prédécesseur, et elle est
+          maligne : le ménage annuel devient lisible depuis la console Google
+          seule, sans avoir à consulter le référentiel. L'échéance est arrondie
+          au 31 décembre, ce qui donne un dossier par campagne plutôt qu'un par
+          jour de départ. La racine <code>/7. Sortis</code> se change dans
+          Paramètres (<code>google.ou_sortants</code>).
+        </p>
+        <p>Deux canaux, même résultat :</p>
+        <ul>
+          <li><strong>CSV</strong> — onglet Exports, catégorie
+            <em>Anciens</em> : tous les sortants pointent vers l'OU
+            d'archivage, quelle que soit leur classe d'origine.</li>
+          <li><strong>API</strong> — l'opération <em>suspendre</em> fait les
+            deux d'un coup : passage en suspendu et déplacement.</li>
+        </ul>
+        <p>
+          La suppression réelle, elle, reste manuelle. Quand l'échéance tombe,
+          une anomalie apparaît sur le tableau de bord et l'écran Suivi propose
+          d'enregistrer la purge — après que <em>tu</em> l'aies faite dans la
+          console. Le programme ne supprime jamais rien lui-même.
         </p>
 
       {:else if sectionActive === "securite"}

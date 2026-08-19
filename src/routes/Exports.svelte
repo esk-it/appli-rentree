@@ -31,6 +31,8 @@
   let siteId = $state(/** @type {null | number} */ (null));
   let typePersonne = $state(/** @type {"eleve"|"adulte"} */ ("eleve"));
   let categorie = $state(/** @type {"tous"|"nouveaux"|"anciens"} */ ("tous"));
+  // Phase visée par le plan API — même découpage que l'onglet Bascule des OU.
+  let phaseApi = $state(/** @type {"pre_rentree"|"definitive"} */ ("pre_rentree"));
   let anneeCibleId = $state(/** @type {null | number} */ (null));
   let anneeSourceId = $state(/** @type {null | number} */ (null));
 
@@ -81,8 +83,15 @@
         siteId, typePersonne,
         anneeCibleId, anneeSourceId,
         csvKoxoBase64: await csvKoxoEnBase64(),
+        phase: phaseApi,
       });
-      notify.info(`${planApi.nb_total} opération(s) planifiée(s) — rien n'a été envoyé`);
+      if (!planApi.est_executable) {
+        notify.avertissement(
+          `${planApi.nb_bloques} élève(s) sans OU calculable — complète la Table de correspondance`,
+        );
+      } else {
+        notify.info(`${planApi.nb_total} opération(s) planifiée(s) — rien n'a été envoyé`);
+      }
     } catch (e) {
       notify.erreur(String(e));
     } finally {
@@ -98,6 +107,7 @@
         siteId, typePersonne,
         anneeCibleId, anneeSourceId,
         csvKoxoBase64: await csvKoxoEnBase64(),
+        phase: phaseApi,
       });
       if (r.tout_reussi) {
         notify.succes(`${r.nb_reussies} opération(s) appliquée(s) sur Google`);
@@ -479,12 +489,30 @@
           {/if}
         </div>
       {:else}
+        <div class="mb-3">
+          <span class="libelle-champ">Phase de rentrée</span>
+          <Segments
+            bind:valeur={phaseApi}
+            taille="sm"
+            options={[
+              { id: "pre_rentree", label: "1. Pré-rentrée" },
+              { id: "definitive", label: "2. Rentrée" },
+            ]}
+            onChange={() => (planApi = null)}
+          />
+          <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
+            Même découpage que l'onglet <strong>Bascule des OU</strong> : les
+            déplacements sont calculés par le même service, les deux canaux ne
+            peuvent pas diverger.
+          </p>
+        </div>
+
         <div class="flex flex-wrap gap-2">
           <button class="btn-secondary" onclick={calculerPlanApi} disabled={apiEnCours}>
             <Cloud class="h-4 w-4" />
             Calculer le plan
           </button>
-          {#if planApi && planApi.nb_total > 0}
+          {#if planApi && planApi.nb_total > 0 && planApi.est_executable}
             <button class="btn-primary" onclick={executerPlanApi} disabled={apiEnCours}>
               Appliquer les {planApi.nb_total} opération(s)
             </button>
@@ -501,6 +529,13 @@
               Aucun compte n'est jamais supprimé — un sortant est suspendu et
               déplacé en OU d'archivage.
             </p>
+            {#if !planApi.est_executable}
+              <p class="mt-2 rounded bg-red-50 px-2 py-1.5 text-xs text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                {planApi.nb_bloques} élève(s) sans OU calculable — exécution
+                refusée. Complète la Table de correspondance : le programme
+                n'attribue jamais d'OU par défaut.
+              </p>
+            {/if}
             {#if planApi.avertissements.length > 0}
               <ul class="mt-2 space-y-0.5 text-xs text-amber-700 dark:text-amber-400">
                 {#each planApi.avertissements.slice(0, 10) as a}

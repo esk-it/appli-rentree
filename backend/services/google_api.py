@@ -205,6 +205,12 @@ class OperationGoogle:
     libelle: str
     """Description lisible, affichable avant confirmation."""
 
+    personne_id: int | None = None
+    """Permet de reporter l'OU appliquée après exécution réussie."""
+
+    ou_visee: str | None = None
+    """OU que l'opération place — mémorisée en cas de succès."""
+
 
 @dataclass
 class PlanGoogle:
@@ -229,6 +235,54 @@ class PlanGoogle:
     def nb_total(self) -> int:
         return len(self.operations)
 
+    phase: str = "pre_rentree"
+    """Phase de rentrée visée par les déplacements de ce plan."""
+
+    nb_bloques: int = 0
+    """Élèves sans OU calculable — le plan n'est pas exécutable tant qu'il
+    en reste. Même règle que la bascule par CSV : pas de moitié."""
+
+    @property
+    def est_executable(self) -> bool:
+        return self.nb_bloques == 0
+
+
+def enregistrer_ou_appliquees(
+    session: Session, mouvements: list[tuple[int, str]]
+) -> int:
+    """Mémorise les OU réellement appliquées via l'API.
+
+    Pendant API de `bascule.enregistrer_bascule` : là où le canal CSV
+    demande une confirmation manuelle (le programme n'a pas vu l'import),
+    ici l'appel a répondu — on sait qu'il a abouti.
+
+    Returns:
+        Nombre de comptes mis à jour.
+    """
+    from backend.models import CompteCible
+
+    if not mouvements:
+        return 0
+
+    ids = [pid for pid, _ in mouvements]
+    comptes = {
+        c.personne_id: c
+        for c in session.query(CompteCible)
+        .filter(CompteCible.cible == "google", CompteCible.personne_id.in_(ids))
+        .all()
+    }
+    for personne_id, ou in mouvements:
+        compte = comptes.get(personne_id)
+        if compte is None:
+            compte = CompteCible(
+                personne_id=personne_id, cible="google", etat="actif"
+            )
+            session.add(compte)
+            comptes[personne_id] = compte
+        compte.ou_appliquee = ou
+    session.commit()
+    return len(mouvements)
+
 
 def construire_plan(
     session: Session,
@@ -238,6 +292,7 @@ def construire_plan(
     annee_cible_id: int,
     annee_source_id: int,
     mots_de_passe: dict[str, str] | None = None,
+    phase: str = "pre_rentree",
 ) -> PlanGoogle:
     """Calcule les opérations Google à partir de la réconciliation.
 
@@ -250,17 +305,25 @@ def construire_plan(
             Un nouveau compte sans mot de passe disponible est signalé en
             avertissement et **exclu du plan** — créer un compte sans mot
             de passe défini n'aurait pas de sens.
+        phase: `pre_rentree` (tout le monde dans l'OU d'attente du site) ou
+            `definitive` (chacun dans l'OU de sa classe). Les déplacements
+            sont calculés par `services.bascule`, le même que le canal CSV.
     """
     from backend.models import Personne, Site
+    from backend.services.bascule import PHASES
     from backend.services.exports_google import calculer_ou_sortants
     from backend.services.reconciliation import reconcilier
+
+    if phase not in PHASES:
+        raise ValueError(f"phase invalide : {phase!r}")
 
     site = session.query(Site).filter_by(id=site_id).one_or_none()
     if site is None:
         raise ValueError(f"Site introuvable : {site_id}")
 
-    plan = PlanGoogle()
+    plan = PlanGoogle(phase=phase)
     mots_de_passe = mots_de_passe or {}
+    emails_crees: set[str] = set()
 
     from backend.models import TableCorrespondance
 
@@ -287,8 +350,10 @@ def construire_plan(
             )
             continue
 
+        # Un compte créé pendant la pré-rentrée atterrit dans l'OU d'attente ;
+        # créé le jour de la rentrée, directement dans celle de sa classe.
         ous = ou_par_classe.get(entree.classe_cible or "")
-        ou = ous[0] if ous else site.prefixe_racine_ou()
+        ou = (ous[0] if phase == "pre_rentree" else ous[1]) if ous else site.prefixe_racine_ou()
         if ous is None and type_personne == "eleve":
             plan.avertissements.append(
                 f"{entree.cle_pivot} {entree.nom} : classe "
@@ -317,31 +382,38 @@ def construire_plan(
                     type_personne=type_personne,
                 ),
                 libelle=f"Créer {p.email} dans {ou}",
+                personne_id=p.id,
+                ou_visee=ou,
             )
         )
+        emails_crees.add(p.email)
 
-    # Déplacements — uniquement si la classe a réellement changé
-    for entree in rapport.modifies:
-        if entree.site_id != site.id:
+    # Déplacements — délégués au service de bascule, pour que les deux
+    # canaux (CSV et API) disent exactement la même chose. Les calculer
+    # séparément ici les ferait diverger à la première évolution.
+    from backend.services.bascule import planifier_bascule
+
+    bascule = planifier_bascule(
+        session, annee_id=annee_cible_id, phase=phase, site_id=site.id
+    )
+    plan.nb_bloques = bascule.nb_bloques
+    for m in bascule.mouvements:
+        if m.statut == "bloque":
+            plan.avertissements.append(f"{m.cle_pivot} {m.nom} {m.prenom} : {m.motif}")
             continue
-        if not any(c.champ == "classe" for c in entree.changements):
+        if m.statut != "a_deplacer" or not m.email or not m.ou_visee:
             continue
-        p = personne(entree.personne_id)
-        if p is None or not p.email:
-            continue
-        ous = ou_par_classe.get(entree.classe_cible or "")
-        if ous is None:
-            plan.avertissements.append(
-                f"{entree.cle_pivot} {entree.nom} : classe "
-                f"{entree.classe_cible!r} hors table, déplacement impossible"
-            )
+        # Un compte créé dans ce même plan y arrive déjà : pas de doublon.
+        if m.email in emails_crees:
             continue
         plan.operations.append(
             OperationGoogle(
                 action="deplacer",
-                email=p.email,
-                payload=payload_deplacement_ou(org_unit_path=ous[1]),
-                libelle=f"Déplacer {p.email} vers {ous[1]}",
+                email=m.email,
+                payload=payload_deplacement_ou(org_unit_path=m.ou_visee),
+                libelle=f"Déplacer {m.email} vers {m.ou_visee}",
+                personne_id=m.personne_id,
+                ou_visee=m.ou_visee,
             )
         )
 
@@ -425,14 +497,23 @@ class ClientGoogle:
             "nb_utilisateurs_visibles": len(reponse.get("users", [])),
         }
 
-    def executer_plan(self, plan: PlanGoogle) -> ResultatExecution:
+    def executer_plan(self, plan: PlanGoogle, session=None) -> ResultatExecution:
         """Applique les opérations du plan, une par une.
 
         Les échecs sont collectés sans interrompre le traitement : un
         compte en erreur ne doit pas bloquer les suivants. Le détail permet
         de rejouer uniquement ce qui a échoué.
+
+        Args:
+            session: si fournie, l'OU appliquée est mémorisée pour chaque
+                opération **réussie**. Sans cela, un déplacement fait par
+                l'API resterait invisible du canal CSV, qui le reproposerait
+                indéfiniment. Seuls les succès sont enregistrés : une
+                opération en échec n'a rien changé côté Google.
         """
         resultat = ResultatExecution()
+        appliquees: list[tuple[int, str]] = []
+
         for operation in plan.operations:
             try:
                 if operation.action == "creer":
@@ -442,6 +523,8 @@ class ClientGoogle:
                         userKey=operation.email, body=operation.payload
                     ).execute()
                 resultat.nb_reussies += 1
+                if operation.personne_id and operation.ou_visee:
+                    appliquees.append((operation.personne_id, operation.ou_visee))
             except Exception as e:  # pragma: no cover — dépend du réseau
                 resultat.nb_echecs += 1
                 resultat.echecs.append(
@@ -451,4 +534,7 @@ class ClientGoogle:
                         "erreur": str(e),
                     }
                 )
+
+        if session is not None and appliquees:
+            enregistrer_ou_appliquees(session, appliquees)
         return resultat

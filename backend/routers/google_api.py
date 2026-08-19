@@ -76,6 +76,9 @@ class PlanPayload(BaseModel):
     """CSV KoXo enrichi — fournit les mots de passe des nouveaux comptes.
     Transite en mémoire, n'est jamais persisté."""
 
+    phase: Literal["pre_rentree", "definitive"] = "pre_rentree"
+    """Phase de rentrée visée. Même découpage que la bascule par CSV."""
+
 
 class OperationOut(BaseModel):
     action: str
@@ -84,10 +87,13 @@ class OperationOut(BaseModel):
 
 
 class PlanOut(BaseModel):
+    phase: str
     nb_total: int
     nb_creations: int
     nb_deplacements: int
     nb_suspensions: int
+    nb_bloques: int
+    est_executable: bool
     operations: list[OperationOut]
     avertissements: list[str]
 
@@ -113,6 +119,7 @@ def _construire(session: Session, payload: PlanPayload):
             annee_cible_id=payload.annee_cible_id,
             annee_source_id=payload.annee_source_id,
             mots_de_passe=mots_de_passe,
+            phase=payload.phase,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -125,10 +132,13 @@ def obtenir_plan(
     """Calcule les opérations qui seraient appliquées. N'envoie rien."""
     plan = _construire(session, payload)
     return PlanOut(
+        phase=plan.phase,
         nb_total=plan.nb_total,
         nb_creations=plan.nb_creations,
         nb_deplacements=plan.nb_deplacements,
         nb_suspensions=plan.nb_suspensions,
+        nb_bloques=plan.nb_bloques,
+        est_executable=plan.est_executable,
         operations=[
             OperationOut(action=o.action, email=o.email, libelle=o.libelle)
             for o in plan.operations
@@ -168,7 +178,15 @@ def executer(
         raise HTTPException(400, str(e))
 
     plan = _construire(session, payload)
-    resultat = client.executer_plan(plan)
+    if not plan.est_executable:
+        raise HTTPException(
+            409,
+            f"{plan.nb_bloques} élève(s) sans OU calculable — complète la Table "
+            "de correspondance avant d'exécuter.",
+        )
+    # `session` transmise : les OU réellement appliquées sont mémorisées, sans
+    # quoi le canal CSV reproposerait indéfiniment les mêmes déplacements.
+    resultat = client.executer_plan(plan, session=session)
 
     # Trace l'exécution — sans aucun mot de passe (le journal les filtre).
     try:
