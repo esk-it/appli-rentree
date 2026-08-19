@@ -24,7 +24,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 from sqlalchemy.orm import Session
-from backend.services.rattachement import ids_personnes_du_site
+from backend.services.rattachement import (
+    ids_personnes_du_site,
+    ids_presents_annee,
+)
 
 from backend.models import Personne, Site, Snapshot
 
@@ -74,16 +77,25 @@ def generer_csv_pmb(
 
 
 def _recuperer_lignes(session, site, type_personne, categorie, annee_cible_id, annee_source_id):
-    ids_cible = _snapshots_par_personne(session, annee_cible_id, site, type_personne)
+    snaps_cible = _snapshots_par_personne(session, annee_cible_id, site, type_personne)
     if categorie == "tous":
-        selection = ids_cible
+        selection = snaps_cible
     else:
-        ids_source = set(_snapshots_par_personne(session, annee_source_id, site, type_personne))
+        # Entrée et sortie s'entendent au niveau de l'établissement, pas du
+        # site : une élève montant du collège au lycée n'est ni une nouvelle
+        # ni une sortante. Comparer site par site la ferait passer pour les
+        # deux à la fois.
         if categorie == "nouveaux":
-            selection = {k: v for k, v in ids_cible.items() if k not in ids_source}
+            ailleurs = ids_presents_annee(
+                session, annee_id=annee_source_id, type_personne=type_personne
+            )
+            selection = {k: v for k, v in snaps_cible.items() if k not in ailleurs}
         else:  # anciens
+            ailleurs = ids_presents_annee(
+                session, annee_id=annee_cible_id, type_personne=type_personne
+            )
             snaps_source = _snapshots_par_personne(session, annee_source_id, site, type_personne)
-            selection = {k: v for k, v in snaps_source.items() if k not in ids_cible}
+            selection = {k: v for k, v in snaps_source.items() if k not in ailleurs}
 
     personnes = {p.id: p for p in session.query(Personne).filter(Personne.id.in_(selection)).all()}
     return [_formatter(personnes[pid], selection[pid], type_personne) for pid in selection if pid in personnes]

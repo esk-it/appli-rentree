@@ -203,3 +203,103 @@ def test_export_google_ou_suit_la_classe(
     assert len(rows) == 1
     assert rows[0]["Org Unit Path [Required]"] == "/3. NDK/NDK2026/2_1"
     assert rapport.nb_sans_ou == 0
+
+
+# ---------------------------------------------------------------------------
+# Entrées / sorties : au niveau de l'établissement, pas du site
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def montante(session, deux_sites, annee_factory, personne_factory, snap_factory):
+    """Une 3e de SU qui monte en 2nde à NDK, présente aux deux années."""
+    prec = annee_factory("2025-2026")
+    cour = annee_factory("2026-2027")
+    p = personne_factory(
+        nom="BERTEVAS", prenom="Zoé", login="zbertevas", site_id=deux_sites["su"].id
+    )
+    snap_factory(p.id, prec.id, nom="BERTEVAS", classe="36")
+    snap_factory(p.id, cour.id, nom="BERTEVAS", classe="2_1")
+    return {"personne": p, "prec": prec, "cour": cour}
+
+
+def test_montante_nest_pas_une_sortante_de_son_ancien_site(
+    session, deux_sites, montante
+):
+    """Régression : elle aurait été suspendue et archivée le jour de sa rentrée."""
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    _, r = generer_csv_koxo(
+        session=session, site_id=deux_sites["su"].id, type_personne="eleve",
+        categorie="anciens", annee_cible_id=montante["cour"].id,
+        annee_source_id=montante["prec"].id,
+    )
+    assert r.nb_lignes == 0
+
+
+def test_montante_nest_pas_une_nouvelle_de_son_nouveau_site(
+    session, deux_sites, montante
+):
+    """Elle a déjà un compte Google : le recréer échouerait."""
+    from backend.services.exports_google import generer_csv_google
+
+    _, r = generer_csv_google(
+        session=session, site_id=deux_sites["ndk"].id, type_personne="eleve",
+        categorie="nouveaux", annee_cible_id=montante["cour"].id,
+        annee_source_id=montante["prec"].id,
+    )
+    assert r.nb_lignes == 0
+
+
+def test_montante_figure_bien_dans_tous_de_son_nouveau_site(
+    session, deux_sites, montante
+):
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    _, ndk = generer_csv_koxo(
+        session=session, site_id=deux_sites["ndk"].id, type_personne="eleve",
+        categorie="tous", annee_cible_id=montante["cour"].id,
+    )
+    _, su = generer_csv_koxo(
+        session=session, site_id=deux_sites["su"].id, type_personne="eleve",
+        categorie="tous", annee_cible_id=montante["cour"].id,
+    )
+    assert (ndk.nb_lignes, su.nb_lignes) == (1, 0)
+
+
+def test_vrai_sortant_reste_detecte(
+    session, deux_sites, montante, personne_factory, snap_factory
+):
+    """Le garde-fou ne doit pas masquer un départ réel."""
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    parti = personne_factory(
+        nom="PARTI", prenom="Luc", login="lparti", site_id=deux_sites["su"].id
+    )
+    snap_factory(parti.id, montante["prec"].id, nom="PARTI", classe="36")
+    # aucun snapshot dans l'année cible
+
+    _, r = generer_csv_koxo(
+        session=session, site_id=deux_sites["su"].id, type_personne="eleve",
+        categorie="anciens", annee_cible_id=montante["cour"].id,
+        annee_source_id=montante["prec"].id,
+    )
+    assert r.nb_lignes == 1
+
+
+def test_vrai_entrant_reste_detecte(
+    session, deux_sites, montante, personne_factory, snap_factory
+):
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    entrant = personne_factory(
+        nom="ENTRANT", prenom="Ana", login="aentrant", site_id=deux_sites["ndk"].id
+    )
+    snap_factory(entrant.id, montante["cour"].id, nom="ENTRANT", classe="2_1")
+
+    _, r = generer_csv_koxo(
+        session=session, site_id=deux_sites["ndk"].id, type_personne="eleve",
+        categorie="nouveaux", annee_cible_id=montante["cour"].id,
+        annee_source_id=montante["prec"].id,
+    )
+    assert r.nb_lignes == 1

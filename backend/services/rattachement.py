@@ -53,6 +53,32 @@ def site_par_classe(session: Session) -> dict[str, int]:
     return {code: next(iter(ids)) for code, ids in par_code.items() if len(ids) == 1}
 
 
+def ids_presents_annee(
+    session: Session, *, annee_id: int, type_personne: str
+) -> set[int]:
+    """Personnes ayant un snapshot dans l'année, **tous sites confondus**.
+
+    Sert à décider qui entre et qui sort de l'établissement. La question
+    « est-elle partie ? » ne se pose pas site par site : une 3e de
+    Sainte-Ursule qui monte en 2nde au Kreisker n'a rien quitté.
+
+    Comparer site par site en ferait une sortante de SU — donc un compte
+    Google suspendu et archivé alors qu'elle fait sa rentrée. Sur l'export
+    réel, cela concernait 143 élèves pour zéro vrai départ.
+    """
+    return {
+        pid
+        for (pid,) in session.query(Snapshot.personne_id)
+        .join(Personne, Snapshot.personne_id == Personne.id)
+        .filter(
+            Snapshot.annee_scolaire_id == annee_id,
+            Personne.type == type_personne,
+        )
+        .distinct()
+        .all()
+    }
+
+
 def ids_personnes_du_site(
     session: Session,
     *,

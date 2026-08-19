@@ -27,7 +27,10 @@ from typing import Literal
 
 import openpyxl
 from sqlalchemy.orm import Session
-from backend.services.rattachement import ids_personnes_du_site
+from backend.services.rattachement import (
+    ids_personnes_du_site,
+    ids_presents_annee,
+)
 
 from backend.models import Personne, Site, Snapshot
 
@@ -67,8 +70,12 @@ def generer_xlsx_cardstudio(
 
     tgt = _snapshots_par_personne(session, annee_cible_id, site)
     if categorie == "nouveaux":
-        src = _snapshots_par_personne(session, annee_source_id, site)
-        selection = {k: v for k, v in tgt.items() if k not in src}
+        # Nouveau dans l'établissement, pas dans le site : un élève montant
+        # du collège au lycée a déjà son badge, il ne faut pas en refaire un.
+        deja_la = ids_presents_annee(
+            session, annee_id=annee_source_id, type_personne="eleve"
+        )
+        selection = {k: v for k, v in tgt.items() if k not in deja_la}
     else:
         selection = tgt
 

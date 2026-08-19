@@ -33,7 +33,10 @@ from dataclasses import dataclass
 from typing import Literal
 
 from sqlalchemy.orm import Session
-from backend.services.rattachement import ids_personnes_du_site
+from backend.services.rattachement import (
+    ids_personnes_du_site,
+    ids_presents_annee,
+)
 
 from backend.models import Personne, Site, Snapshot
 
@@ -188,7 +191,13 @@ def _lignes_tous(session: Session, ctx: ContexteExport) -> list[dict]:
 
 def _lignes_nouveaux(session: Session, ctx: ContexteExport) -> list[dict]:
     """Nouveaux entrants : présents à annee_cible, absents à annee_source."""
-    ids_source = _ids_personnes_annee(session, ctx.annee_source_id, ctx)
+    # Entrée dans l'établissement, pas dans le site : l'année source est
+    # comparée tous sites confondus. Sinon une élève montant de SU à NDK
+    # passerait pour une nouvelle, et l'on tenterait de créer un compte
+    # Google qu'elle possède déjà.
+    ids_source = ids_presents_annee(
+        session, annee_id=ctx.annee_source_id, type_personne=ctx.type_personne
+    )
     snapshots_cible = _snapshots_annee_par_personne(session, ctx.annee_cible_id, ctx)
 
     ids_nouveaux = set(snapshots_cible) - ids_source
@@ -203,7 +212,12 @@ def _lignes_nouveaux(session: Session, ctx: ContexteExport) -> list[dict]:
 def _lignes_anciens(session: Session, ctx: ContexteExport) -> list[dict]:
     """Sortants : présents à annee_source, absents à annee_cible."""
     snapshots_source = _snapshots_annee_par_personne(session, ctx.annee_source_id, ctx)
-    ids_cible = _ids_personnes_annee(session, ctx.annee_cible_id, ctx)
+    # Départ de l'établissement, pas du site : l'année cible est comparée
+    # tous sites confondus. Sinon la même élève passerait pour une
+    # sortante de SU, et son compte serait suspendu le jour de sa rentrée.
+    ids_cible = ids_presents_annee(
+        session, annee_id=ctx.annee_cible_id, type_personne=ctx.type_personne
+    )
 
     ids_anciens = set(snapshots_source) - ids_cible
     personnes = _charger_personnes(session, ids_anciens)
