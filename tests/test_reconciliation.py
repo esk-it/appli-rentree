@@ -328,3 +328,72 @@ def test_reconciliation_est_idempotente(
 
     assert r1.compteurs == r2.compteurs
     assert [e.personne_id for e in r1.identiques] == [e.personne_id for e in r2.identiques]
+
+
+# ---------------------------------------------------------------------------
+# Garde-fou : année source qui ne peut produire aucun sortant
+# ---------------------------------------------------------------------------
+
+
+def test_avertit_si_la_source_est_incluse_dans_la_cible(
+    session, site_factory, annee_factory, personne_factory, snapshot_factory
+):
+    """Un export de l'an passé tiré de la base courante n'a plus les partis.
+
+    Charlemagne ne garde pas les élèves sortis : exporter « 2025-2026 »
+    aujourd'hui ne ramène que ceux encore inscrits. Le zéro sortant qui en
+    résulte est mécanique, pas un constat — il faut le dire.
+    """
+    from backend.services.reconciliation import reconcilier
+
+    site = site_factory("NDK")
+    prec = annee_factory("2025-2026")
+    cour = annee_factory("2026-2027")
+    p = personne_factory(nom="RESTE", prenom="Ana", login="areste", site_id=site.id)
+    snapshot_factory(p.id, prec.id, nom="RESTE", classe="31")
+    snapshot_factory(p.id, cour.id, nom="RESTE", classe="32")
+
+    r = reconcilier(session, prec.id, cour.id, type_personne="eleve")
+    assert r.sortants == []
+    assert r.source_incluse_dans_cible is True
+    assert len(r.avertissements) == 1
+    assert "Aucun sortant" in r.avertissements[0]
+    assert "archivée" in r.avertissements[0]
+
+
+def test_pas_davertissement_quand_un_sortant_existe(
+    session, site_factory, annee_factory, personne_factory, snapshot_factory
+):
+    from backend.services.reconciliation import reconcilier
+
+    site = site_factory("NDK")
+    prec = annee_factory("2025-2026")
+    cour = annee_factory("2026-2027")
+
+    reste = personne_factory(nom="RESTE", prenom="Ana", login="areste", site_id=site.id)
+    snapshot_factory(reste.id, prec.id, nom="RESTE", classe="31")
+    snapshot_factory(reste.id, cour.id, nom="RESTE", classe="32")
+
+    parti = personne_factory(nom="TERMINALE", prenom="Luc", login="lterm", site_id=site.id)
+    snapshot_factory(parti.id, prec.id, nom="TERMINALE", classe="T_G1A")
+
+    r = reconcilier(session, prec.id, cour.id, type_personne="eleve")
+    assert len(r.sortants) == 1
+    assert r.source_incluse_dans_cible is False
+    assert r.avertissements == []
+
+
+def test_pas_davertissement_sur_une_source_vide(
+    session, site_factory, annee_factory, personne_factory, snapshot_factory
+):
+    """Première année ingérée : rien à comparer, donc rien à signaler."""
+    from backend.services.reconciliation import reconcilier
+
+    site = site_factory("NDK")
+    prec = annee_factory("2025-2026")
+    cour = annee_factory("2026-2027")
+    p = personne_factory(nom="NEUF", prenom="Jean", login="jneuf", site_id=site.id)
+    snapshot_factory(p.id, cour.id, nom="NEUF", classe="31")
+
+    r = reconcilier(session, prec.id, cour.id, type_personne="eleve")
+    assert r.avertissements == []

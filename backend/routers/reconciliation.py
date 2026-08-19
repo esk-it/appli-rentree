@@ -45,6 +45,7 @@ class RapportOut(BaseModel):
     annee_cible_libelle: str
     type_personne: str | None
     compteurs: dict[str, int]
+    avertissements: list[str]
     nouveaux: list[EntreeOut]
     identiques: list[EntreeOut]
     modifies: list[EntreeOut]
@@ -63,6 +64,7 @@ def _to_out(rapport: RapportReconciliation) -> RapportOut:
         annee_cible_libelle=rapport.annee_cible_libelle,
         type_personne=rapport.type_personne,
         compteurs=rapport.compteurs,
+        avertissements=rapport.avertissements,
         nouveaux=[entree(e) for e in rapport.nouveaux],
         identiques=[entree(e) for e in rapport.identiques],
         modifies=[entree(e) for e in rapport.modifies],

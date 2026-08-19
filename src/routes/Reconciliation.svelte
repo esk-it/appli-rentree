@@ -199,6 +199,14 @@
         </div>
       </div>
 
+      <!-- Doutes sur les données elles-mêmes : à lire avant les compteurs,
+           qui seraient sinon pris pour argent comptant. -->
+      {#each rapport.avertissements ?? [] as message}
+        <div class="rounded-lg border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+          {message}
+        </div>
+      {/each}
+
       <!-- Onglets seaux -->
       <div class="grid grid-cols-2 gap-2 md:grid-cols-5">
         {#each SEAUX as seau (seau.id)}

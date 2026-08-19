@@ -85,6 +85,21 @@ class RapportReconciliation:
     sortants: list[EntreeReconciliation] = field(default_factory=list)
     ambigus: list[EntreeReconciliation] = field(default_factory=list)
 
+    avertissements: list[str] = field(default_factory=list)
+    """Doutes sur les données elles-mêmes, distincts des cas métier."""
+
+    @property
+    def source_incluse_dans_cible(self) -> bool:
+        """Vrai si l'année source ne contient personne que la cible n'ait aussi.
+
+        Signature d'un export de l'année passée tiré de la base **courante**
+        de Charlemagne : celle-ci ne garde pas les élèves partis, donc le
+        fichier ne contient que ceux encore inscrits. Aucun sortant ne peut
+        alors être détecté — et un « 0 sortant » se lit à tort comme un
+        constat rassurant alors qu'il est mécanique.
+        """
+        return not self.sortants and bool(self.identiques or self.modifies)
+
     @property
     def compteurs(self) -> dict[str, int]:
         return {
@@ -241,6 +256,18 @@ def reconcilier(
     )
     if ids_ambigus_par_personne:
         _basculer_dans_ambigu(rapport, ids_ambigus_par_personne)
+
+    # 5. Garde-fou sur les données : une année source sans le moindre sortant
+    #    n'est pas un bon résultat, c'est presque toujours un mauvais fichier.
+    if rapport.source_incluse_dans_cible:
+        rapport.avertissements.append(
+            f"Aucun sortant détecté : chaque personne de {rapport.annee_source_libelle} "
+            f"se retrouve dans {rapport.annee_cible_libelle}. Un export de l'année "
+            "passée tiré de la base courante de Charlemagne ne contient que les "
+            "élèves encore inscrits — les terminales partis en fin d'année en sont "
+            "absents, donc indétectables. Reprends l'export depuis la base "
+            "archivée de cette année-là."
+        )
 
     return rapport
 
