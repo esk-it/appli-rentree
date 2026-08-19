@@ -10,6 +10,7 @@
   import Activity from "@lucide/svelte/icons/activity";
   import UserPlus from "@lucide/svelte/icons/user-plus";
   import FolderTree from "@lucide/svelte/icons/folder-tree";
+  import Cloud from "@lucide/svelte/icons/cloud";
 
   const sections = [
     { id: "flux", label: "Flux global", icon: BookOpen },
@@ -18,6 +19,7 @@
     { id: "seaux", label: "Les 5 seaux", icon: GitCompareArrows },
     { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
     { id: "bascule", label: "Bascule des OU", icon: FolderTree },
+    { id: "compte_service", label: "Compte de service Google", icon: Cloud },
     { id: "arbitrage", label: "Arbitrage", icon: Scale },
     { id: "simulation", label: "Simulation", icon: Zap },
     { id: "exports", label: "Exports", icon: FileDown },
@@ -176,6 +178,89 @@
           correspondance ne dit rien de leur rattachement, et deviner serait
           exactement ce que le programme s'interdit.
         </p>
+
+      {:else if sectionActive === "compte_service"}
+        <h2>Créer le compte de service Google</h2>
+        <p>
+          À faire <strong>une seule fois</strong>. Sans lui, le mode API reste
+          masqué et tout passe par les fichiers CSV — ce qui fonctionne
+          parfaitement, l'API n'est qu'un canal plus direct.
+        </p>
+
+        <h3>1. Le projet et l'API — console Google Cloud</h3>
+        <ol>
+          <li>Va sur <code>console.cloud.google.com</code>, connecté avec ton
+            compte administrateur du domaine.</li>
+          <li>Crée un projet (ou réutilise-en un) : appelle-le par exemple
+            <em>Appli Rentrée ESK</em>.</li>
+          <li>Dans <strong>API et services → Bibliothèque</strong>, cherche
+            <strong>Admin SDK API</strong> et active-la. C'est elle qui donne
+            accès aux utilisateurs et aux unités d'organisation.</li>
+        </ol>
+
+        <h3>2. Le compte de service</h3>
+        <ol>
+          <li><strong>IAM et administration → Comptes de service →
+            Créer</strong>. Un nom suffit, aucun rôle IAM n'est nécessaire :
+            les droits viendront de la délégation, pas d'IAM.</li>
+          <li>Ouvre le compte créé, onglet <strong>Clés → Ajouter une clé →
+            Créer une clé → JSON</strong>. Le fichier se télécharge.</li>
+          <li>Toujours sur cette page, note le <strong>Client ID</strong> :
+            un long nombre. C'est lui qu'attend l'étape suivante, pas
+            l'adresse du compte de service.</li>
+        </ol>
+        <p>
+          Ce fichier JSON est une clé privée : il donne accès à ton domaine.
+          Range-le dans un dossier local protégé, jamais sur un partage
+          réseau ouvert ni dans un dossier synchronisé.
+        </p>
+
+        <h3>3. La délégation — console d'administration Google</h3>
+        <ol>
+          <li>Va sur <code>admin.google.com</code> →
+            <strong>Sécurité → Contrôle des données et de l'accès → Commandes
+            des API → Gérer la délégation au niveau du domaine</strong>.</li>
+          <li><strong>Ajouter</strong>, colle le <em>Client ID</em> noté plus
+            haut.</li>
+          <li>Dans les champs OAuth, colle ces trois portées, séparées par des
+            virgules <strong>sans espace</strong> :</li>
+        </ol>
+        <pre><code>https://www.googleapis.com/auth/admin.directory.user,https://www.googleapis.com/auth/admin.directory.orgunit,https://www.googleapis.com/auth/admin.directory.group</code></pre>
+        <p>
+          Ces trois portées, et pas davantage : les utilisateurs, les unités
+          d'organisation, les groupes. Rien sur Drive ni Gmail, rien qui
+          permette de lire le contenu des comptes.
+        </p>
+
+        <h3>4. Dans le programme</h3>
+        <p>Onglet <strong>Paramètres</strong>, section Google Workspace :</p>
+        <ul>
+          <li><strong>Fichier de credentials</strong> — le chemin complet du
+            JSON. Son contenu n'est jamais copié en base, seul le chemin est
+            enregistré.</li>
+          <li><strong>Administrateur à impersonner</strong> — l'adresse d'un
+            super-administrateur réel du domaine. La délégation impose que le
+            compte de service agisse au nom de quelqu'un ; c'est ce compte qui
+            apparaîtra dans les journaux d'audit Google.</li>
+          <li><strong>Activer le mode API</strong> — à cocher en dernier.</li>
+        </ul>
+        <p>
+          Puis, dans <strong>Exports</strong>, le bouton
+          <em>Tester la connexion</em> : il lit un seul utilisateur, ne
+          modifie rien, et confirme que l'authentification, les portées et la
+          délégation sont bonnes.
+        </p>
+
+        <h3>Si ça ne marche pas</h3>
+        <ul>
+          <li><em>unauthorized_client</em> — le Client ID ou les portées ne
+            correspondent pas à ce qui est déclaré dans la délégation.
+            Vérifie qu'il s'agit bien du Client ID numérique.</li>
+          <li><em>Not Authorized to access this resource</em> — l'adresse
+            impersonnée n'est pas super-administrateur.</li>
+          <li>La délégation peut mettre quelques minutes à se propager :
+            réessaie avant de tout défaire.</li>
+        </ul>
 
       {:else if sectionActive === "amorcage"}
         <h2>Amorçage</h2>

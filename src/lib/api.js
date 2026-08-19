@@ -630,6 +630,26 @@ export const bascule = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Sortants — où ils devraient être, où ils sont vraiment
+// ---------------------------------------------------------------------------
+export const sortants = {
+  async lister({ siteId = null, seulementEchus = false } = {}) {
+    const p = new URLSearchParams();
+    if (siteId) p.set("site_id", String(siteId));
+    if (seulementEchus) p.set("seulement_echus", "true");
+    const qs = p.toString();
+    return jsonOrThrow(await fetch(`${BASE}/sortants${qs ? `?${qs}` : ""}`));
+  },
+  /** Confronte chaque compte à Google. Ne modifie rien — retourne un job. */
+  async verifier({ siteId = null } = {}) {
+    const qs = siteId ? `?site_id=${siteId}` : "";
+    return jsonOrThrow(
+      await fetch(`${BASE}/sortants/verifier${qs}`, { method: "POST" }),
+    );
+  },
+};
+
 export const annees = {
   async lister() {
     return jsonOrThrow(await fetch(`${BASE}/annees`));

@@ -1,0 +1,346 @@
+<script>
+  import { onMount } from "svelte";
+  import LogOut from "@lucide/svelte/icons/log-out";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
+  import Check from "@lucide/svelte/icons/check";
+  import Download from "@lucide/svelte/icons/download";
+  import Printer from "@lucide/svelte/icons/printer";
+  import HelpCircle from "@lucide/svelte/icons/help-circle";
+  import Bouton from "$lib/components/Bouton.svelte";
+  import EnTetePage from "$lib/components/EnTetePage.svelte";
+  import EtatVide from "$lib/components/EtatVide.svelte";
+  import Segments from "$lib/components/Segments.svelte";
+  import Squelette from "$lib/components/Squelette.svelte";
+  import {
+    enregistrerFichierBase64,
+    googleApi,
+    sites,
+    sortants as apiSortants,
+  } from "$lib/api.js";
+  import { notify } from "$lib/toasts.js";
+
+  let liste = $state(/** @type {any} */ (null));
+  let listeSites = $state(/** @type {any[]} */ ([]));
+  let statutApi = $state(/** @type {any} */ (null));
+
+  let filtreSite = $state("");
+  let filtreVue = $state("");
+  let chargement = $state(true);
+  let erreur = $state("");
+  let verification = $state(false);
+  let job = $state(/** @type {any} */ (null));
+  let sondage = /** @type {any} */ (null);
+
+  let apiUtilisable = $derived(
+    statutApi?.bibliotheques_disponibles && statutApi?.configuration_complete,
+  );
+
+  let affiches = $derived.by(() => {
+    if (!liste) return [];
+    if (filtreVue === "echus") return liste.sortants.filter((s) => s.echeance_depassee);
+    if (filtreVue === "ecarts")
+      return liste.sortants.filter((s) => ["ecart", "introuvable"].includes(s.verification));
+    return liste.sortants;
+  });
+
+  let optionsVue = $derived([
+    { id: "", label: "Tous", badge: liste?.nb_total ?? 0 },
+    { id: "echus", label: "Purge due", badge: liste?.nb_echeance_depassee ?? 0 },
+    { id: "ecarts", label: "Écarts", badge: liste?.nb_ecarts ?? 0 },
+  ]);
+
+  onMount(async () => {
+    try {
+      listeSites = await sites.lister();
+      try {
+        statutApi = await googleApi.statut();
+      } catch {
+        statutApi = null;
+      }
+    } catch (e) {
+      erreur = String(e);
+    }
+    await rafraichir();
+  });
+
+  async function rafraichir() {
+    chargement = true;
+    erreur = "";
+    try {
+      liste = await apiSortants.lister({ siteId: filtreSite || null });
+    } catch (e) {
+      erreur = String(e).replace(/^Error:\s*/, "");
+      liste = null;
+    } finally {
+      chargement = false;
+    }
+  }
+
+  async function verifier() {
+    verification = true;
+    try {
+      const r = await apiSortants.verifier({ siteId: filtreSite || null });
+      job = await googleApi.suivreJob(r.job_id);
+      demarrerSondage();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      verification = false;
+    }
+  }
+
+  function demarrerSondage() {
+    arreterSondage();
+    sondage = setInterval(async () => {
+      if (!job) return arreterSondage();
+      try {
+        job = await googleApi.suivreJob(job.id);
+        if (job.est_termine) {
+          arreterSondage();
+          await rafraichir();
+          notify.info(
+            `${job.nb_reussies} conforme(s), ${job.nb_echecs} écart(s) sur ${job.total}`,
+            { duree: 8000 },
+          );
+        }
+      } catch (e) {
+        arreterSondage();
+        notify.erreur(String(e).replace(/^Error:\s*/, ""));
+      }
+    }, 700);
+  }
+
+  function arreterSondage() {
+    if (sondage) clearInterval(sondage);
+    sondage = null;
+  }
+
+  $effect(() => () => arreterSondage());
+
+  function exporter() {
+    if (!affiches.length) return;
+    const entetes = [
+      "Clé pivot", "Nom", "Prénom", "Dernière classe", "Site", "Adresse mail",
+      "État", "Suppression prévue", "Vérification", "OU réelle", "Détail",
+    ];
+    const lignes = affiches.map((s) => [
+      s.cle_pivot, s.nom, s.prenom, s.derniere_classe ?? "", s.site ?? "",
+      s.email ?? "", s.etat,
+      s.date_prevue_purge ? s.date_prevue_purge.split("-").reverse().join("/") : "",
+      libelleVerification(s.verification), s.ou_reelle ?? "", s.detail_verification ?? "",
+    ]);
+    const csv = [entetes, ...lignes]
+      .map((l) => l.map((c) => (String(c).includes(";") ? `"${c}"` : c)).join(";"))
+      .join("\r\n");
+    // BOM UTF-8 : sans lui Excel FR massacre les accents
+    const b64 = btoa(
+      String.fromCharCode(...new TextEncoder().encode("﻿" + csv)),
+    );
+    enregistrerFichierBase64("Sortants.csv", b64, "text/csv").then(({ chemin, annule }) => {
+      if (!annule) {
+        notify.succes(
+          `${lignes.length} ligne(s) — ${chemin ?? "dans ton dossier Téléchargements"}`,
+          { duree: 8000 },
+        );
+      }
+    });
+  }
+
+  function libelleVerification(v) {
+    return { conforme: "Conforme", ecart: "Écart", introuvable: "Absent de Google" }[v]
+      ?? "Non vérifié";
+  }
+
+  function formaterDate(iso) {
+    return iso ? iso.split("-").reverse().join("/") : "—";
+  }
+</script>
+
+<section class="space-y-4">
+  <div class="sans-impression">
+    <EnTetePage
+      icon={LogOut}
+      titre="Sortants"
+      description="Les comptes en quarantaine avant suppression : où ils devraient être, et — si l'API est configurée — où ils sont réellement dans Google."
+    />
+  </div>
+
+  {#if erreur}
+    <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+      {erreur}
+    </p>
+  {/if}
+
+  <div class="card p-3 sans-impression">
+    <div class="flex flex-wrap items-end gap-3">
+      <div>
+        <label class="libelle-champ" for="s-site">Site</label>
+        <select id="s-site" class="champ w-40" bind:value={filtreSite} onchange={rafraichir}>
+          <option value="">Tous</option>
+          {#each listeSites as s (s.id)}
+            <option value={s.id}>{s.nom}</option>
+          {/each}
+        </select>
+      </div>
+
+      {#if liste && liste.nb_total > 0}
+        <div>
+          <span class="libelle-champ">Vue</span>
+          <Segments bind:valeur={filtreVue} taille="sm" options={optionsVue} />
+        </div>
+      {/if}
+
+      <div class="ml-auto flex gap-2">
+        <Bouton icon={Printer} onclick={() => window.print()}>Imprimer</Bouton>
+        <Bouton icon={Download} disabled={!affiches.length} onclick={exporter}>
+          Export Excel
+        </Bouton>
+        {#if apiUtilisable}
+          <Bouton
+            variante="primary"
+            icon={ShieldCheck}
+            occupe={verification}
+            disabled={!liste || liste.nb_total === 0 || (job && !job.est_termine)}
+            onclick={verifier}
+          >
+            Vérifier dans Google
+          </Bouton>
+        {/if}
+      </div>
+    </div>
+
+    <p class="mt-3 text-xs text-stone-500 dark:text-stone-400">
+      {#if apiUtilisable}
+        La vérification lit l'état réel de chaque compte — son unité
+        d'organisation et sa suspension — sans rien modifier. Elle relève les
+        écarts ; les corriger reste une action délibérée.
+      {:else}
+        Le mode API n'est pas configuré : la liste montre ce que le programme
+        a mémorisé, sans pouvoir le confronter à Google. Vois l'aide, section
+        « Compte de service Google ».
+      {/if}
+    </p>
+  </div>
+
+  <div class="impression-seule mb-3">
+    <h1 class="text-lg font-bold">Comptes sortants</h1>
+    <p class="text-xs">
+      {liste?.nb_total ?? 0} compte(s) · {liste?.nb_echeance_depassee ?? 0} dont la
+      suppression est due
+    </p>
+  </div>
+
+  {#if job}
+    <div class="card overflow-hidden sans-impression">
+      <div class="flex items-center gap-3 px-3 py-2 text-sm">
+        <span class="font-semibold">{job.libelle}</span>
+        <span class="tabular-nums text-stone-500 dark:text-stone-400">
+          {job.nb_traitees} / {job.total}
+        </span>
+        <span class="text-emerald-700 dark:text-emerald-400">{job.nb_reussies} conforme(s)</span>
+        {#if job.nb_echecs > 0}
+          <span class="font-medium text-amber-700 dark:text-amber-400">
+            {job.nb_echecs} écart(s)
+          </span>
+        {/if}
+        {#if job.est_termine}
+          <Bouton taille="sm" classe="ml-auto" onclick={() => (job = null)}>Fermer</Bouton>
+        {/if}
+      </div>
+      <div class="h-1.5 w-full bg-stone-200 dark:bg-stone-700">
+        <div
+          class="h-full bg-emerald-600 transition-all duration-300"
+          style="width: {Math.round(job.progression * 100)}%"
+        ></div>
+      </div>
+    </div>
+  {/if}
+
+  {#if chargement}
+    <div class="card p-4">
+      <Squelette variante="ligne-tableau" nb={6} colonnes={6} />
+    </div>
+  {:else if !liste || liste.nb_total === 0}
+    <div class="card p-4">
+      <EtatVide
+        icon={LogOut}
+        titre="Aucun compte en sortie"
+        message="Les sortants apparaissent ici une fois traités depuis l'onglet Suivi. Tant qu'aucune sortie n'a été enregistrée, la liste reste vide."
+      />
+    </div>
+  {:else}
+    <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 sans-impression">
+      <div class="card p-3">
+        <p class="text-xs uppercase tracking-wide text-stone-500 dark:text-stone-400">En sortie</p>
+        <p class="mt-1 text-2xl font-semibold tabular-nums">{liste.nb_total}</p>
+      </div>
+      <div class="card p-3 {liste.nb_echeance_depassee ? 'ring-1 ring-amber-300 dark:ring-amber-700' : ''}">
+        <p class="text-xs uppercase tracking-wide text-stone-500 dark:text-stone-400">
+          Suppression due
+        </p>
+        <p class="mt-1 text-2xl font-semibold tabular-nums {liste.nb_echeance_depassee ? 'text-amber-700 dark:text-amber-400' : ''}">
+          {liste.nb_echeance_depassee}
+        </p>
+      </div>
+      <div class="card p-3 {liste.nb_ecarts ? 'ring-1 ring-red-300 dark:ring-red-800' : ''}">
+        <p class="text-xs uppercase tracking-wide text-stone-500 dark:text-stone-400">Écarts</p>
+        <p class="mt-1 text-2xl font-semibold tabular-nums {liste.nb_ecarts ? 'text-red-700 dark:text-red-400' : ''}">
+          {liste.nb_ecarts}
+        </p>
+      </div>
+    </div>
+
+    <div class="card overflow-hidden">
+      <div class="max-h-[640px] overflow-auto">
+        <table class="tableau w-full text-sm">
+          <thead class="sticky top-0 z-10">
+            <tr>
+              <th class="px-3 py-2 text-left">Nom</th>
+              <th class="px-3 py-2 text-left">Prénom</th>
+              <th class="px-3 py-2 text-left">Dernière classe</th>
+              <th class="px-3 py-2 text-left">Adresse mail</th>
+              <th class="px-3 py-2 text-left">Suppression prévue</th>
+              <th class="px-3 py-2 text-left">Dans Google</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each affiches as s (s.personne_id)}
+              <tr class:ligne-douteuse={s.verification === "ecart" || s.verification === "introuvable"}>
+                <td class="whitespace-nowrap px-3 py-1.5 font-medium">{s.nom}</td>
+                <td class="whitespace-nowrap px-3 py-1.5">{s.prenom}</td>
+                <td class="whitespace-nowrap px-3 py-1.5 text-stone-600 dark:text-stone-400">
+                  {s.derniere_classe ?? "—"}
+                </td>
+                <td class="whitespace-nowrap px-3 py-1.5 font-mono text-xs">{s.email ?? "—"}</td>
+                <td class="whitespace-nowrap px-3 py-1.5 tabular-nums {s.echeance_depassee ? 'font-medium text-amber-700 dark:text-amber-400' : ''}">
+                  {formaterDate(s.date_prevue_purge)}
+                </td>
+                <td class="px-3 py-1.5 text-xs">
+                  {#if s.verification === "conforme"}
+                    <span class="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+                      <Check class="h-3 w-3 shrink-0" /> archivé et suspendu
+                    </span>
+                  {:else if s.verification === "non_verifie"}
+                    <span class="inline-flex items-center gap-1 text-stone-400 dark:text-stone-500">
+                      <HelpCircle class="h-3 w-3 shrink-0" /> non vérifié
+                    </span>
+                  {:else}
+                    <span class="inline-flex items-center gap-1 text-red-700 dark:text-red-400">
+                      <TriangleAlert class="h-3 w-3 shrink-0" />
+                      {s.detail_verification}
+                    </span>
+                  {/if}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <p class="impression-seule mt-4 text-xs">
+      Vérifié par ……………………………………  le ……… / ……… / ………
+    </p>
+  {/if}
+</section>

@@ -497,6 +497,32 @@ class ClientGoogle:
             "nb_utilisateurs_visibles": len(reponse.get("users", [])),
         }
 
+    def lire_utilisateur(self, email: str):
+        """État réel d'un compte : son OU et sa suspension.
+
+        Lecture seule. Sert à vérifier qu'un sortant a bien été archivé,
+        plutôt que de faire confiance à ce que le programme a mémorisé.
+        Un compte absent n'est pas une erreur : il a pu être supprimé.
+        """
+        from backend.services.sortants import ConstatGoogle
+
+        try:
+            u = (
+                self._service.users()
+                .get(userKey=email, projection="basic")
+                .execute()
+            )
+        except Exception as e:  # pragma: no cover — dépend du réseau
+            texte = str(e)
+            if "404" in texte or "notFound" in texte:
+                return ConstatGoogle(existe=False)
+            return ConstatGoogle(existe=False, erreur=f"{type(e).__name__}: {e}")
+        return ConstatGoogle(
+            existe=True,
+            ou=u.get("orgUnitPath"),
+            suspendu=bool(u.get("suspended", False)),
+        )
+
     def appliquer_operation(self, operation: OperationGoogle) -> None:
         """Envoie une opération unitaire. Lève si Google la refuse.
 
