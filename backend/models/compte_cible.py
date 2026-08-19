@@ -67,6 +67,14 @@ class CompteCible(Base):
     """Identifiant côté cible : badge pour KoXo/JPM/CardStudio, google_user_id pour Google,
     INE ou badge pour PMB selon config."""
 
+    ou_appliquee: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    """Dernière OU que **nous** avons demandé d'appliquer (Google uniquement).
+
+    Le programme n'a pas de vue sur l'état réel de Google : il mémorise ce
+    qu'il a produit. Sans cette trace, impossible de dire qui a déjà été
+    placé et qui reste à déplacer — la bascule de rentrée serait à refaire
+    en entier à chaque fois, sans moyen de vérifier qu'elle a porté."""
+
     date_creation: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     date_derniere_maj: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

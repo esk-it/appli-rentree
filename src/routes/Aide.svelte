@@ -9,6 +9,7 @@
   import FileDown from "@lucide/svelte/icons/file-down";
   import Activity from "@lucide/svelte/icons/activity";
   import UserPlus from "@lucide/svelte/icons/user-plus";
+  import FolderTree from "@lucide/svelte/icons/folder-tree";
 
   const sections = [
     { id: "flux", label: "Flux global", icon: BookOpen },
@@ -16,6 +17,7 @@
     { id: "ingestion", label: "Ingestion", icon: BookOpen },
     { id: "seaux", label: "Les 5 seaux", icon: GitCompareArrows },
     { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
+    { id: "bascule", label: "Bascule des OU", icon: FolderTree },
     { id: "arbitrage", label: "Arbitrage", icon: Scale },
     { id: "simulation", label: "Simulation", icon: Zap },
     { id: "exports", label: "Exports", icon: FileDown },
@@ -110,6 +112,57 @@
           <li><strong>Export Excel</strong> — CSV point-virgule avec accents,
             qui s'ouvre directement en colonnes dans Excel.</li>
         </ul>
+
+      {:else if sectionActive === "bascule"}
+        <h2>Bascule des OU Google</h2>
+        <p>
+          Une rentrée ne se joue pas en une fois côté Google. L'écran suit les
+          deux temps réels du processus :
+        </p>
+        <ol>
+          <li>
+            <strong>Placement pré-rentrée</strong> — tous les élèves de l'année,
+            entrants comme montants, rejoignent l'OU d'attente de leur site
+            (une seule par site). Les listes de classe bougent encore : les
+            répartir maintenant obligerait à tout refaire.
+          </li>
+          <li>
+            <strong>Bascule de rentrée</strong> — chacun quitte l'OU d'attente
+            pour l'OU définitive de sa classe, une fois les répartitions
+            arrêtées.
+          </li>
+        </ol>
+
+        <h3>Ce que le programme sait</h3>
+        <p>
+          Il n'a aucune vue sur l'état réel de Google. Il mémorise donc ce
+          qu'il a demandé, et compare : d'où les trois compteurs
+          <strong>à déplacer</strong>, <strong>déjà en place</strong> et
+          <strong>bloqués</strong>. C'est ce qui rend l'opération rejouable
+          sans tout refaire, et vérifiable après coup.
+        </p>
+        <p>
+          Le bouton « J'ai importé » n'agit pas sur Google : il enregistre que
+          <em>tu</em> as importé le CSV dans la console Admin. Sans cette
+          confirmation, les mêmes déplacements te seront reproposés.
+        </p>
+
+        <h3>Blocage</h3>
+        <p>
+          Si un élève relève d'une classe absente de la Table de
+          correspondance, ou d'une classe dont l'OU n'est pas renseignée,
+          <strong>rien n'est téléchargeable ni confirmable</strong>. Aucune OU
+          par défaut n'est attribuée : un CSV partiel serait importé sans
+          pouvoir être enregistré, et la trace divergerait de la réalité.
+          Complète la table, puis reviens.
+        </p>
+
+        <h3>Et les adultes ?</h3>
+        <p>
+          Hors périmètre : leur OU ne se déduit pas d'une classe. La Table de
+          correspondance ne dit rien de leur rattachement, et deviner serait
+          exactement ce que le programme s'interdit.
+        </p>
 
       {:else if sectionActive === "amorcage"}
         <h2>Amorçage</h2>

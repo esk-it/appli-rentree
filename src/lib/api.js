@@ -575,6 +575,37 @@ export const nouveaux = {
   },
 };
 
+// ---------------------------------------------------------------------------
+// Bascule des OU Google (pré-rentrée → définitive)
+// ---------------------------------------------------------------------------
+export const bascule = {
+  _qs({ anneeId, phase, siteId = null }) {
+    const p = new URLSearchParams({ annee_id: String(anneeId), phase });
+    if (siteId) p.set("site_id", String(siteId));
+    return p.toString();
+  },
+  async planifier(options) {
+    return jsonOrThrow(await fetch(`${BASE}/bascule?${bascule._qs(options)}`));
+  },
+  async csv(options) {
+    return jsonOrThrow(await fetch(`${BASE}/bascule/csv?${bascule._qs(options)}`));
+  },
+  async confirmer({ anneeId, phase, siteId = null, mode = "simulation" }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/bascule/confirmer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          annee_id: anneeId,
+          phase,
+          site_id: siteId || null,
+          mode,
+        }),
+      }),
+    );
+  },
+};
+
 export const annees = {
   async lister() {
     return jsonOrThrow(await fetch(`${BASE}/annees`));

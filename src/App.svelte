@@ -14,6 +14,7 @@
   import TableIcon from "@lucide/svelte/icons/table";
   import GitCompareArrows from "@lucide/svelte/icons/git-compare-arrows";
   import UserPlus from "@lucide/svelte/icons/user-plus";
+  import FolderTree from "@lucide/svelte/icons/folder-tree";
   import Scale from "@lucide/svelte/icons/scale";
   import Rocket from "@lucide/svelte/icons/rocket";
   import FileDown from "@lucide/svelte/icons/file-down";
@@ -27,6 +28,7 @@
   import TableCorrespondance from "./routes/TableCorrespondance.svelte";
   import Amorcage from "./routes/Amorcage.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
+  import Bascule from "./routes/Bascule.svelte";
   import Nouveaux from "./routes/Nouveaux.svelte";
   import Reconciliation from "./routes/Reconciliation.svelte";
   import Arbitrage from "./routes/Arbitrage.svelte";
@@ -210,6 +212,7 @@
         { id: "snapshots", label: "Snapshots d'années", icon: Database },
         { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
         { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
+        { id: "bascule", label: "Bascule des OU", icon: FolderTree },
         {
           id: "arbitrage",
           label: "Arbitrage",
@@ -452,6 +455,8 @@
           <Reconciliation />
         {:else if page === "nouveaux"}
           <Nouveaux />
+        {:else if page === "bascule"}
+          <Bascule />
         {:else if page === "arbitrage"}
           <Arbitrage />
         {:else if page === "simulation"}
