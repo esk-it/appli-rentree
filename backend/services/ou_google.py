@@ -31,6 +31,8 @@ prévenir. Le nettoyage reste un geste manuel, après vérification.
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
@@ -43,6 +45,8 @@ class RenommageOU:
     ancien: str
     nouveau: str
     nb_sous_ou: int
+    utile: bool = True
+    """Faux si aucune OU attendue ne se trouve sous le nouveau chemin."""
     """Classes emportées par le renommage — elles suivent leur parent."""
 
 
@@ -50,6 +54,9 @@ class RenommageOU:
 class RapportConformiteOU:
     ou_attendues: list[str] = field(default_factory=list)
     ou_existantes: list[str] = field(default_factory=list)
+    annees_table: list[str] = field(default_factory=list)
+    """Années lues dans les chemins de la Table. Si l'année visée n'y figure
+    pas, c'est la Table qui n'a pas été tournée — pas Google qui a du retard."""
 
     renommages: list[RenommageOU] = field(default_factory=list)
     a_creer: list[str] = field(default_factory=list)
@@ -111,6 +118,21 @@ def analyser_conformite(
         )
         return rapport
 
+    # Années réellement déclarées par la Table. Un renommage vers une année
+    # qu'elle ignore ne rapproche aucune OU attendue : il déplace un arbre
+    # vers un nom que rien ne réclame.
+    rapport.annees_table = sorted(
+        {a for o in attendues for a in re.findall(r"(?<!\d)(\d{4})(?!\d)", o)}
+    )
+    if annee_cible and rapport.annees_table and annee_cible not in rapport.annees_table:
+        rapport.avertissements.append(
+            f"La Table déclare ses OU sous {', '.join(rapport.annees_table)}, "
+            f"or l'année visée est {annee_cible} : aucune OU attendue ne se "
+            "trouvera sous ce nom. Faire tourner la Table de correspondance "
+            "avant d'appliquer — sinon le renommage déplace un arbre que rien "
+            "ne réclame, et les créations garnissent l'année en cours."
+        )
+
     # Après renommage, ces chemins seront disponibles sans rien créer.
     apres_renommage = set(existantes)
     if autoriser_renommage and annee_source and annee_cible:
@@ -138,6 +160,11 @@ def analyser_conformite(
             apres_renommage.add(nouveau_chemin)
             for e in enfants:
                 apres_renommage.add(e.replace(racine, nouveau_chemin, 1))
+
+    for r in rapport.renommages:
+        r.utile = any(
+            a == r.nouveau or a.startswith(r.nouveau + "/") for a in attendues
+        )
 
     manquantes = attendues - apres_renommage
     rapport.a_creer = _ordonner_par_profondeur(_avec_parents(manquantes, apres_renommage))

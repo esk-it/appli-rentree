@@ -132,3 +132,58 @@ def test_table_vide_est_signalee(session, site_factory):
     r = analyser_conformite(session, ["/3. NDK"])
     assert r.a_creer == []
     assert any("aucune OU" in a for a in r.avertissements)
+
+
+def _table_2026(session, site_factory):
+    from backend.models import TableCorrespondance
+
+    site = site_factory("NDK")
+    session.add(
+        TableCorrespondance(
+            site_id=site.id, classe_charlemagne_long="SECONDE 1",
+            classe_code_court="2_1",
+            ou_pre_rentree="/3. NDK/NDK2026",
+            ou_definitive="/3. NDK/NDK2026/2_1",
+        )
+    )
+    session.commit()
+    return site
+
+
+def test_annee_visee_absente_de_la_table_est_signalee(session, site_factory):
+    """Le cas réel : viser 2027 alors que la Table déclare encore 2026.
+
+    Sans avertissement, le renommage déplace un arbre que rien ne réclame et
+    les créations garnissent l'année en cours — silencieusement.
+    """
+    from backend.services.ou_google import analyser_conformite
+
+    _table_2026(session, site_factory)
+    r = analyser_conformite(
+        session,
+        ["/3. NDK", "/3. NDK/NDK2025", "/3. NDK/NDK2025/T_G1"],
+        annee_source="2025", annee_cible="2027",
+    )
+
+    assert r.annees_table == ["2026"]
+    assert any("Faire tourner la Table" in a for a in r.avertissements)
+    assert all(not x.utile for x in r.renommages), (
+        "un renommage vers 2027 ne rapproche aucune OU attendue en 2026"
+    )
+
+
+def test_annee_visee_coherente_ne_declenche_rien(session, site_factory):
+    """Le pendant : quand la Table a été tournée, le renommage sert."""
+    from backend.services.ou_google import analyser_conformite
+
+    _table_2026(session, site_factory)
+    r = analyser_conformite(
+        session,
+        ["/3. NDK", "/3. NDK/NDK2025", "/3. NDK/NDK2025/2_1"],
+        annee_source="2025", annee_cible="2026",
+    )
+
+    assert r.avertissements == []
+    assert [x.utile for x in r.renommages] == [True]
+    assert r.a_creer == [], "le renommage suffit à couvrir les deux OU attendues"
+    assert not r.est_conforme, "un renommage reste une action à mener"

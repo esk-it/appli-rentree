@@ -651,6 +651,7 @@ class RenommageOut(BaseModel):
     ancien: str
     nouveau: str
     nb_sous_ou: int
+    utile: bool = True
 
 
 class ConformiteOUOut(BaseModel):
@@ -659,6 +660,7 @@ class ConformiteOUOut(BaseModel):
     nb_a_creer: int
     nb_deja_conformes: int
     est_conforme: bool
+    annees_table: list[str] = []
     renommages: list[RenommageOut]
     a_creer: list[str]
     avertissements: list[str]
@@ -702,6 +704,7 @@ def conformite_ou(
         nb_a_creer=r.nb_a_creer,
         nb_deja_conformes=len(r.deja_conformes),
         est_conforme=r.est_conforme,
+        annees_table=r.annees_table,
         renommages=[RenommageOut(**vars(x)) for x in r.renommages],
         a_creer=r.a_creer,
         avertissements=r.avertissements,

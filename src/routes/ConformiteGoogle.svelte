@@ -100,6 +100,17 @@
   let chargeGrp = $state(false);
   let retirerMembres = $state(true);
 
+  // Deux avertissements ont leur propre encadré, plus lisible que la liste :
+  // les répéter en dessous ferait douter qu'il s'agit du même. Le repère est
+  // une portion de phrase, que les tests du service figent.
+  let avertissementsRestants = $derived(
+    (diffGroupes?.avertissements ?? []).filter(
+      (a) =>
+        !a.startsWith("Aucun élève pour l'année préparée") &&
+        !a.includes("n'existent pas dans Google"),
+    ),
+  );
+
   async function analyserGroupes() {
     if (!anneeId) return;
     chargeGrp = true;
@@ -234,7 +245,11 @@
           </label>
           <Bouton icon={Search} occupe={chargeOu} onclick={analyserOu}>Analyser</Bouton>
           {#if confOu && !confOu.est_conforme}
-            <Bouton variante="primary" occupe={chargeOu} onclick={appliquerOu}>
+            <Bouton
+              variante={confOu.avertissements.length ? "secondary" : "primary"}
+              occupe={chargeOu}
+              onclick={appliquerOu}
+            >
               Appliquer
             </Bouton>
           {/if}
@@ -255,12 +270,19 @@
               </p>
             {/if}
             {#each confOu.avertissements as a}
-              <p class="mt-2 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">{a}</p>
+              <p class="mt-2 rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+                {a}
+              </p>
             {/each}
             {#each confOu.renommages as r}
-              <p class="mt-2 font-mono text-xs">
+              <p class="mt-2 font-mono text-xs {r.utile ? '' : 'text-stone-400 line-through dark:text-stone-500'}">
                 {r.ancien} → {r.nouveau}
                 <span class="text-stone-500">({r.nb_sous_ou} classes suivent)</span>
+                {#if !r.utile}
+                  <span class="ml-1 font-sans no-underline text-amber-700 dark:text-amber-400">
+                    ne rapproche aucune OU attendue
+                  </span>
+                {/if}
               </p>
             {/each}
             {#if confOu.a_creer.length}
@@ -409,7 +431,7 @@
               </ul>
             </div>
           {/if}
-          {#each diffGroupes.avertissements as a}
+          {#each avertissementsRestants as a}
             <p class="rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">{a}</p>
           {/each}
           <div class="max-h-96 overflow-auto">
