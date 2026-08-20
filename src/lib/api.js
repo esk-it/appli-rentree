@@ -424,6 +424,24 @@ export const googleApi = {
     if (siteId) q.set("site_id", String(siteId));
     return jsonOrThrow(await fetch(`${BASE}/google/groupes/diff?${q}`));
   },
+  /** Groupes déclarés dans la Table que Google ne connaît pas. */
+  async groupesACreer({ anneeId, siteId = null }) {
+    const q = new URLSearchParams({ annee_id: String(anneeId) });
+    if (siteId) q.set("site_id", String(siteId));
+    return jsonOrThrow(await fetch(`${BASE}/google/groupes/a-creer?${q}`));
+  },
+  async creerGroupes({ anneeId, siteId = null, adresses = null, seulementUtiles = false }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/groupes/creer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annee_id: anneeId, site_id: siteId, adresses,
+          seulement_utiles: seulementUtiles, confirmation: true,
+        }),
+      }),
+    );
+  },
   async synchroniserGroupes({ anneeId, siteId = null, retirer = true }) {
     return jsonOrThrow(
       await fetch(`${BASE}/google/groupes/synchroniser`, {

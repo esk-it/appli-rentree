@@ -398,6 +398,16 @@
           signale en rouge. Ce n'est pas une classe qui a fermé : c'est un
           export Charlemagne qui n'a pas été chargé.
         </p>
+        <p>
+          Les groupes absents peuvent être <strong>créés</strong> depuis cet
+          écran. C'est un geste distinct de la synchronisation : créer un
+          groupe fait naître une adresse de messagerie, ajouter un membre
+          n'en crée aucune. Par défaut seuls ceux qui débloquent réellement
+          des élèves sont proposés — une classe sans effectif cette année
+          n'a pas besoin de sa liste tout de suite, et quinze listes vides
+          encombreraient la console sans rien résoudre. Aucun groupe n'est
+          jamais supprimé par le programme.
+        </p>
 
       {:else if sectionActive === "ordre_koxo_google"}
         <h2>KoXo d'abord, Google ensuite</h2>

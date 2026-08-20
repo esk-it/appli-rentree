@@ -127,6 +127,37 @@
     }
   }
 
+  let creations = $state(/** @type {any} */ (null));
+  // Une classe sans effectif cette année n'a pas besoin de sa liste tout de
+  // suite : créer quinze listes vides encombre la console sans rien débloquer.
+  let seulementUtiles = $state(true);
+
+  async function preparerCreations() {
+    if (!anneeId) return;
+    chargeGrp = true;
+    try {
+      creations = await googleApi.groupesACreer({ anneeId });
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
+    } finally {
+      chargeGrp = false;
+    }
+  }
+
+  async function creerGroupes() {
+    chargeGrp = true;
+    try {
+      job = await googleApi.creerGroupes({ anneeId, seulementUtiles });
+      creations = null;
+      diffGroupes = null;
+      sonder();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
+    } finally {
+      chargeGrp = false;
+    }
+  }
+
   async function synchroniserGroupes() {
     chargeGrp = true;
     try {
@@ -444,9 +475,55 @@
                 qui leur étaient destinés sont retenus : à créer dans la console
                 Google, ou à corriger dans la Table de correspondance.
               </p>
-              <ul class="mt-2 max-h-40 overflow-auto font-mono text-xs text-amber-900 dark:text-amber-200">
-                {#each diffGroupes.groupes_absents as g}<li>{g}</li>{/each}
-              </ul>
+              {#if creations}
+                <div class="mt-2 max-h-48 overflow-auto rounded bg-white/60 p-2 dark:bg-stone-900/40">
+                  <table class="w-full text-xs">
+                    <tbody>
+                      {#each creations.groupes as g (g.adresse)}
+                        <tr>
+                          <td class="py-0.5 pr-3 font-mono">{g.adresse}</td>
+                          <td class="py-0.5 pr-3">{g.nom}</td>
+                          <td class="py-0.5 text-right tabular-nums text-stone-600 dark:text-stone-400">
+                            {g.nb_membres_attendus} membre(s)
+                          </td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+                <p class="mt-2 text-xs text-amber-800 dark:text-amber-300">
+                  Le nom vient du libellé long de la Table — <code>2_1</code> ne
+                  dit rien dans la console Google. Créer un groupe fait naître
+                  une adresse de messagerie : rien n'est supprimé, jamais.
+                </p>
+              {:else}
+                <ul class="mt-2 max-h-40 overflow-auto font-mono text-xs text-amber-900 dark:text-amber-200">
+                  {#each diffGroupes.groupes_absents as g}<li>{g}</li>{/each}
+                </ul>
+              {/if}
+
+              <div class="mt-3 flex flex-wrap gap-2">
+                {#if !creations}
+                  <Bouton taille="sm" icon={Search} occupe={chargeGrp} onclick={preparerCreations}>
+                    Préparer la création
+                  </Bouton>
+                {:else}
+                  <label class="flex items-center gap-2 text-xs text-amber-900 dark:text-amber-200">
+                    <input type="checkbox" bind:checked={seulementUtiles} class="rounded" />
+                    Seulement ceux qui débloquent des élèves
+                    ({creations.nb_utiles} sur {creations.nb_a_creer})
+                  </label>
+                  <Bouton
+                    taille="sm"
+                    variante="primary"
+                    occupe={chargeGrp}
+                    onclick={creerGroupes}
+                  >
+                    Créer {seulementUtiles ? creations.nb_utiles : creations.nb_a_creer} groupe(s)
+                  </Bouton>
+                  <Bouton taille="sm" onclick={() => (creations = null)}>Annuler</Bouton>
+                {/if}
+              </div>
             </div>
           {/if}
           {#each avertissementsRestants as a}

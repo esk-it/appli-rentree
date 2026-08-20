@@ -193,3 +193,105 @@ def test_site_entier_sans_eleve_est_signale(
     assert r.sites_sans_eleve == ["NDE"]
     assert "NDK" not in r.sites_sans_eleve
     assert any("Aucun élève pour l'année préparée" in a for a in r.avertissements)
+
+
+def test_groupes_a_creer_porte_de_quoi_les_creer(session, contexte):
+    """`2_1` ne dit rien dans la console Google : le nom vient du libellé long."""
+    from backend.services.groupes_google import (
+        calculer_diff_groupes,
+        groupes_a_creer,
+    )
+
+    contexte["eleve"]("DUPONT", "Jean", "jdupont")
+    r = calculer_diff_groupes(
+        session, {"2nde-1@lekreisker.fr": None}, annee_id=contexte["annee"].id
+    )
+    creations = groupes_a_creer(session, r)
+
+    assert len(creations) == 1
+    c = creations[0]
+    assert c.adresse == "2nde-1@lekreisker.fr"
+    assert c.nom == "SECONDE 1 (NDK)"
+    assert "2026-2027" in c.description
+    assert c.nb_membres_attendus == 1, "les ajouts retenus reprendront après création"
+
+
+def test_aucun_groupe_a_creer_quand_tout_existe(session, contexte):
+    from backend.services.groupes_google import (
+        calculer_diff_groupes,
+        groupes_a_creer,
+    )
+
+    contexte["eleve"]("DUPONT", "Jean", "jdupont")
+    r = calculer_diff_groupes(
+        session, {"2nde-1@lekreisker.fr": []}, annee_id=contexte["annee"].id
+    )
+    assert groupes_a_creer(session, r) == []
+
+
+def test_libelle_partage_est_desambigue_par_le_code(session, contexte):
+    """`term-g5a` et `term-g5b` portent le même libellé long dans la Table.
+
+    Leur donner le même nom rendrait la console Google illisible, alors que
+    ce sont deux listes distinctes.
+    """
+    from backend.models import TableCorrespondance
+    from backend.services.groupes_google import (
+        calculer_diff_groupes,
+        groupes_a_creer,
+    )
+
+    site = contexte["site"]
+    for court, adresse in (("T_G5A", "term-g5a@lekreisker.fr"),
+                           ("T_G5B", "term-g5b@lekreisker.fr")):
+        session.add(
+            TableCorrespondance(
+                site_id=site.id, classe_charlemagne_long="TERMINALE G5",
+                classe_code_court=court, groupe_google=adresse,
+                ou_pre_rentree="/3. NDK/NDK2027",
+                ou_definitive=f"/3. NDK/NDK2027/{court}",
+            )
+        )
+    session.commit()
+
+    r = calculer_diff_groupes(
+        session,
+        {"term-g5a@lekreisker.fr": None, "term-g5b@lekreisker.fr": None,
+         "2nde-1@lekreisker.fr": []},
+        annee_id=contexte["annee"].id,
+    )
+    noms = {c.adresse: c.nom for c in groupes_a_creer(session, r)}
+
+    assert noms["term-g5a@lekreisker.fr"] == "TERMINALE G5 (NDK) — T_G5A"
+    assert noms["term-g5b@lekreisker.fr"] == "TERMINALE G5 (NDK) — T_G5B"
+    assert len(set(noms.values())) == 2
+
+
+def test_les_groupes_utiles_passent_devant(session, contexte):
+    """Celui dont l'absence coûte quelque chose aujourd'hui vient en premier."""
+    from backend.models import TableCorrespondance
+    from backend.services.groupes_google import (
+        calculer_diff_groupes,
+        groupes_a_creer,
+    )
+
+    session.add(
+        TableCorrespondance(
+            site_id=contexte["site"].id, classe_charlemagne_long="SECONDE 9",
+            classe_code_court="2_9", groupe_google="2nde-9@lekreisker.fr",
+            ou_pre_rentree="/3. NDK/NDK2027", ou_definitive="/3. NDK/NDK2027/2_9",
+        )
+    )
+    session.commit()
+    contexte["eleve"]("DUPONT", "Jean", "jdupont")  # classe 2_1
+
+    r = calculer_diff_groupes(
+        session,
+        {"2nde-1@lekreisker.fr": None, "2nde-9@lekreisker.fr": None},
+        annee_id=contexte["annee"].id,
+    )
+    creations = groupes_a_creer(session, r)
+
+    assert creations[0].adresse == "2nde-1@lekreisker.fr"
+    assert creations[0].nb_membres_attendus == 1
+    assert creations[1].nb_membres_attendus == 0

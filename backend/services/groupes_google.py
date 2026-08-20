@@ -82,6 +82,16 @@ class DiffGroupe:
 
 
 @dataclass
+class GroupeACreer:
+    adresse: str
+    nom: str
+    description: str
+    classe: str
+    site: str | None
+    nb_membres_attendus: int
+
+
+@dataclass
 class RapportGroupes:
     annee_libelle: str
     diffs: list[DiffGroupe] = field(default_factory=list)
@@ -109,6 +119,65 @@ class RapportGroupes:
     def nb_retenus(self) -> int:
         """Ajouts empêchés par l'absence du groupe dans Google."""
         return sum(len(d.retenus) for d in self.diffs)
+
+
+def groupes_a_creer(session: Session, rapport: RapportGroupes) -> list[GroupeACreer]:
+    """Les groupes absents de Google, avec de quoi les créer.
+
+    Le nom vient du libellé long de la Table : c'est ce qui s'affichera dans
+    la console Google, où `2_1` ne dit rien à personne. La description note
+    l'origine, pour qu'un administrateur qui tombe dessus dans trois ans sache
+    d'où le groupe vient.
+
+    Deux classes partagent parfois un libellé long — `TERMINALE G5` pour les
+    groupes `term-g5a` et `term-g5b`. Leur donner le même nom rendrait la
+    console illisible, alors que ce sont deux listes distinctes : le code
+    court les départage dans ce cas, et dans ce cas seulement.
+    """
+    if not rapport.groupes_absents:
+        return []
+
+    libelles: dict[str, tuple[str, str | None, str]] = {}
+    sites = {s.id: s.nom for s in session.query(Site).all()}
+    for tc in session.query(TableCorrespondance).all():
+        adresse = (tc.groupe_google or "").strip().lower()
+        if adresse:
+            libelles[adresse] = (
+                tc.classe_charlemagne_long or tc.classe_code_court,
+                sites.get(tc.site_id),
+                tc.classe_code_court,
+            )
+
+    # Un nom revendiqué par plusieurs classes doit être désambiguïsé.
+    comptes: dict[tuple[str, str | None], int] = {}
+    for libelle, site, _ in libelles.values():
+        comptes[(libelle, site)] = comptes.get((libelle, site), 0) + 1
+
+    par_adresse = {d.groupe: d for d in rapport.diffs}
+    creations: list[GroupeACreer] = []
+    for adresse in rapport.groupes_absents:
+        libelle, site, code = libelles.get(adresse, (adresse, None, "?"))
+        nom = f"{libelle} ({site})" if site else libelle
+        if comptes.get((libelle, site), 0) > 1:
+            nom = f"{nom} — {code}"
+        d = par_adresse.get(adresse)
+        creations.append(
+            GroupeACreer(
+                adresse=adresse,
+                nom=nom,
+                description=(
+                    f"Groupe de la classe {d.classe if d else '?'} — "
+                    f"{rapport.annee_libelle}. Créé par Appli Rentrée."
+                ),
+                classe=d.classe if d else "?",
+                site=site,
+                nb_membres_attendus=len(d.retenus) if d else 0,
+            )
+        )
+    # Un groupe qui débloque des élèves passe devant : c'est celui dont
+    # l'absence coûte quelque chose aujourd'hui.
+    creations.sort(key=lambda c: (-c.nb_membres_attendus, c.adresse))
+    return creations
 
 
 def calculer_diff_groupes(

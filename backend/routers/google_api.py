@@ -1012,3 +1012,106 @@ def synchroniser_groupes(
 
     lancer_en_tache_de_fond(job, operations, appliquer=appliquer)
     return _job_vers_out(job)
+
+
+class GroupeACreerOut(BaseModel):
+    adresse: str
+    nom: str
+    description: str
+    classe: str
+    site: str | None
+    nb_membres_attendus: int
+
+
+class CreationsGroupesOut(BaseModel):
+    nb_a_creer: int
+    nb_utiles: int
+    """Groupes dont l'absence bloque effectivement des élèves aujourd'hui."""
+    nb_membres_bloques: int
+    groupes: list[GroupeACreerOut]
+
+
+@router.get("/groupes/a-creer", response_model=CreationsGroupesOut)
+def lister_groupes_a_creer(
+    annee_id: int = Query(...),
+    site_id: int | None = Query(None),
+    session: Session = Depends(db_session),
+) -> CreationsGroupesOut:
+    """Les groupes déclarés dans la Table que Google ne connaît pas.
+
+    Lecture seule. Tant qu'ils manquent, la composition de leurs classes ne
+    peut pas être synchronisée : les ajouts échoueraient un par un.
+    """
+    from backend.services.groupes_google import groupes_a_creer
+
+    _, r = _diff_groupes(session, annee_id, site_id)
+    creations = groupes_a_creer(session, r)
+    return CreationsGroupesOut(
+        nb_a_creer=len(creations),
+        nb_utiles=sum(1 for c in creations if c.nb_membres_attendus),
+        nb_membres_bloques=r.nb_retenus,
+        groupes=[GroupeACreerOut(**vars(c)) for c in creations],
+    )
+
+
+class CreerGroupesPayload(BaseModel):
+    annee_id: int
+    site_id: int | None = None
+    adresses: list[str] | None = None
+    """Restreint aux adresses citées. `None` = tous ceux qui manquent."""
+    seulement_utiles: bool = False
+    """À vrai, ne crée que les groupes qui débloquent des élèves. Une classe
+    sans effectif cette année n'a pas besoin de sa liste tout de suite."""
+    confirmation: bool = False
+
+
+@router.post("/groupes/creer", response_model=JobOut)
+def creer_groupes(
+    payload: CreerGroupesPayload, session: Session = Depends(db_session)
+) -> JobOut:
+    """Crée les groupes manquants. Geste distinct de la synchronisation.
+
+    Créer un groupe fait naître une adresse de messagerie ; ajouter un
+    membre n'en crée aucune. Les deux ne méritent pas la même confirmation.
+    Aucun groupe n'est jamais supprimé par le programme.
+    """
+    if not payload.confirmation:
+        raise HTTPException(400, "Confirmation requise.")
+
+    from backend.services.groupes_google import groupes_a_creer
+
+    client, r = _diff_groupes(session, payload.annee_id, payload.site_id)
+    creations = groupes_a_creer(session, r)
+    if payload.seulement_utiles:
+        creations = [c for c in creations if c.nb_membres_attendus]
+    if payload.adresses is not None:
+        voulues = {a.strip().lower() for a in payload.adresses}
+        creations = [c for c in creations if c.adresse in voulues]
+    if not creations:
+        raise HTTPException(400, "Aucun groupe à créer.")
+
+    class _Creation:
+        def __init__(self, c):
+            self.groupe = c.adresse
+            self.email = c.adresse
+            self.nom = c.nom
+            self.description = c.description
+            self.libelle = f"Créer {c.adresse} — {c.nom}"
+            self.personne_id = None
+            self.ou_visee = None
+
+    operations = [_Creation(c) for c in creations]
+
+    from backend.services.jobs_google import creer_job, lancer_en_tache_de_fond
+
+    job = creer_job(
+        phase="groupes",
+        libelle=f"Création de {len(operations)} groupe(s)",
+        operations=operations,
+    )
+
+    def appliquer(o) -> None:
+        client.creer_groupe(o.groupe, o.nom, o.description)
+
+    lancer_en_tache_de_fond(job, operations, appliquer=appliquer)
+    return _job_vers_out(job)

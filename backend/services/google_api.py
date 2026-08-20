@@ -625,6 +625,19 @@ class ClientGoogle:
                 break
         return membres
 
+    def creer_groupe(self, adresse: str, nom: str, description: str = "") -> None:
+        """Crée un groupe. Échoue si l'adresse est déjà prise.
+
+        Une adresse de groupe déclarée dans la Table mais absente de Google
+        bloque toute la composition de sa classe : les ajouts échouent un par
+        un, sans que rien ne l'ait annoncé. Créer le groupe lève ce blocage —
+        mais reste un geste distinct de la synchronisation, parce qu'il fait
+        naître une adresse de messagerie, ce qu'ajouter un membre ne fait pas.
+        """
+        self._service.groups().insert(
+            body={"email": adresse, "name": nom, "description": description}
+        ).execute()
+
     def ajouter_membre(self, groupe: str, email: str) -> None:
         self._service.members().insert(
             groupKey=groupe, body=payload_membre_groupe(email=email)
