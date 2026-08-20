@@ -135,6 +135,10 @@
   // Page courante (très simple pour l'instant — on basculera sur svelte-spa-router quand on aura plus de routes)
   let page = $state("accueil");
 
+  // Une intention formulée dans un écran et honorée dans un autre : la
+  // Conformité constate le décalage d'année, la Table le corrige.
+  let rotationDemandee = $state(/** @type {any} */ (null));
+
   // Compteur d'arbitrages en attente — sert de badge dans la sidebar
   let nbArbitragesEnAttente = $state(0);
 
@@ -452,7 +456,7 @@
         {:else if page === "sites"}
           <Sites />
         {:else if page === "table_correspondance"}
-          <TableCorrespondance />
+          <TableCorrespondance rotationInitiale={rotationDemandee} />
         {:else if page === "amorcage"}
           <Amorcage />
         {:else if page === "snapshots"}
@@ -466,7 +470,12 @@
         {:else if page === "sortants"}
           <Sortants />
         {:else if page === "conformite_google"}
-          <ConformiteGoogle />
+          <ConformiteGoogle
+            onRotationTable={(a) => {
+              rotationDemandee = a;
+              page = "table_correspondance";
+            }}
+          />
         {:else if page === "arbitrage"}
           <Arbitrage />
         {:else if page === "simulation"}

@@ -165,3 +165,51 @@ def test_api_refuse_un_fragment_vide(client, table):
         json={"chercher": "", "remplacer": "2027"},
     )
     assert r.status_code == 422
+
+
+def test_fragment_noye_dans_un_nombre_est_signale(session, site_factory):
+    """`2026` apparaît aussi dans `SALLE12026`.
+
+    Le service ne refuse pas — le fragment reste libre — mais il compte les
+    occurrences prises dans une suite de chiffres plus longue, sans quoi le
+    sens d'un chemin changerait sans que personne ne l'ait voulu.
+    """
+    from backend.models import TableCorrespondance
+    from backend.services.rotation_ou import renommer_dans_les_ou
+
+    site = site_factory("NDK")
+    session.add(
+        TableCorrespondance(
+            site_id=site.id, classe_charlemagne_long="SECONDE 1",
+            classe_code_court="2_1",
+            ou_pre_rentree="/3. NDK/SALLE12026",
+            ou_definitive="/3. NDK/NDK2026/2_1",
+        )
+    )
+    session.commit()
+
+    r = renommer_dans_les_ou(session, chercher="2026", remplacer="2027")
+
+    assert r.nb_dans_un_nombre == 1
+    assert any("suite de chiffres" in a for a in r.avertissements)
+
+
+def test_aucun_fragment_noye_ne_declenche_rien(session, site_factory):
+    from backend.models import TableCorrespondance
+    from backend.services.rotation_ou import renommer_dans_les_ou
+
+    site = site_factory("NDK")
+    session.add(
+        TableCorrespondance(
+            site_id=site.id, classe_charlemagne_long="SECONDE 1",
+            classe_code_court="2_1",
+            ou_pre_rentree="/3. NDK/NDK2026",
+            ou_definitive="/3. NDK/NDK2026/2_1",
+        )
+    )
+    session.commit()
+
+    r = renommer_dans_les_ou(session, chercher="2026", remplacer="2027")
+
+    assert r.nb_dans_un_nombre == 0
+    assert not any("suite de chiffres" in a for a in r.avertissements)

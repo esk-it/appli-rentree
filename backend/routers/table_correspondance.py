@@ -255,6 +255,7 @@ class RotationOut(BaseModel):
     nb_lignes_examinees: int
     nb_lignes_modifiees: int
     nb_inchangees: int
+    nb_dans_un_nombre: int = 0
     avertissements: list[str]
     lignes: list[LigneRenommeeOut]
 
@@ -292,6 +293,7 @@ def rotation_ou(
         nb_lignes_examinees=r.nb_lignes_examinees,
         nb_lignes_modifiees=r.nb_lignes_modifiees,
         nb_inchangees=r.nb_inchangees,
+        nb_dans_un_nombre=r.nb_dans_un_nombre,
         avertissements=r.avertissements,
         lignes=[LigneRenommeeOut(**vars(l)) for l in r.lignes],
     )

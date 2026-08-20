@@ -8,12 +8,16 @@
   import X from "@lucide/svelte/icons/x";
   import Loader from "@lucide/svelte/icons/loader-2";
   import Search from "@lucide/svelte/icons/search";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
   import Segments from "$lib/components/Segments.svelte";
   import { annees, googleApi, sites } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+
+  /** @type {{ onRotationTable?: (a: {chercher: string, remplacer: string}) => void }} */
+  let { onRotationTable = null } = $props();
 
   let statutApi = $state(/** @type {any} */ (null));
   let listeAnnees = $state(/** @type {any[]} */ ([]));
@@ -274,6 +278,20 @@
                 {a}
               </p>
             {/each}
+            {#if onRotationTable && confOu.annees_table.length === 1 && anneeCible && confOu.annees_table[0] !== anneeCible}
+              <Bouton
+                taille="sm"
+                icon={RefreshCw}
+                classe="mt-2"
+                onclick={() =>
+                  onRotationTable({
+                    chercher: confOu.annees_table[0],
+                    remplacer: anneeCible,
+                  })}
+              >
+                Tourner la Table de {confOu.annees_table[0]} vers {anneeCible}
+              </Bouton>
+            {/if}
             {#each confOu.renommages as r}
               <p class="mt-2 font-mono text-xs {r.utile ? '' : 'text-stone-400 line-through dark:text-stone-500'}">
                 {r.ancien} → {r.nouveau}

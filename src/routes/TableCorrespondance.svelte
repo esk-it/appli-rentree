@@ -29,6 +29,14 @@
   // Table doit viser l'arbre suivant. Le faire ligne à ligne sur 87 classes
   // est une source d'erreur invisible — les deux chemins sont également
   // valides pour le programme.
+  /**
+   * Rotation demandée par un autre écran. La Conformité Google est l'endroit
+   * où le décalage se constate ; le corriger est ici. Faire traverser
+   * l'intention évite à l'utilisateur de retenir deux millésimes en chemin.
+   * @type {{ chercher: string, remplacer: string } | null}
+   */
+  let { rotationInitiale = null } = $props();
+
   let rotationOuverte = $state(false);
   let rotChercher = $state("");
   let rotRemplacer = $state("");
@@ -65,6 +73,21 @@
       rotationEnCours = false;
     }
   }
+
+  // L'intention arrive avec l'écran, et ne vaut qu'une fois : la relire à
+  // chaque passage rouvrirait la modale que l'utilisateur vient de fermer.
+  // On retient l'objet honoré — l'appelant en construit un neuf à chaque
+  // demande, si bien qu'un second clic rouvre bien la modale.
+  let intentionHonoree = $state(/** @type {any} */ (null));
+  $effect(() => {
+    if (rotationInitiale && rotationInitiale !== intentionHonoree) {
+      intentionHonoree = rotationInitiale;
+      rotChercher = rotationInitiale.chercher;
+      rotRemplacer = rotationInitiale.remplacer;
+      rapportRotation = null;
+      rotationOuverte = true;
+    }
+  });
 
   // Import XLSX
   let panneauImportOuvert = $state(false);

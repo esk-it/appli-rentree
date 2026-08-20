@@ -23,6 +23,15 @@ les deux chemins sont également valides à ses yeux.
 Le remplacement ne porte que sur les **chemins d'OU**. Les adresses de
 groupes ne contiennent pas d'année et ne doivent pas bouger.
 
+## Un fragment peut se cacher dans un nombre plus long
+
+`2026` apparaît aussi dans `SALLE12026`. Remplacer par sous-chaîne y
+changerait le sens du chemin sans que personne ne l'ait voulu, et l'erreur
+ne se manifesterait qu'à la bascule, sur une classe. Le service ne refuse
+pas ces cas — le fragment reste libre, c'est ce qui permet de viser
+`NDK2026` plutôt que `2026` — mais il les compte et les signale, pour que
+la décision soit prise en connaissance de cause.
+
 ## Simulation d'abord
 
 Comme partout ailleurs : le rapport décrit ce qui changerait, ligne par
@@ -30,6 +39,7 @@ ligne, avant que quoi que ce soit ne soit écrit.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
@@ -59,6 +69,8 @@ class RapportRotation:
 
     nb_lignes_examinees: int = 0
     nb_lignes_modifiees: int = 0
+    nb_dans_un_nombre: int = 0
+    """Occurrences trouvées à l'intérieur d'une suite de chiffres plus longue."""
     lignes: list[LigneRenommee] = field(default_factory=list)
     avertissements: list[str] = field(default_factory=list)
 
@@ -100,10 +112,14 @@ def renommer_dans_les_ou(
     if site_id is not None:
         q = q.filter(TableCorrespondance.site_id == site_id)
 
+    # Une occurrence encadrée de chiffres n'est pas le millésime qu'on croit.
+    noye = re.compile(r"\d" + re.escape(chercher) + r"|" + re.escape(chercher) + r"\d")
+
     for tc in q.order_by(TableCorrespondance.classe_code_court).all():
         rapport.nb_lignes_examinees += 1
         pre = tc.ou_pre_rentree or ""
         deff = tc.ou_definitive or ""
+        rapport.nb_dans_un_nombre += len(noye.findall(pre)) + len(noye.findall(deff))
         nouveau_pre = pre.replace(chercher, remplacer)
         nouveau_def = deff.replace(chercher, remplacer)
         if nouveau_pre == pre and nouveau_def == deff:
@@ -124,6 +140,14 @@ def renommer_dans_les_ou(
         if mode == "reel":
             tc.ou_pre_rentree = nouveau_pre
             tc.ou_definitive = nouveau_def
+
+    if rapport.nb_dans_un_nombre:
+        rapport.avertissements.append(
+            f"{rapport.nb_dans_un_nombre} occurrence(s) de {chercher!r} sont "
+            "prises dans une suite de chiffres plus longue et seront remplacées "
+            "elles aussi. Vérifie l'aperçu ligne par ligne : ce n'est "
+            "probablement pas un millésime."
+        )
 
     # Une ligne épargnée n'est pas anodine : elle enverra sa classe dans
     # l'arbre de l'an dernier, sans que rien ne le signale ensuite.
