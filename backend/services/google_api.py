@@ -453,6 +453,42 @@ class ResultatExecution:
         return self.nb_echecs == 0
 
 
+# Codes que Google renvoie quand il est momentanément indisponible ou qu'on
+# le sollicite trop vite. Ils n'indiquent aucune erreur de notre part et
+# disparaissent d'eux-mêmes ; abandonner un relevé de 2700 comptes pour l'un
+# d'eux serait une perte sèche.
+CODES_PASSAGERS = frozenset({403, 429, 500, 502, 503, 504})
+TENTATIVES = 5
+
+
+def _est_passager(erreur: Exception) -> bool:
+    statut = getattr(getattr(erreur, "resp", None), "status", None)
+    try:
+        return int(statut) in CODES_PASSAGERS
+    except (TypeError, ValueError):
+        return False
+
+
+def reessayer(appel, *, tentatives: int = TENTATIVES, pause=None):
+    """Rejoue `appel` tant que Google répond par une indisponibilité.
+
+    L'attente double à chaque essai. Une erreur qui n'est pas passagère —
+    une OU absente, un droit manquant — remonte immédiatement : la
+    réessayer ne ferait que retarder le diagnostic.
+    """
+    import time
+
+    attente = 2.0
+    for essai in range(tentatives):
+        try:
+            return appel()
+        except Exception as e:
+            if essai == tentatives - 1 or not _est_passager(e):
+                raise
+            (pause or time.sleep)(attente)
+            attente *= 2
+
+
 class ClientGoogle:
     """Client Admin SDK Directory.
 
@@ -536,8 +572,8 @@ class ClientGoogle:
         utilisateurs: list[dict] = []
         jeton = None
         while True:
-            reponse = (
-                self._service.users()
+            reponse = reessayer(
+                lambda: self._service.users()
                 .list(
                     customer="my_customer",
                     maxResults=500,
@@ -611,8 +647,8 @@ class ClientGoogle:
         membres: list[str] = []
         jeton = None
         while True:
-            rep = (
-                self._service.members()
+            rep = reessayer(
+                lambda: self._service.members()
                 .list(groupKey=groupe, maxResults=200, pageToken=jeton)
                 .execute()
             )

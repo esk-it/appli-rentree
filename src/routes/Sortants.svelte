@@ -44,6 +44,12 @@
   // personne ne la vide, ses comptes restent actifs — et l'arbre ne peut pas
   // être recyclé pour la rentrée suivante.
   let ouAVider = $state("");
+  // La destination est nommée, pas calculée : l'établissement range ses
+  // sortants dans des OU qui existent déjà et qu'il a datées lui-même.
+  let ouArchivage = $state("");
+  // Un compte de sortie reste consultable. Couper l'accès est une décision
+  // à part, qui ne doit jamais être le comportement par défaut.
+  let suspendreAussi = $state(false);
   let planVidange = $state(/** @type {any} */ (null));
   let vidangeEnCours = $state(false);
   let confirmationVidange = $state(false);
@@ -53,7 +59,11 @@
     vidangeEnCours = true;
     planVidange = null;
     try {
-      planVidange = await googleApi.planVidange({ ou: ouAVider.trim() });
+      planVidange = await googleApi.planVidange({
+        ou: ouAVider.trim(),
+        ouArchivage: ouArchivage.trim() || null,
+        suspendre: suspendreAussi,
+      });
     } catch (e) {
       notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
     } finally {
@@ -64,7 +74,11 @@
   async function appliquerVidange() {
     vidangeEnCours = true;
     try {
-      job = await googleApi.lancerVidange({ ou: ouAVider.trim() });
+      job = await googleApi.lancerVidange({
+        ou: ouAVider.trim(),
+        ouArchivage: ouArchivage.trim() || null,
+        suspendre: suspendreAussi,
+      });
       confirmationVidange = false;
       planVidange = null;
       demarrerSondage();
@@ -273,9 +287,10 @@
         Vider une arborescence d'année
       </h2>
       <p class="mb-3 text-xs text-stone-600 dark:text-stone-400">
-        Une branche d'année conserve la promotion qui l'a occupée : ses comptes
-        restent actifs tant que personne ne les archive, et l'arbre ne peut pas
-        être recyclé pour la rentrée suivante. L'échéance de suppression court
+        Une branche d'année conserve la promotion qui l'a occupée, et l'arbre ne
+        peut pas être recyclé tant qu'elle s'y trouve. Les comptes sont
+        <strong>déplacés, pas suspendus</strong> : leur titulaire garde sa
+        messagerie le temps qu'on l'ait prévenu. L'échéance de suppression court
         depuis le <strong>départ réel</strong>, déduit du nom de la branche —
         pas depuis aujourd'hui.
       </p>
@@ -291,9 +306,23 @@
             onkeydown={(e) => e.key === "Enter" && previsualiserVidange()}
           />
         </div>
+        <div>
+          <label class="libelle-champ" for="ou-archivage">Destination</label>
+          <input
+            id="ou-archivage"
+            class="champ w-80 font-mono"
+            placeholder="déduite du site si vide"
+            bind:value={ouArchivage}
+            onkeydown={(e) => e.key === "Enter" && previsualiserVidange()}
+          />
+        </div>
         <Bouton icon={Search} occupe={vidangeEnCours} onclick={previsualiserVidange}>
           Prévisualiser
         </Bouton>
+        <label class="flex items-center gap-2 pb-2 text-sm">
+          <input type="checkbox" bind:checked={suspendreAussi} class="rounded" />
+          Suspendre aussi
+        </label>
         {#if planVidange && planVidange.nb_a_archiver > 0}
           <Bouton
             variante="danger"
@@ -301,7 +330,7 @@
             disabled={job && !job.est_termine}
             onclick={() => (confirmationVidange = true)}
           >
-            Archiver {planVidange.nb_a_archiver} compte(s)
+            Déplacer {planVidange.nb_a_archiver} compte(s)
           </Bouton>
         {/if}
       </div>
@@ -538,15 +567,21 @@
 
 {#if confirmationVidange && planVidange}
   <Modale
-    titre="Archiver {planVidange.nb_a_archiver} compte(s) ?"
+    titre="Déplacer {planVidange.nb_a_archiver} compte(s) ?"
     largeur="lg"
     onFermer={() => (confirmationVidange = false)}
   >
     <div class="space-y-3 text-sm text-stone-600 dark:text-stone-300">
       <p>
-        Ces comptes vont être <strong>suspendus</strong> et déplacés vers
-        <span class="font-mono">{planVidange.ou_archivage}</span>. Leurs
-        titulaires ne pourront plus se connecter.
+        Ces comptes vont être déplacés vers
+        <span class="font-mono">{planVidange.ou_archivage}</span>.
+        {#if suspendreAussi}
+          Ils seront <strong>aussi suspendus</strong> : leurs titulaires ne
+          pourront plus se connecter.
+        {:else}
+          Ils <strong>restent actifs</strong> — sortir de l'arbre des classes
+          suffit à les mettre en quarantaine.
+        {/if}
       </p>
       <p>
         Rien n'est supprimé : les données restent en place jusqu'au
@@ -564,7 +599,7 @@
     {#snippet actions()}
       <Bouton onclick={() => (confirmationVidange = false)}>Annuler</Bouton>
       <Bouton variante="danger" occupe={vidangeEnCours} onclick={appliquerVidange}>
-        Suspendre et archiver
+        {suspendreAussi ? "Suspendre et déplacer" : "Déplacer"}
       </Bouton>
     {/snippet}
   </Modale>

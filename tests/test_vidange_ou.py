@@ -238,3 +238,88 @@ def test_compte_oublie_par_la_bascule_garde_sa_vraie_date(
     assert normal.date_echeance == date(2027, 2, 28), "18 mois après août 2025"
     assert tardif.ou_visee != normal.ou_visee
     assert "29-02-2028" in tardif.ou_visee
+
+
+def test_par_defaut_on_deplace_sans_suspendre(session, site_factory):
+    """La quarantaine tient à la sortie de l'arbre, pas à la privation d'accès.
+
+    C'est l'usage constaté sur l'instance : aucun des comptes déjà rangés
+    dans les OU de sortie n'est suspendu.
+    """
+    from backend.services.vidange_ou import planifier_vidange
+
+    site_factory("NDK")
+    r = planifier_vidange(
+        session,
+        [_compte("a@lekreisker.fr", "/3. NDK/NDK2025/T_G1A")],
+        ou_source="/3. NDK/NDK2025",
+        aujourd_hui=date(2026, 8, 20),
+    )
+    assert r.mouvements[0].suspendre is False
+    assert not any("suspension est demandée" in a for a in r.avertissements)
+
+
+def test_la_suspension_se_demande_et_se_signale(session, site_factory):
+    from backend.services.vidange_ou import planifier_vidange
+
+    site_factory("NDK")
+    r = planifier_vidange(
+        session,
+        [_compte("a@lekreisker.fr", "/3. NDK/NDK2025/T_G1A")],
+        ou_source="/3. NDK/NDK2025",
+        suspendre=True,
+        aujourd_hui=date(2026, 8, 20),
+    )
+    assert r.mouvements[0].suspendre is True
+    assert any("suspension est demandée" in a for a in r.avertissements)
+
+
+def test_destination_imposee_prime_sur_le_calcul(session, site_factory):
+    """Un établissement qui range ses sortants dans une OU existante la nomme."""
+    from backend.services.vidange_ou import planifier_vidange
+
+    site_factory("NDK")
+    cible = "/7. Sortis/Comptes à supprimer au 31-12-2027"
+    r = planifier_vidange(
+        session,
+        [_compte("a@lekreisker.fr", "/3. NDK/NDK2025/T_G1A"),
+         _compte("b@lekreisker.fr", "/3. NDK/NDK2025/BTS_2")],
+        ou_source="/3. NDK/NDK2025",
+        ou_archivage=cible,
+        aujourd_hui=date(2026, 8, 20),
+    )
+    assert r.ou_archivage == cible
+    assert {m.ou_visee for m in r.mouvements} == {cible}
+
+
+def test_destination_imposee_vaut_aussi_pour_les_retardataires(
+    session, site_factory, annee_factory, personne_factory
+):
+    """Une destination nommée ne se laisse pas contourner par un cas particulier."""
+    from backend.models import Snapshot
+    from backend.services.vidange_ou import planifier_vidange
+
+    site = site_factory("NDK")
+    annee = annee_factory("2025-2026")
+    annee_factory("2026-2027")
+    p = personne_factory(
+        nom="LE LAY", prenom="Leane", login="llelay", site_id=site.id,
+        email_constate="leane.le.lay@lekreisker.fr",
+    )
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=annee.id,
+                         nom="LE LAY", prenom="Leane", classe="BTS_2"))
+    session.commit()
+
+    cible = "/7. Sortis/Comptes à supprimer au 31-12-2027"
+    r = planifier_vidange(
+        session,
+        [_compte("leane.le.lay@lekreisker.fr", "/3. NDK/NDK2025"),
+         _compte("parti@lekreisker.fr", "/3. NDK/NDK2025/T_G1A")],
+        ou_source="/3. NDK/NDK2025",
+        ou_archivage=cible,
+        aujourd_hui=date(2026, 8, 20),
+    )
+    assert len(r.retardataires) == 1
+    assert {m.ou_visee for m in r.mouvements} == {cible}, (
+        "le retardataire garde sa date propre mais pas une autre destination"
+    )

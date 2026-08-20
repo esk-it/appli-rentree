@@ -534,7 +534,13 @@ class VidangeOut(BaseModel):
     epargnes: list[EparneOut]
 
 
-def _plan_vidange(session: Session, ou: str, annee_depart: int | None):
+def _plan_vidange(
+    session: Session,
+    ou: str,
+    annee_depart: int | None,
+    ou_archivage: str | None = None,
+    suspendre: bool = False,
+):
     from backend.services.vidange_ou import planifier_vidange
 
     config = charger_config(session)
@@ -548,7 +554,8 @@ def _plan_vidange(session: Session, ou: str, annee_depart: int | None):
         raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
     try:
         return client, planifier_vidange(
-            session, comptes, ou_source=ou, annee_depart=annee_depart
+            session, comptes, ou_source=ou, annee_depart=annee_depart,
+            ou_archivage=ou_archivage, suspendre=suspendre,
         )
     except ValueError as e:
         raise HTTPException(400, str(e)) from None
@@ -590,16 +597,22 @@ def _vidange_vers_out(r) -> VidangeOut:
 def plan_vidange(
     ou: str = Query(..., min_length=1),
     annee_depart: int | None = Query(None, description="Déduite du nom de l'OU si absente"),
+    ou_archivage: str | None = Query(None, description="Destination imposée"),
+    suspendre: bool = Query(False, description="Couper aussi l'accès"),
     session: Session = Depends(db_session),
 ) -> VidangeOut:
     """Ce que la vidange ferait. N'envoie rien."""
-    _, r = _plan_vidange(session, ou, annee_depart)
+    _, r = _plan_vidange(session, ou, annee_depart, ou_archivage, suspendre)
     return _vidange_vers_out(r)
 
 
 class LancerVidangePayload(BaseModel):
     ou: str
     annee_depart: int | None = None
+    ou_archivage: str | None = None
+    """Destination imposée. Sans elle, elle est déduite du site et de l'échéance."""
+    suspendre: bool = False
+    """L'usage est de déplacer sans suspendre : le compte reste consultable."""
     confirmation: bool = False
 
 
@@ -607,10 +620,11 @@ class LancerVidangePayload(BaseModel):
 def lancer_vidange(
     payload: LancerVidangePayload, session: Session = Depends(db_session)
 ) -> JobOut:
-    """Suspend les comptes de la branche et les déplace vers l'archivage.
+    """Déplace les comptes de la branche vers l'OU d'archivage.
 
-    Suspendre prive quelqu'un de son compte : la confirmation est donc
-    explicite, et les personnes encore inscrites sont écartées d'office.
+    Le compte **reste actif** sauf demande explicite : la quarantaine tient
+    à la sortie de l'arbre des classes, pas à la privation d'accès. Les
+    personnes encore inscrites sont écartées d'office.
     """
     if not payload.confirmation:
         raise HTTPException(
@@ -619,7 +633,10 @@ def lancer_vidange(
             "`confirmation: true`.",
         )
 
-    client, r = _plan_vidange(session, payload.ou, payload.annee_depart)
+    client, r = _plan_vidange(
+        session, payload.ou, payload.annee_depart,
+        payload.ou_archivage, payload.suspendre,
+    )
     if not r.mouvements:
         raise HTTPException(400, "Aucun compte à archiver dans cette OU.")
 
@@ -627,19 +644,22 @@ def lancer_vidange(
 
     operations = [
         OperationGoogle(
-            action="suspendre",
+            action="suspendre",  # nom historique : le déplacement passe par users.update
             email=m.email,
             payload={
                 **(payload_suspension() if m.suspendre else {}),
                 **payload_deplacement_ou(org_unit_path=m.ou_visee),
             },
-            libelle=f"Archiver {m.email} dans {m.ou_visee}",
+            libelle=(
+                f"{'Suspendre et déplacer' if m.suspendre else 'Déplacer'} "
+                f"{m.email} vers {m.ou_visee}"
+            ),
         )
         for m in r.mouvements
     ]
     job = creer_job(
         phase="vidange",
-        libelle=f"Vidange de {r.ou_source} — {len(operations)} compte(s)",
+        libelle=f"Sortie de {r.ou_source} — {len(operations)} compte(s)",
         operations=operations,
     )
     lancer_en_tache_de_fond(job, operations, appliquer=client.appliquer_operation)

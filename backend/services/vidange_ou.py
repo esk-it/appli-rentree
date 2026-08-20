@@ -11,6 +11,17 @@ Et l'arbre le plus ancien doit être recyclé à chaque rentrée : le
 renommer sans l'avoir vidé mélangerait une promotion sortante aux
 nouveaux élèves.
 
+## Déplacer, sans suspendre
+
+Un compte de sortie **reste actif**. La quarantaine tient au fait d'être
+sorti de l'arbre des classes, pas à la privation d'accès : l'élève parti
+garde sa messagerie le temps de récupérer ce qui lui appartient, et
+l'établissement le prévient avant la suppression. C'est ce que montre
+l'instance — sur les 124 comptes déjà rangés dans les OU de sortie,
+aucun n'est suspendu.
+
+La suspension reste possible, mais elle se demande explicitement.
+
 ## L'échéance
 
 Elle court depuis le **départ réel**, pas depuis aujourd'hui. Un compte
@@ -103,6 +114,8 @@ def planifier_vidange(
     *,
     ou_source: str,
     annee_depart: int | None = None,
+    ou_archivage: str | None = None,
+    suspendre: bool = False,
     aujourd_hui: date | None = None,
 ) -> RapportVidange:
     """Construit le plan d'archivage des comptes d'une branche.
@@ -112,6 +125,12 @@ def planifier_vidange(
         ou_source: branche à vider, ex. `/3. NDK/NDK2025`.
         annee_depart: année de fin de scolarité. Déduite du nom de la
             branche si absente.
+        ou_archivage: destination imposée. Sans elle, elle est déduite du
+            site puis de l'échéance — mais un établissement qui range ses
+            sortants dans une OU existante veut la nommer, pas la voir
+            recalculée.
+        suspendre: à vrai, coupe aussi l'accès. Faux par défaut : sortir
+            de l'arbre des classes suffit à mettre en quarantaine.
 
     Raises:
         ValueError: si l'année de départ ne peut être ni lue ni déduite.
@@ -137,7 +156,14 @@ def planifier_vidange(
             site = s
             break
 
+    # Nom distinct : `ou_archivage` sert ensuite de variable locale, et la
+    # fermeture ci-dessous lirait alors la valeur calculée au lieu de celle
+    # demandée par l'appelant.
+    destination_imposee = (ou_archivage or "").strip().rstrip("/")
+
     def archivage_pour(ech: date) -> str:
+        if destination_imposee:
+            return destination_imposee
         if site is not None and (site.ou_sortants or "").strip():
             return site.ou_sortants.strip().rstrip("/")
         from backend.services.configuration import get_param
@@ -183,7 +209,7 @@ def planifier_vidange(
                 ou_actuelle=c.ou,
                 ou_visee=destination,
                 date_echeance=echeance_c,
-                suspendre=not c.suspendu,
+                suspendre=suspendre and not c.suspendu,
                 nom=c.nom or c.nom_google,
                 prenom=c.prenom or c.prenom_google,
                 statut_referentiel=c.statut,
@@ -204,8 +230,14 @@ def planifier_vidange(
     if rapport.epargnes:
         rapport.avertissements.append(
             f"{len(rapport.epargnes)} compte(s) laissé(s) en place : la personne "
-            "figure dans l'année en cours. Les suspendre la priverait de son "
-            "compte le jour de la rentrée."
+            "figure dans l'année en cours. Les déplacer la sortirait de sa "
+            "classe le jour de la rentrée."
+        )
+    if suspendre:
+        rapport.avertissements.append(
+            "La suspension est demandée : ces comptes ne pourront plus être "
+            "consultés par leur titulaire. L'usage de l'établissement est de "
+            "déplacer sans suspendre — décoche si ce n'était pas voulu."
         )
     if echeance <= (aujourd_hui or date.today()):
         rapport.avertissements.append(

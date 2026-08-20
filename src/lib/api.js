@@ -368,18 +368,23 @@ export const googleApi = {
     );
   },
   /** Ce que la vidange ferait — n'envoie rien. */
-  async planVidange({ ou, anneeDepart = null }) {
+  async planVidange({ ou, anneeDepart = null, ouArchivage = null, suspendre = false }) {
     const p = new URLSearchParams({ ou });
     if (anneeDepart) p.set("annee_depart", String(anneeDepart));
+    if (ouArchivage) p.set("ou_archivage", ouArchivage);
+    if (suspendre) p.set("suspendre", "true");
     return jsonOrThrow(await fetch(`${BASE}/google/vidange-ou/plan?${p}`));
   },
   /** Suspend et archive les comptes de la branche. Retourne un job. */
-  async lancerVidange({ ou, anneeDepart = null }) {
+  async lancerVidange({ ou, anneeDepart = null, ouArchivage = null, suspendre = false }) {
     return jsonOrThrow(
       await fetch(`${BASE}/google/vidange-ou`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ou, annee_depart: anneeDepart, confirmation: true }),
+        body: JSON.stringify({
+          ou, annee_depart: anneeDepart, ou_archivage: ouArchivage,
+          suspendre, confirmation: true,
+        }),
       }),
     );
   },
