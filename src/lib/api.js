@@ -383,6 +383,58 @@ export const googleApi = {
       }),
     );
   },
+  // --- Mise en conformité de Google -------------------------------------
+  /** Écart entre l'arborescence réelle et ce que vise la Table. */
+  async conformiteOu({ anneeSource = null, anneeCible = null, renommer = true }) {
+    const q = new URLSearchParams();
+    if (anneeSource) q.set("annee_source", anneeSource);
+    if (anneeCible) q.set("annee_cible", anneeCible);
+    if (!renommer) q.set("renommer", "false");
+    return jsonOrThrow(await fetch(`${BASE}/google/ou/conformite?${q}`));
+  },
+  async appliquerOu({ anneeSource = null, anneeCible = null, renommer = true }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/ou/appliquer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annee_source: anneeSource, annee_cible: anneeCible,
+          renommer, confirmation: true,
+        }),
+      }),
+    );
+  },
+  /** Personnes dont l'adresse enregistrée n'existe pas dans Google. */
+  async divergences({ anneeId = null } = {}) {
+    const q = anneeId ? `?annee_id=${anneeId}` : "";
+    return jsonOrThrow(await fetch(`${BASE}/google/adresses/divergences${q}`));
+  },
+  async corrigerAdresses({ anneeId = null, mode = "simulation" }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/adresses/corriger`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ annee_id: anneeId, mode }),
+      }),
+    );
+  },
+  /** Qui doit entrer et sortir de chaque groupe de classe. */
+  async diffGroupes({ anneeId, siteId = null }) {
+    const q = new URLSearchParams({ annee_id: String(anneeId) });
+    if (siteId) q.set("site_id", String(siteId));
+    return jsonOrThrow(await fetch(`${BASE}/google/groupes/diff?${q}`));
+  },
+  async synchroniserGroupes({ anneeId, siteId = null, retirer = true }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/groupes/synchroniser`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annee_id: anneeId, site_id: siteId, retirer, confirmation: true,
+        }),
+      }),
+    );
+  },
   async suivreJob(jobId) {
     return jsonOrThrow(await fetch(`${BASE}/google/jobs/${jobId}`));
   },

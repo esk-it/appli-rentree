@@ -16,6 +16,7 @@
   import UserPlus from "@lucide/svelte/icons/user-plus";
   import FolderTree from "@lucide/svelte/icons/folder-tree";
   import LogOut from "@lucide/svelte/icons/log-out";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import Scale from "@lucide/svelte/icons/scale";
   import Rocket from "@lucide/svelte/icons/rocket";
   import FileDown from "@lucide/svelte/icons/file-down";
@@ -31,6 +32,7 @@
   import Snapshots from "./routes/Snapshots.svelte";
   import Bascule from "./routes/Bascule.svelte";
   import Sortants from "./routes/Sortants.svelte";
+  import ConformiteGoogle from "./routes/ConformiteGoogle.svelte";
   import Nouveaux from "./routes/Nouveaux.svelte";
   import Reconciliation from "./routes/Reconciliation.svelte";
   import Arbitrage from "./routes/Arbitrage.svelte";
@@ -216,6 +218,7 @@
         { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
         { id: "bascule", label: "Bascule des OU", icon: FolderTree },
         { id: "sortants", label: "Sortants", icon: LogOut },
+        { id: "conformite_google", label: "Conformité Google", icon: ShieldCheck },
         {
           id: "arbitrage",
           label: "Arbitrage",
@@ -462,6 +465,8 @@
           <Bascule />
         {:else if page === "sortants"}
           <Sortants />
+        {:else if page === "conformite_google"}
+          <ConformiteGoogle />
         {:else if page === "arbitrage"}
           <Arbitrage />
         {:else if page === "simulation"}

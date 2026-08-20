@@ -14,13 +14,17 @@ from pathlib import Path
 def _racine_donnees() -> Path:
     """Détermine où stocker la base SQLite et les fichiers utilisateur.
 
+    - `APPLI_RENTREE_DATA_DIR` s'il est posé → ce dossier, quel que soit le mode
     - En mode "frozen" (PyInstaller / Tauri sidecar) → `%APPDATA%/appli-rentree`
     - En dev → `<projet>/data`
+
+    L'override est consulté avant tout le reste : un chemin explicite ne
+    doit pas dépendre de la façon dont le programme a été lancé. C'est ce
+    qui permet à un script de diagnostic de viser la base réelle.
     """
+    if env := os.environ.get("APPLI_RENTREE_DATA_DIR"):
+        return Path(env)
     if getattr(sys, "frozen", False):
-        # Forcé par run_backend.py au démarrage
-        if env := os.environ.get("APPLI_RENTREE_DATA_DIR"):
-            return Path(env)
         appdata = Path(os.environ.get("APPDATA", str(Path.home())))
         return appdata / "appli-rentree"
     # En dev : à la racine du projet

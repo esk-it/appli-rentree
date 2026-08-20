@@ -640,3 +640,368 @@ def lancer_vidange(
     )
     lancer_en_tache_de_fond(job, operations, appliquer=client.appliquer_operation)
     return _job_vers_out(job)
+
+
+# ---------------------------------------------------------------------------
+# Conformité de l'arborescence
+# ---------------------------------------------------------------------------
+
+
+class RenommageOut(BaseModel):
+    ancien: str
+    nouveau: str
+    nb_sous_ou: int
+
+
+class ConformiteOUOut(BaseModel):
+    nb_attendues: int
+    nb_existantes: int
+    nb_a_creer: int
+    nb_deja_conformes: int
+    est_conforme: bool
+    renommages: list[RenommageOut]
+    a_creer: list[str]
+    avertissements: list[str]
+
+
+def _analyser_ou(session: Session, annee_source, annee_cible, renommer):
+    from backend.services.ou_google import analyser_conformite
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    try:
+        existantes = client.lister_ou()
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+    return client, analyser_conformite(
+        session, existantes,
+        annee_source=annee_source, annee_cible=annee_cible,
+        autoriser_renommage=renommer,
+    )
+
+
+@router.get("/ou/conformite", response_model=ConformiteOUOut)
+def conformite_ou(
+    annee_source: str | None = Query(None, description="Année à recycler, ex. 2025"),
+    annee_cible: str | None = Query(None, description="Année visée, ex. 2027"),
+    renommer: bool = Query(True, description="Proposer le renommage des arbres"),
+    session: Session = Depends(db_session),
+) -> ConformiteOUOut:
+    """Écart entre l'arborescence réelle et ce que vise la Table.
+
+    Lecture seule. Sans ce contrôle, un déplacement vers une OU absente
+    échoue élève par élève sans que rien ne l'ait annoncé.
+    """
+    _, r = _analyser_ou(session, annee_source, annee_cible, renommer)
+    return ConformiteOUOut(
+        nb_attendues=len(r.ou_attendues),
+        nb_existantes=len(r.ou_existantes),
+        nb_a_creer=r.nb_a_creer,
+        nb_deja_conformes=len(r.deja_conformes),
+        est_conforme=r.est_conforme,
+        renommages=[RenommageOut(**vars(x)) for x in r.renommages],
+        a_creer=r.a_creer,
+        avertissements=r.avertissements,
+    )
+
+
+class AppliquerOUPayload(BaseModel):
+    annee_source: str | None = None
+    annee_cible: str | None = None
+    renommer: bool = True
+    confirmation: bool = False
+
+
+@router.post("/ou/appliquer", response_model=JobOut)
+def appliquer_conformite_ou(
+    payload: AppliquerOUPayload, session: Session = Depends(db_session)
+) -> JobOut:
+    """Renomme puis crée les OU, dans cet ordre.
+
+    Le renommage d'abord : il rend disponibles des dizaines de chemins que
+    l'on n'aura donc pas à créer. Les créations suivent l'ordre
+    parent-avant-enfant, exigé par Google.
+
+    Aucune suppression : une OU devenue inutile peut encore contenir des
+    comptes, et l'effacer les renverrait à la racine sans prévenir.
+    """
+    if not payload.confirmation:
+        raise HTTPException(400, "Confirmation requise.")
+
+    client, r = _analyser_ou(
+        session, payload.annee_source, payload.annee_cible, payload.renommer
+    )
+    if r.est_conforme:
+        raise HTTPException(400, "L'arborescence est déjà conforme à la Table.")
+
+    from backend.services.jobs_google import creer_job, lancer_en_tache_de_fond
+
+    class _Etape:
+        def __init__(self, action, cible, libelle, extra=None):
+            self.action = action
+            self.email = cible  # le suivi affiche ce champ
+            self.libelle = libelle
+            self.personne_id = None
+            self.ou_visee = None
+            self.extra = extra
+
+    etapes = [
+        _Etape("renommer", x.ancien,
+               f"Renommer {x.ancien} en {x.nouveau} ({x.nb_sous_ou} classes)",
+               x.nouveau.rsplit("/", 1)[-1])
+        for x in r.renommages
+    ] + [
+        _Etape("creer_ou", chemin, f"Créer {chemin}") for chemin in r.a_creer
+    ]
+
+    job = creer_job(
+        phase="arborescence",
+        libelle=f"Arborescence : {len(r.renommages)} renommage(s), {r.nb_a_creer} création(s)",
+        operations=etapes,
+    )
+
+    def appliquer(etape) -> None:
+        if etape.action == "renommer":
+            client.renommer_ou(etape.email, etape.extra)
+        else:
+            client.creer_ou(etape.email)
+
+    lancer_en_tache_de_fond(job, etapes, appliquer=appliquer)
+    return _job_vers_out(job)
+
+
+# ---------------------------------------------------------------------------
+# Adresses divergentes
+# ---------------------------------------------------------------------------
+
+
+class DivergenceOut(BaseModel):
+    personne_id: int
+    cle_pivot: str
+    nom: str
+    prenom: str
+    adresse_enregistree: str
+    adresse_google: str | None
+    ou_google: str | None
+    resolvable: bool
+    motif: str
+
+
+class DivergencesOut(BaseModel):
+    nb_examines: int
+    nb_resolvables: int
+    nb_ambigus: int
+    divergences: list[DivergenceOut]
+
+
+def _detecter_divergences(session: Session, annee_id):
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    try:
+        comptes = client.lister_utilisateurs()
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+    return detecter_divergences(session, comptes, annee_id=annee_id)
+
+
+@router.get("/adresses/divergences", response_model=DivergencesOut)
+def divergences_adresses(
+    annee_id: int | None = Query(None), session: Session = Depends(db_session)
+) -> DivergencesOut:
+    """Personnes dont l'adresse enregistrée n'existe pas dans Google.
+
+    Ces écarts font échouer les déplacements un par un et poussent l'export
+    des nouveaux à créer un doublon. Lecture seule.
+    """
+    r = _detecter_divergences(session, annee_id)
+    return DivergencesOut(
+        nb_examines=r.nb_examines,
+        nb_resolvables=r.nb_resolvables,
+        nb_ambigus=r.nb_ambigus,
+        divergences=[DivergenceOut(**vars(d)) for d in r.divergences],
+    )
+
+
+class CorrigerPayload(BaseModel):
+    annee_id: int | None = None
+    mode: str = "simulation"
+
+
+class CorrectionOut(BaseModel):
+    nb_corrigees: int
+    mode: str
+
+
+@router.post("/adresses/corriger", response_model=CorrectionOut)
+def corriger_adresses(
+    payload: CorrigerPayload, session: Session = Depends(db_session)
+) -> CorrectionOut:
+    """Aligne les adresses enregistrées sur les comptes Google réels.
+
+    Ne touche que les écarts sans ambiguïté. Ce que Google contient fait
+    foi : c'est là que l'élève se connecte.
+    """
+    from backend.services.adresses_divergentes import appliquer_corrections
+
+    if payload.mode not in ("simulation", "reel"):
+        raise HTTPException(400, f"mode invalide : {payload.mode!r}")
+    r = _detecter_divergences(session, payload.annee_id)
+    n = appliquer_corrections(session, r, mode=payload.mode)
+    return CorrectionOut(nb_corrigees=n, mode=payload.mode)
+
+
+# ---------------------------------------------------------------------------
+# Groupes de classe
+# ---------------------------------------------------------------------------
+
+
+class DiffGroupeOut(BaseModel):
+    groupe: str
+    classe: str
+    site: str | None
+    a_ajouter: list[str]
+    a_retirer: list[str]
+    inconnus: list[str]
+    deja_membres: int
+    existe: bool = True
+    retenus: list[str] = []
+
+
+class GroupesOut(BaseModel):
+    annee_libelle: str
+    nb_a_ajouter: int
+    nb_a_retirer: int
+    nb_inconnus: int
+    nb_retenus: int = 0
+    groupes_absents: list[str] = []
+    sites_sans_eleve: list[str] = []
+    classes_sans_groupe: list[str]
+    avertissements: list[str]
+    diffs: list[DiffGroupeOut]
+
+
+def _diff_groupes(session: Session, annee_id: int, site_id):
+    from backend.models import TableCorrespondance
+    from backend.services.groupes_google import calculer_diff_groupes
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    q = session.query(TableCorrespondance)
+    if site_id is not None:
+        q = q.filter(TableCorrespondance.site_id == site_id)
+    adresses = {
+        (tc.groupe_google or "").strip().lower()
+        for tc in q.all()
+        if (tc.groupe_google or "").strip()
+    }
+
+    membres: dict[str, list[str] | None] = {}
+    for g in sorted(adresses):
+        try:
+            membres[g] = client.lister_membres(g)
+        except Exception:
+            # `None`, pas `[]` : un groupe que Google ne connaît pas ne se
+            # remplit pas. Le confondre avec un groupe vide ferait planifier
+            # des ajouts voués à échouer un par un.
+            membres[g] = None
+    try:
+        return client, calculer_diff_groupes(
+            session, membres, annee_id=annee_id, site_id=site_id
+        )
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from None
+
+
+@router.get("/groupes/diff", response_model=GroupesOut)
+def diff_groupes(
+    annee_id: int = Query(...),
+    site_id: int | None = Query(None),
+    session: Session = Depends(db_session),
+) -> GroupesOut:
+    """Qui doit entrer et sortir de chaque groupe de classe. Lecture seule."""
+    _, r = _diff_groupes(session, annee_id, site_id)
+    return GroupesOut(
+        annee_libelle=r.annee_libelle,
+        nb_a_ajouter=r.nb_a_ajouter,
+        nb_a_retirer=r.nb_a_retirer,
+        nb_inconnus=r.nb_inconnus,
+        nb_retenus=r.nb_retenus,
+        groupes_absents=r.groupes_absents,
+        sites_sans_eleve=r.sites_sans_eleve,
+        classes_sans_groupe=r.classes_sans_groupe,
+        avertissements=r.avertissements,
+        diffs=[DiffGroupeOut(**vars(d)) for d in r.diffs],
+    )
+
+
+class SyncGroupesPayload(BaseModel):
+    annee_id: int
+    site_id: int | None = None
+    retirer: bool = True
+    """À faux, on n'ajoute que. Utile pour un premier passage prudent."""
+    confirmation: bool = False
+
+
+@router.post("/groupes/synchroniser", response_model=JobOut)
+def synchroniser_groupes(
+    payload: SyncGroupesPayload, session: Session = Depends(db_session)
+) -> JobOut:
+    """Applique les entrées et sorties de groupe.
+
+    Les membres inconnus du référentiel ne sont jamais retirés : le
+    programme ignore pourquoi ils sont là.
+    """
+    if not payload.confirmation:
+        raise HTTPException(400, "Confirmation requise.")
+
+    client, r = _diff_groupes(session, payload.annee_id, payload.site_id)
+
+    class _Mvt:
+        def __init__(self, action, groupe, email):
+            self.action = action
+            self.email = email
+            self.groupe = groupe
+            self.libelle = (
+                f"{'Ajouter à' if action == 'ajouter' else 'Retirer de'} {groupe}"
+            )
+            self.personne_id = None
+            self.ou_visee = None
+
+    operations: list = []
+    for d in r.diffs:
+        operations += [_Mvt("ajouter", d.groupe, m) for m in d.a_ajouter]
+        if payload.retirer:
+            operations += [_Mvt("retirer", d.groupe, m) for m in d.a_retirer]
+
+    if not operations:
+        raise HTTPException(400, "Les groupes sont déjà à jour.")
+
+    from backend.services.jobs_google import creer_job, lancer_en_tache_de_fond
+
+    job = creer_job(
+        phase="groupes",
+        libelle=f"Groupes : {r.nb_a_ajouter} entrée(s), "
+                f"{r.nb_a_retirer if payload.retirer else 0} sortie(s)",
+        operations=operations,
+    )
+
+    def appliquer(m) -> None:
+        if m.action == "ajouter":
+            client.ajouter_membre(m.groupe, m.email)
+        else:
+            client.retirer_membre(m.groupe, m.email)
+
+    lancer_en_tache_de_fond(job, operations, appliquer=appliquer)
+    return _job_vers_out(job)

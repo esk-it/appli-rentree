@@ -11,6 +11,7 @@
   import UserPlus from "@lucide/svelte/icons/user-plus";
   import FolderTree from "@lucide/svelte/icons/folder-tree";
   import Cloud from "@lucide/svelte/icons/cloud";
+  import ShieldCheck from "@lucide/svelte/icons/shield-check";
 
   const sections = [
     { id: "flux", label: "Flux global", icon: BookOpen },
@@ -20,6 +21,7 @@
     { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
     { id: "bascule", label: "Bascule des OU", icon: FolderTree },
     { id: "compte_service", label: "Compte de service Google", icon: Cloud },
+    { id: "conformite", label: "Conformité Google", icon: ShieldCheck },
     { id: "arbitrage", label: "Arbitrage", icon: Scale },
     { id: "simulation", label: "Simulation", icon: Zap },
     { id: "exports", label: "Exports", icon: FileDown },
@@ -324,6 +326,76 @@
             <tr><td><strong>Ambigu</strong></td><td>Rapprochement incertain</td><td>Arbitrage humain</td></tr>
           </tbody>
         </table>
+
+      {:else if sectionActive === "conformite"}
+        <h2>Conformité Google</h2>
+        <p>
+          Trois écarts entre le référentiel et Google font échouer la rentrée,
+          chacun sans prévenir. Cet écran les mesure d'abord, et ne propose
+          d'agir qu'ensuite.
+        </p>
+
+        <h3>Arborescence</h3>
+        <p>
+          Google refuse un déplacement vers une unité d'organisation qui
+          n'existe pas, et rien en amont ne l'annonce : l'échec se constate
+          élève par élève, une fois la bascule lancée. Le contrôle compare donc
+          l'arbre réel à ce que décrit la Table.
+        </p>
+        <p>
+          Deux façons d'ouvrir l'année, au choix. <strong>Recycler</strong> :
+          l'arbre de l'année révolue est renommé, et emporte ses classes d'un
+          seul geste — sur l'instance de l'établissement, un renommage couvre
+          70 des 90 OU attendues, il en reste 20 à créer. <strong>Créer</strong> :
+          on repart d'un arbre neuf, les 90 sont à créer et l'ancien reste en
+          place. Le premier suppose que la branche recyclée a été vidée au
+          préalable — voir l'écran <em>Sortants</em>.
+        </p>
+        <p>
+          Aucune unité d'organisation n'est jamais supprimée par le programme.
+        </p>
+
+        <h3>Adresses</h3>
+        <p>
+          Aucune règle ne reproduit fidèlement les adresses existantes : les
+          particules, les prénoms composés et les homonymes traités à la main
+          au fil des ans y ont laissé des exceptions. Quand l'adresse
+          enregistrée ne correspond à aucun compte Google, le déplacement
+          échoue — et l'export des nouveaux crée un doublon à côté du compte
+          réel, ce qui est pire.
+        </p>
+        <p>
+          Une correction n'est proposée que si le nom désigne
+          <strong>exactement un</strong> compte Google et
+          <strong>exactement une</strong> personne du référentiel. Un homonyme
+          rendrait l'attribution arbitraire : ces cas sont comptés à part et
+          laissés à l'arbitrage. Ce que Google contient fait foi — c'est là que
+          l'élève se connecte.
+        </p>
+
+        <h3>Groupes</h3>
+        <p>
+          L'export CSV <strong>ajoute</strong> des membres et n'en retire
+          jamais. Un groupe de 3e conserve donc ses élèves année après année,
+          les partis compris : écrire au « groupe des 3e » touche des
+          promotions entières qui ont quitté l'établissement. Ici la
+          composition est calculée par différence, dans les deux sens, et le
+          retrait peut être désactivé pour un premier passage prudent.
+        </p>
+        <p>
+          Deux garde-fous. Un membre qu'aucune personne du référentiel ne porte
+          — enseignant, adresse de service, ajout manuel — n'est
+          <strong>jamais</strong> retiré : le programme ignore pourquoi il est
+          là. Et un groupe déclaré dans la Table mais absent de Google voit ses
+          ajouts <strong>retenus</strong> plutôt que tentés : un groupe vide et
+          un groupe absent se ressemblent, mais écrire dans le second échoue
+          élève par élève.
+        </p>
+        <p>
+          Si un site entier n'a aucun élève pour l'année préparée, l'écran le
+          signale en rouge. Ce n'est pas une classe qui a fermé : c'est un
+          export Charlemagne qui n'a pas été chargé.
+        </p>
 
       {:else if sectionActive === "arbitrage"}
         <h2>Arbitrage</h2>

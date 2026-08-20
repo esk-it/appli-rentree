@@ -566,6 +566,74 @@ class ClientGoogle:
                 break
         return utilisateurs
 
+    # ------------------------------------------------------------------
+    # Unités d'organisation
+    # ------------------------------------------------------------------
+
+    def lister_ou(self) -> list[str]:
+        """Tous les chemins d'OU du domaine. Lecture seule."""
+        rep = (
+            self._service.orgunits()
+            .list(customerId="my_customer", type="all")
+            .execute()
+        )
+        return [o["orgUnitPath"] for o in rep.get("organizationUnits", [])]
+
+    def creer_ou(self, chemin: str) -> None:
+        """Crée une OU. Le parent doit exister — d'où l'ordre du plan.
+
+        Google veut le parent et le nom séparément, pas un chemin complet.
+        """
+        parent, _, nom = chemin.rstrip("/").rpartition("/")
+        self._service.orgunits().insert(
+            customerId="my_customer",
+            body={"name": nom, "parentOrgUnitPath": parent or "/"},
+        ).execute()
+
+    def renommer_ou(self, chemin: str, nouveau_nom: str) -> None:
+        """Renomme une OU **en place** : son contenu et ses sous-OU suivent.
+
+        C'est ce qui permet de recycler l'arbre d'une année révolue plutôt
+        que de recréer ses dizaines de classes une à une.
+        """
+        self._service.orgunits().update(
+            customerId="my_customer",
+            orgUnitPath=chemin.lstrip("/"),
+            body={"name": nouveau_nom},
+        ).execute()
+
+    # ------------------------------------------------------------------
+    # Groupes
+    # ------------------------------------------------------------------
+
+    def lister_membres(self, groupe: str) -> list[str]:
+        """Adresses des membres d'un groupe. Lecture seule."""
+        membres: list[str] = []
+        jeton = None
+        while True:
+            rep = (
+                self._service.members()
+                .list(groupKey=groupe, maxResults=200, pageToken=jeton)
+                .execute()
+            )
+            for m in rep.get("members", []):
+                adresse = (m.get("email") or "").lower()
+                if adresse:
+                    membres.append(adresse)
+            jeton = rep.get("nextPageToken")
+            if not jeton:
+                break
+        return membres
+
+    def ajouter_membre(self, groupe: str, email: str) -> None:
+        self._service.members().insert(
+            groupKey=groupe, body=payload_membre_groupe(email=email)
+        ).execute()
+
+    def retirer_membre(self, groupe: str, email: str) -> None:
+        """Retire un membre. Ne supprime pas le compte, seulement l'appartenance."""
+        self._service.members().delete(groupKey=groupe, memberKey=email).execute()
+
     def appliquer_operation(self, operation: OperationGoogle) -> None:
         """Envoie une opération unitaire. Lève si Google la refuse.
 

@@ -1,0 +1,193 @@
+"""Écarts entre l'adresse enregistrée et le compte Google réel.
+
+## Le problème
+
+Le référentiel tient l'adresse que donne Charlemagne. Rien ne garantit
+qu'elle corresponde au compte réellement ouvert : sur l'instance réelle,
+quatre élèves inscrits portent une adresse introuvable dans Google —
+`louis.legall@` contre `louis.le.gall@`, une faute de frappe sur
+`ralavao`, un suffixe d'homonymie qui diffère d'un chiffre.
+
+Les conséquences sont silencieuses et coûteuses :
+
+- **le déplacement d'OU échoue** pour ces élèves, un par un, sans que
+  rien ne l'ait annoncé ;
+- **l'export des nouveaux tente de créer un compte** qui existe déjà
+  sous un autre nom, d'où un doublon ;
+- **la vidange d'une branche** ne les reconnaît pas et les traite comme
+  des partants — un élève inscrit s'est trouvé à un cheveu d'être
+  suspendu.
+
+## La règle de rapprochement
+
+Une correction n'est proposée que si le nom et le prénom désignent
+**exactement un** compte Google et **exactement une** personne du
+référentiel. Deux homonymes rendent l'attribution arbitraire : le cas
+est alors signalé sans proposition.
+
+Rien n'est corrigé d'office : la proposition se relit avant d'être
+appliquée.
+"""
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from sqlalchemy.orm import Session
+
+from backend.models import AnneeScolaire, Personne, Snapshot
+from backend.services.regles_metier import normaliser_nom
+
+
+@dataclass
+class Divergence:
+    personne_id: int
+    cle_pivot: str
+    nom: str
+    prenom: str
+    adresse_enregistree: str
+    adresse_google: str | None
+    ou_google: str | None
+    resolvable: bool
+    motif: str
+
+
+@dataclass
+class RapportDivergences:
+    nb_examines: int = 0
+    divergences: list[Divergence] = field(default_factory=list)
+
+    @property
+    def nb_resolvables(self) -> int:
+        return sum(1 for d in self.divergences if d.resolvable)
+
+    @property
+    def nb_ambigus(self) -> int:
+        return sum(1 for d in self.divergences if not d.resolvable)
+
+
+def detecter_divergences(
+    session: Session,
+    comptes_google: list[dict],
+    *,
+    annee_id: int | None = None,
+) -> RapportDivergences:
+    """Repère les personnes dont l'adresse enregistrée n'existe pas dans Google.
+
+    Args:
+        comptes_google: retour de `ClientGoogle.lister_utilisateurs`.
+        annee_id: restreint aux personnes présentes cette année-là.
+            `None` = l'année la plus récente, celle qu'on prépare.
+    """
+    adresses_google = {(u.get("email") or "").lower() for u in comptes_google}
+    par_nom_google: dict[tuple[str, str], list[dict]] = {}
+    for u in comptes_google:
+        par_nom_google.setdefault(
+            (normaliser_nom(u.get("nom")), normaliser_nom(u.get("prenom"))), []
+        ).append(u)
+
+    if annee_id is None:
+        annees = session.query(AnneeScolaire).all()
+        annee_id = max(annees, key=lambda a: a.libelle).id if annees else None
+
+    q = session.query(Personne).filter(Personne.email_constate.isnot(None))
+    if annee_id is not None:
+        ids = {
+            pid
+            for (pid,) in session.query(Snapshot.personne_id)
+            .filter(Snapshot.annee_scolaire_id == annee_id)
+            .distinct()
+            .all()
+        }
+        q = q.filter(Personne.id.in_(ids))
+
+    # Un nom qui désigne plusieurs personnes du référentiel interdit toute
+    # attribution automatique, même si Google n'a qu'un compte.
+    homonymes_referentiel: dict[tuple[str, str], int] = {}
+    for p in session.query(Personne).all():
+        cle = (normaliser_nom(p.nom), normaliser_nom(p.prenom))
+        homonymes_referentiel[cle] = homonymes_referentiel.get(cle, 0) + 1
+
+    rapport = RapportDivergences()
+    for p in q.all():
+        rapport.nb_examines += 1
+        enregistree = p.email_constate.strip().lower()
+        if enregistree in adresses_google:
+            continue
+
+        cle = (normaliser_nom(p.nom), normaliser_nom(p.prenom))
+        candidats = par_nom_google.get(cle, [])
+
+        if len(candidats) == 1 and homonymes_referentiel.get(cle, 0) == 1:
+            u = candidats[0]
+            rapport.divergences.append(
+                Divergence(
+                    personne_id=p.id, cle_pivot=p.cle_pivot, nom=p.nom, prenom=p.prenom,
+                    adresse_enregistree=enregistree,
+                    adresse_google=u["email"], ou_google=u.get("ou"),
+                    resolvable=True,
+                    motif="un seul compte porte ce nom",
+                )
+            )
+        elif not candidats:
+            rapport.divergences.append(
+                Divergence(
+                    personne_id=p.id, cle_pivot=p.cle_pivot, nom=p.nom, prenom=p.prenom,
+                    adresse_enregistree=enregistree,
+                    adresse_google=None, ou_google=None,
+                    resolvable=False,
+                    motif="aucun compte à ce nom : le compte reste à créer",
+                )
+            )
+        else:
+            noms = ", ".join(sorted(u["email"] for u in candidats)) or "—"
+            rapport.divergences.append(
+                Divergence(
+                    personne_id=p.id, cle_pivot=p.cle_pivot, nom=p.nom, prenom=p.prenom,
+                    adresse_enregistree=enregistree,
+                    adresse_google=None, ou_google=None,
+                    resolvable=False,
+                    motif=f"plusieurs comptes possibles ({noms}) — à trancher à la main",
+                )
+            )
+
+    rapport.divergences.sort(key=lambda d: (not d.resolvable, d.nom, d.prenom))
+    return rapport
+
+
+def appliquer_corrections(
+    session: Session, rapport: RapportDivergences, *, mode: str = "simulation"
+) -> int:
+    """Aligne l'adresse enregistrée sur le compte Google réel.
+
+    Seules les divergences résolvables sont touchées. Ce que Google
+    contient fait foi : c'est là que l'élève se connecte.
+
+    Returns:
+        Nombre d'adresses corrigées.
+    """
+    if mode not in ("simulation", "reel"):
+        raise ValueError(f"mode invalide : {mode!r}")
+
+    a_corriger = [d for d in rapport.divergences if d.resolvable and d.adresse_google]
+    if not a_corriger:
+        return 0
+
+    personnes = {
+        p.id: p
+        for p in session.query(Personne)
+        .filter(Personne.id.in_([d.personne_id for d in a_corriger]))
+        .all()
+    }
+    n = 0
+    for d in a_corriger:
+        p = personnes.get(d.personne_id)
+        if p is None:
+            continue
+        p.email_constate = d.adresse_google
+        n += 1
+
+    if mode == "reel":
+        session.commit()
+    else:
+        session.rollback()
+    return n
