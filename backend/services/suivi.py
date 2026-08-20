@@ -139,6 +139,50 @@ def enregistrer_sortie_anterieure(
     return True
 
 
+def enregistrer_sortie(
+    session: Session,
+    personne_id: int,
+    *,
+    echeance: date,
+    ou_visee: str,
+    prevenance: date | None = None,
+) -> bool:
+    """Note qu'un compte a rejoint une OU de sortie, avec son échéance.
+
+    Distinct de `mettre_en_quarantaine`, qui déduit l'échéance d'une année
+    scolaire : ici elle est déjà connue — la destination l'impose, ou le
+    plan l'a calculée. Un compte déplacé sans que rien ne l'enregistre
+    disparaîtrait de l'écran des sortants et de la liste des personnes à
+    prévenir avant suppression.
+
+    Une quarantaine déjà en cours voit son échéance **mise à jour** : le
+    compte vient de changer d'OU, donc de calendrier. Un compte purgé,
+    lui, n'est pas ressuscité.
+
+    Returns:
+        True si quelque chose a été écrit.
+    """
+    compte = (
+        session.query(CompteCible)
+        .filter_by(personne_id=personne_id, cible="google")
+        .one_or_none()
+    )
+    if compte is not None and compte.etat == "purge":
+        return False
+    if compte is None:
+        compte = CompteCible(personne_id=personne_id, cible="google")
+        session.add(compte)
+    compte.etat = "quarantaine"
+    compte.date_prevue_purge = echeance
+    compte.ou_appliquee = ou_visee
+    compte.note = (
+        f"Déplacé vers {ou_visee}"
+        + (f" — prévenance le {prevenance.strftime('%d/%m/%Y')}" if prevenance else "")
+    )
+    session.flush()
+    return True
+
+
 def comptes_a_purger(session: Session, *, aujourd_hui: date | None = None) -> list[CompteCible]:
     """Retourne les comptes en quarantaine dont la date de purge est échue."""
     today = aujourd_hui or date.today()

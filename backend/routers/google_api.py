@@ -524,6 +524,7 @@ class VidangeOut(BaseModel):
     ou_archivage: str
     date_depart: str
     date_echeance: str
+    date_prevenance: str | None = None
     nb_trouves: int
     nb_a_archiver: int
     nb_deja_suspendus: int
@@ -567,6 +568,7 @@ def _vidange_vers_out(r) -> VidangeOut:
         ou_archivage=r.ou_archivage,
         date_depart=r.date_depart.isoformat(),
         date_echeance=r.date_echeance.isoformat(),
+        date_prevenance=r.date_prevenance.isoformat() if r.date_prevenance else None,
         nb_trouves=r.nb_trouves,
         nb_a_archiver=r.nb_a_archiver,
         nb_deja_suspendus=r.nb_deja_suspendus,
@@ -642,6 +644,37 @@ def lancer_vidange(
 
     from backend.services.jobs_google import creer_job, lancer_en_tache_de_fond
 
+    # Indexés par personne : le report au référentiel doit retrouver
+    # l'échéance de chacun à partir des couples que le job lui rend.
+    par_personne = {m.personne_id: m for m in r.mouvements if m.personne_id}
+
+    def _reporter(appliquees: list[tuple[int, str]]) -> None:
+        """Note au référentiel les sorties effectivement appliquées.
+
+        Sans cela, 437 comptes changeraient d'OU sans laisser de trace :
+        l'écran des sortants resterait vide et la liste des personnes à
+        prévenir avant suppression n'existerait pas.
+        """
+        from backend.database import _SessionLocal
+        from backend.services.suivi import enregistrer_sortie
+
+        session_job = _SessionLocal()
+        try:
+            for personne_id, ou_visee in appliquees:
+                mouvement = par_personne.get(personne_id)
+                if mouvement is None or mouvement.date_echeance is None:
+                    continue
+                enregistrer_sortie(
+                    session_job,
+                    personne_id,
+                    echeance=mouvement.date_echeance,
+                    ou_visee=ou_visee,
+                    prevenance=r.date_prevenance,
+                )
+            session_job.commit()
+        finally:
+            session_job.close()
+
     operations = [
         OperationGoogle(
             action="suspendre",  # nom historique : le déplacement passe par users.update
@@ -654,6 +687,8 @@ def lancer_vidange(
                 f"{'Suspendre et déplacer' if m.suspendre else 'Déplacer'} "
                 f"{m.email} vers {m.ou_visee}"
             ),
+            personne_id=m.personne_id,
+            ou_visee=m.ou_visee,
         )
         for m in r.mouvements
     ]
@@ -662,8 +697,85 @@ def lancer_vidange(
         libelle=f"Sortie de {r.ou_source} — {len(operations)} compte(s)",
         operations=operations,
     )
-    lancer_en_tache_de_fond(job, operations, appliquer=client.appliquer_operation)
+    lancer_en_tache_de_fond(
+        job, operations,
+        appliquer=client.appliquer_operation,
+        au_succes=_reporter,
+    )
     return _job_vers_out(job)
+
+
+class OccupantSortieOut(BaseModel):
+    email: str
+    nom: str
+    prenom: str
+    ou: str
+    suspendu: bool
+    derniere_connexion: str | None
+
+
+class OccupantsSortieOut(BaseModel):
+    ou: str
+    nb: int
+    date_prevenance: str | None
+    date_suppression: str | None
+    nb_suspendus: int
+    occupants: list[OccupantSortieOut]
+
+
+@router.get("/sortie/occupants", response_model=OccupantsSortieOut)
+def occupants_sortie(
+    ou: str = Query(..., min_length=1),
+    session: Session = Depends(db_session),
+) -> OccupantsSortieOut:
+    """Qui se trouve dans une OU de sortie, et sous quelle échéance.
+
+    Lecture seule, et lue **dans Google** — pas dans le référentiel. La
+    plupart de ces personnes sont parties avant les exports chargés :
+    l'application ne les connaît pas, alors que l'OU, elle, sait
+    exactement qui elle contient. C'est cette liste qui sert à prévenir
+    les intéressés avant la suppression.
+    """
+    from backend.services.suivi import date_echeance
+    from backend.services.vidange_ou import (
+        DELAI_APRES_PREVENANCE_MOIS,
+        date_prevenance,
+    )
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    try:
+        comptes = client.lister_utilisateurs(prefixe_ou=ou)
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+
+    prevenance = date_prevenance(ou)
+    suppression = (
+        date_echeance(prevenance, mois=DELAI_APRES_PREVENANCE_MOIS)
+        if prevenance
+        else None
+    )
+    return OccupantsSortieOut(
+        ou=ou,
+        nb=len(comptes),
+        date_prevenance=prevenance.isoformat() if prevenance else None,
+        date_suppression=suppression.isoformat() if suppression else None,
+        nb_suspendus=sum(1 for c in comptes if c.get("suspendu")),
+        occupants=[
+            OccupantSortieOut(
+                email=c.get("email") or "",
+                nom=c.get("nom") or "",
+                prenom=c.get("prenom") or "",
+                ou=c.get("ou") or "",
+                suspendu=bool(c.get("suspendu")),
+                derniere_connexion=c.get("derniere_connexion"),
+            )
+            for c in sorted(comptes, key=lambda x: (x.get("nom") or "", x.get("prenom") or ""))
+        ],
+    )
 
 
 # ---------------------------------------------------------------------------

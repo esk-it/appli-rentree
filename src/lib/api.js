@@ -458,6 +458,11 @@ export const googleApi = {
       }),
     );
   },
+  /** Qui occupe une OU de sortie, lu dans Google. Sert à prévenir avant purge. */
+  async occupantsSortie({ ou }) {
+    const q = new URLSearchParams({ ou });
+    return jsonOrThrow(await fetch(`${BASE}/google/sortie/occupants?${q}`));
+  },
   async suivreJob(jobId) {
     return jsonOrThrow(await fetch(`${BASE}/google/jobs/${jobId}`));
   },

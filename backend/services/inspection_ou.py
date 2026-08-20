@@ -46,6 +46,8 @@ class CompteTrouve:
     derniere_connexion: str | None
 
     statut: str
+    personne_id: int | None = None
+    """Sans lui, un déplacement réussi ne peut être reporté au référentiel."""
     cle_pivot: str | None = None
     nom: str | None = None
     prenom: str | None = None
@@ -182,6 +184,7 @@ def recouper_avec_referentiel(
                 prenom_google=c.get("prenom") or "",
                 derniere_connexion=c.get("derniere_connexion"),
                 statut=statut,
+                personne_id=personne.id if personne else None,
                 cle_pivot=personne.cle_pivot if personne else None,
                 nom=personne.nom if personne else None,
                 prenom=personne.prenom if personne else None,

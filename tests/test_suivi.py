@@ -175,3 +175,62 @@ def test_sortie_anterieure_ne_retouche_pas_une_quarantaine(
         session.query(CompteCible).filter_by(personne_id=p.id).one().date_prevue_purge
         == echeance
     )
+
+
+def test_enregistrer_sortie_note_echeance_et_destination(
+    session, personne_factory
+):
+    """Un compte déplacé sans trace disparaîtrait de l'écran des sortants."""
+    from backend.models import CompteCible
+    from backend.services.suivi import enregistrer_sortie
+
+    p = personne_factory(nom="DUPONT", prenom="Jean", login="jdupont")
+    ou = "/7. Sortis/Comptes à supprimer au 31-12-2027"
+
+    assert enregistrer_sortie(
+        session, p.id, echeance=date(2028, 4, 30), ou_visee=ou,
+        prevenance=date(2027, 12, 31),
+    )
+    session.commit()
+
+    c = session.query(CompteCible).filter_by(personne_id=p.id, cible="google").one()
+    assert c.etat == "quarantaine"
+    assert c.date_prevue_purge == date(2028, 4, 30)
+    assert c.ou_appliquee == ou
+    assert "31/12/2027" in c.note
+
+
+def test_enregistrer_sortie_met_a_jour_une_quarantaine_en_cours(
+    session, personne_factory
+):
+    """Changer d'OU, c'est changer de calendrier : l'échéance suit."""
+    from backend.models import CompteCible
+    from backend.services.suivi import enregistrer_sortie
+
+    p = personne_factory(nom="DUPONT", prenom="Jean", login="jdupont")
+    enregistrer_sortie(session, p.id, echeance=date(2027, 2, 28), ou_visee="/7. Sortis")
+    enregistrer_sortie(
+        session, p.id, echeance=date(2028, 4, 30),
+        ou_visee="/7. Sortis/Comptes à supprimer au 31-12-2027",
+    )
+    session.commit()
+
+    c = session.query(CompteCible).filter_by(personne_id=p.id, cible="google").one()
+    assert c.date_prevue_purge == date(2028, 4, 30)
+
+
+def test_enregistrer_sortie_ne_ressuscite_pas_un_compte_purge(
+    session, personne_factory
+):
+    from backend.models import CompteCible
+    from backend.services.suivi import enregistrer_sortie
+
+    p = personne_factory(nom="DUPONT", prenom="Jean", login="jdupont")
+    session.add(CompteCible(personne_id=p.id, cible="google", etat="purge"))
+    session.commit()
+
+    assert not enregistrer_sortie(
+        session, p.id, echeance=date(2028, 4, 30), ou_visee="/7. Sortis"
+    )
+    c = session.query(CompteCible).filter_by(personne_id=p.id, cible="google").one()
+    assert c.etat == "purge"

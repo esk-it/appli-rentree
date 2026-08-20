@@ -9,6 +9,7 @@
   import HelpCircle from "@lucide/svelte/icons/help-circle";
   import Eraser from "@lucide/svelte/icons/eraser";
   import Search from "@lucide/svelte/icons/search";
+  import Users from "@lucide/svelte/icons/users";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
@@ -50,6 +51,49 @@
   // Un compte de sortie reste consultable. Couper l'accès est une décision
   // à part, qui ne doit jamais être le comportement par défaut.
   let suspendreAussi = $state(false);
+
+  // La liste des personnes à prévenir se lit dans Google, pas ici : la
+  // plupart sont parties avant les exports chargés, le référentiel ne les
+  // connaît pas. L'OU, elle, sait exactement qui elle contient.
+  let occupants = $state(/** @type {any} */ (null));
+
+  async function listerOccupants() {
+    const cible = (ouArchivage.trim() || planVidange?.ou_archivage || "").trim();
+    if (!cible) {
+      notify.info("Renseigne d'abord la destination à inspecter.");
+      return;
+    }
+    vidangeEnCours = true;
+    try {
+      occupants = await googleApi.occupantsSortie({ ou: cible });
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
+    } finally {
+      vidangeEnCours = false;
+    }
+  }
+
+  function exporterOccupants() {
+    if (!occupants?.occupants?.length) return;
+    const entetes = ["Nom", "Prénom", "Adresse mail", "OU", "Prévenance", "Suppression"];
+    const lignes = occupants.occupants.map((o) => [
+      o.nom, o.prenom, o.email, o.ou,
+      formaterIso(occupants.date_prevenance),
+      formaterIso(occupants.date_suppression),
+    ]);
+    const csv = [entetes, ...lignes]
+      .map((l) => l.map((c) => (String(c).includes(";") ? `"${c}"` : c)).join(";"))
+      .join("\r\n");
+    const b64 = btoa(String.fromCharCode(...new TextEncoder().encode("﻿" + csv)));
+    enregistrerFichierBase64("Destinataires_prevenance.csv", b64, "text/csv").then(
+      ({ chemin, annule }) => {
+        if (!annule) {
+          notify.succes(`${lignes.length} destinataire(s) — ${chemin ?? "Téléchargements"}`,
+            { duree: 8000 });
+        }
+      },
+    );
+  }
   let planVidange = $state(/** @type {any} */ (null));
   let vidangeEnCours = $state(false);
   let confirmationVidange = $state(false);
@@ -323,6 +367,9 @@
           <input type="checkbox" bind:checked={suspendreAussi} class="rounded" />
           Suspendre aussi
         </label>
+        <Bouton icon={Users} occupe={vidangeEnCours} onclick={listerOccupants}>
+          Qui est dans la destination ?
+        </Bouton>
         {#if planVidange && planVidange.nb_a_archiver > 0}
           <Bouton
             variante="danger"
@@ -334,6 +381,69 @@
           </Bouton>
         {/if}
       </div>
+
+      {#if occupants}
+        <div class="mt-3 rounded-lg border border-stone-200 p-3 text-sm dark:border-stone-700">
+          <div class="flex flex-wrap items-center gap-3">
+            <span>
+              <strong class="tabular-nums">{occupants.nb}</strong> compte(s) dans
+              <span class="font-mono text-xs">{occupants.ou}</span>
+            </span>
+            {#if occupants.nb_suspendus > 0}
+              <span class="text-amber-700 dark:text-amber-400">
+                {occupants.nb_suspendus} suspendu(s)
+              </span>
+            {/if}
+            <Bouton
+              taille="sm"
+              icon={Download}
+              classe="ml-auto"
+              disabled={!occupants.nb}
+              onclick={exporterOccupants}
+            >
+              Liste des destinataires
+            </Bouton>
+            <Bouton taille="sm" onclick={() => (occupants = null)}>Fermer</Bouton>
+          </div>
+
+          {#if occupants.date_prevenance}
+            <p class="mt-2 text-xs text-stone-600 dark:text-stone-400">
+              Lettre à envoyer le
+              <strong>{formaterIso(occupants.date_prevenance)}</strong>, annonçant
+              quatre mois : suppression le
+              <strong>{formaterIso(occupants.date_suppression)}</strong>.
+            </p>
+          {:else}
+            <p class="mt-2 text-xs text-amber-700 dark:text-amber-400">
+              Le nom de cette OU ne porte pas de date : aucune échéance ne peut
+              en être déduite.
+            </p>
+          {/if}
+
+          <div class="mt-3 max-h-64 overflow-auto">
+            <table class="tableau w-full text-xs">
+              <thead>
+                <tr>
+                  <th class="text-left">Nom</th>
+                  <th class="text-left">Adresse</th>
+                  <th class="text-left">Dernière connexion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each occupants.occupants.slice(0, 300) as o (o.email)}
+                  <tr class:ligne-douteuse={o.suspendu}>
+                    <td class="whitespace-nowrap">{o.prenom} {o.nom}</td>
+                    <td class="whitespace-nowrap font-mono">{o.email}</td>
+                    <td class="whitespace-nowrap text-stone-500 dark:text-stone-400">
+                      {o.derniere_connexion ? o.derniere_connexion.slice(0, 10).split("-").reverse().join("/") : "—"}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {/if}
 
       {#if planVidange}
         <div class="mt-3 rounded-lg border border-stone-200 p-3 text-sm dark:border-stone-700">
@@ -352,8 +462,15 @@
             {/if}
           </div>
           <p class="mt-2 text-xs text-stone-600 dark:text-stone-400">
-            Départ constaté au <strong>{formaterIso(planVidange.date_depart)}</strong>,
-            suppression prévue le <strong>{formaterIso(planVidange.date_echeance)}</strong>.
+            {#if planVidange.date_prevenance}
+              Lettre de prévenance le
+              <strong>{formaterIso(planVidange.date_prevenance)}</strong>, puis
+              quatre mois : suppression le
+              <strong>{formaterIso(planVidange.date_echeance)}</strong>.
+            {:else}
+              Départ constaté au <strong>{formaterIso(planVidange.date_depart)}</strong>,
+              suppression prévue le <strong>{formaterIso(planVidange.date_echeance)}</strong>.
+            {/if}
             Destination : <span class="font-mono">{planVidange.ou_archivage}</span>
           </p>
 

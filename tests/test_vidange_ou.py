@@ -323,3 +323,88 @@ def test_destination_imposee_vaut_aussi_pour_les_retardataires(
     assert {m.ou_visee for m in r.mouvements} == {cible}, (
         "le retardataire garde sa date propre mais pas une autre destination"
     )
+
+
+def test_date_lue_dans_le_nom_de_l_ou_de_sortie():
+    from backend.services.vidange_ou import date_prevenance
+
+    assert date_prevenance("/7. Sortis/Comptes à supprimer au 31-12-2027") == date(2027, 12, 31)
+    assert date_prevenance("/7. Sortis/Comptes à supprimer au 30-06-2027") == date(2027, 6, 30)
+    assert date_prevenance("/2. NDE/Sortie") is None
+    assert date_prevenance("/7. Sortis/Comptes au 31-02-2027") is None, "31 février"
+    assert date_prevenance(None) is None
+
+
+def test_la_destination_datee_commande_le_calendrier(session, site_factory):
+    """La date de l'OU annonce la lettre ; la suppression suit quatre mois après.
+
+    C'est la règle de l'établissement : le titulaire est prévenu fin
+    décembre que son compte vivra encore quatre mois.
+    """
+    from backend.services.vidange_ou import planifier_vidange
+
+    site_factory("NDK")
+    r = planifier_vidange(
+        session,
+        [_compte("a@lekreisker.fr", "/3. NDK/NDK2025/T_G1A")],
+        ou_source="/3. NDK/NDK2025",
+        ou_archivage="/7. Sortis/Comptes à supprimer au 31-12-2027",
+        aujourd_hui=date(2026, 8, 20),
+    )
+
+    assert r.date_prevenance == date(2027, 12, 31)
+    assert r.date_echeance == date(2028, 4, 30), "31/12 + 4 mois"
+    assert r.mouvements[0].date_echeance == date(2028, 4, 30)
+    assert any("annonce la lettre" in a for a in r.avertissements)
+
+
+def test_sans_date_lisible_la_regle_generale_sapplique(session, site_factory):
+    """L'OU de sortie de NDE ne porte pas de date : rien ne doit en être déduit."""
+    from backend.services.vidange_ou import planifier_vidange
+
+    site_factory("NDE")
+    r = planifier_vidange(
+        session,
+        [_compte("a@ndecleder.fr", "/2. NDE/NDE2025/6V")],
+        ou_source="/2. NDE/NDE2025",
+        ou_archivage="/2. NDE/Sortie",
+        aujourd_hui=date(2026, 8, 20),
+    )
+
+    assert r.date_prevenance is None
+    assert r.date_echeance == date(2027, 2, 28), "31/08/2025 + 18 mois"
+    assert r.ou_archivage == "/2. NDE/Sortie"
+
+
+def test_un_retardataire_reste_signale_sous_calendrier_impose(
+    session, site_factory, annee_factory, personne_factory
+):
+    """La date ne varie plus, mais l'oubli de la bascule précédente reste un fait."""
+    from backend.models import Snapshot
+    from backend.services.vidange_ou import planifier_vidange
+
+    site = site_factory("NDK")
+    annee = annee_factory("2025-2026")
+    annee_factory("2026-2027")
+    p = personne_factory(
+        nom="LE LAY", prenom="Leane", login="llelay", site_id=site.id,
+        email_constate="leane.le.lay@lekreisker.fr",
+    )
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=annee.id,
+                         nom="LE LAY", prenom="Leane", classe="BTS_2"))
+    session.commit()
+
+    r = planifier_vidange(
+        session,
+        [_compte("leane.le.lay@lekreisker.fr", "/3. NDK/NDK2025"),
+         _compte("parti@lekreisker.fr", "/3. NDK/NDK2025/T_G1A")],
+        ou_source="/3. NDK/NDK2025",
+        ou_archivage="/7. Sortis/Comptes à supprimer au 31-12-2027",
+        aujourd_hui=date(2026, 8, 20),
+    )
+
+    assert len(r.retardataires) == 1
+    assert any("calendrier de la destination" in a for a in r.avertissements)
+    assert {m.date_echeance for m in r.mouvements} == {date(2028, 4, 30)}, (
+        "sous calendrier imposé, tout le monde partage la même échéance"
+    )

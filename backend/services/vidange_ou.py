@@ -22,7 +22,20 @@ aucun n'est suspendu.
 
 La suspension reste possible, mais elle se demande explicitement.
 
-## L'échéance
+## Deux dates, pas une
+
+L'établissement date ses OU de sortie — « Comptes à supprimer au
+31-12-2027 ». Cette date est celle de la **lettre de prévenance**, pas de
+la suppression : le titulaire est averti fin décembre que son compte
+vivra encore quatre mois, et la suppression n'intervient qu'au terme de
+ce délai. Le nom de l'OU dit donc quand le compte à rebours démarre.
+
+Quand la destination porte une date lisible, c'est elle qui commande :
+prévenance à cette date, suppression quatre mois plus tard. Sans date
+lisible — l'OU de sortie de NDE n'en porte pas — on retombe sur la règle
+générale ci-dessous.
+
+## L'échéance par défaut
 
 Elle court depuis le **départ réel**, pas depuis aujourd'hui. Un compte
 laissé trois ans a déjà purgé sa quarantaine ; lui accorder 18 mois de
@@ -38,6 +51,14 @@ Un compte dont la personne est **encore inscrite** n'est jamais touché,
 quelle que soit l'OU où il se trouve. C'est le cas d'un élève replacé à
 la main, ou d'un redoublant resté dans l'arbre précédent : le suspendre
 le priverait de son compte le jour de la rentrée.
+
+## Ce que le déplacement laisse comme trace
+
+Un compte sorti de l'arbre des classes n'est plus visible nulle part si
+rien ne l'enregistre : ni dans l'écran des sortants, ni dans la liste des
+personnes à prévenir avant suppression. Chaque mouvement porte donc
+l'identifiant de la personne quand le rapprochement l'a trouvée, pour que
+le déplacement réussi puisse être reporté au référentiel.
 
 Rien n'est envoyé ici : ce module construit un plan, l'exécution est un
 geste distinct et confirmé.
@@ -79,6 +100,8 @@ class RapportVidange:
     ou_archivage: str
     date_depart: date
     date_echeance: date
+    date_prevenance: date | None = None
+    """Date de la lettre annonçant la suppression, lue dans le nom de l'OU."""
 
     nb_trouves: int = 0
     nb_a_archiver: int = 0
@@ -100,6 +123,28 @@ def annee_depuis_ou(chemin: str) -> int | None:
     """
     annees = re.findall(r"20\d\d", chemin or "")
     return int(annees[-1]) if annees else None
+
+
+DELAI_APRES_PREVENANCE_MOIS = 4
+"""Ce que la lettre annonce : le compte vit encore quatre mois."""
+
+_DATE_DANS_OU = re.compile(r"(?<!\d)(\d{2})-(\d{2})-(20\d\d)(?!\d)")
+
+
+def date_prevenance(ou: str | None) -> date | None:
+    """Date lue dans le nom d'une OU de sortie, ex. `… au 31-12-2027`.
+
+    C'est la date de la lettre de prévenance. `None` si le nom n'en porte
+    pas — auquel cas rien ne doit être déduit.
+    """
+    m = _DATE_DANS_OU.search(ou or "")
+    if not m:
+        return None
+    jour, mois, annee = (int(x) for x in m.groups())
+    try:
+        return date(annee, mois, jour)
+    except ValueError:
+        return None
 
 
 def _annee_fin(libelle: str | None) -> int | None:
@@ -146,7 +191,14 @@ def planifier_vidange(
         )
 
     depart = date(annee, 8, 31)
-    echeance = date_echeance(depart)
+
+    # Une destination datée impose son calendrier : la date qu'elle porte
+    # est celle de la prévenance, la suppression suit quatre mois plus tard.
+    prevenance = date_prevenance(ou_archivage)
+    if prevenance is not None:
+        echeance = date_echeance(prevenance, mois=DELAI_APRES_PREVENANCE_MOIS)
+    else:
+        echeance = date_echeance(depart)
 
     # Le site se reconnaît au préfixe de la branche : il porte parfois sa
     # propre convention d'archivage.
@@ -179,6 +231,7 @@ def planifier_vidange(
         ou_archivage=ou_archivage,
         date_depart=depart,
         date_echeance=echeance,
+        date_prevenance=prevenance,
         nb_trouves=inspection.nb_total,
     )
 
@@ -194,12 +247,17 @@ def planifier_vidange(
         # resté un an de plus : le référentiel le sait, et lui appliquer la
         # date de la branche écourterait sa quarantaine. On retient la plus
         # tardive des deux — jamais la plus courte.
+        # Rester dans une branche dont le nom sous-estime son départ reste un
+        # fait à signaler, même quand la destination impose son calendrier à
+        # tout le monde : c'est la trace d'une bascule précédente incomplète.
         fin = _annee_fin(c.derniere_annee)
-        if fin and fin > annee:
-            depart_c = date(fin, 8, 31)
-            echeance_c = date_echeance(depart_c)
-            destination = archivage_pour(echeance_c)
+        en_retard = bool(fin and fin > annee)
+        if en_retard:
             rapport.retardataires.append(c)
+
+        if en_retard and prevenance is None:
+            echeance_c = date_echeance(date(fin, 8, 31))
+            destination = archivage_pour(echeance_c)
         else:
             echeance_c, destination = echeance, ou_archivage
 
@@ -213,19 +271,26 @@ def planifier_vidange(
                 nom=c.nom or c.nom_google,
                 prenom=c.prenom or c.prenom_google,
                 statut_referentiel=c.statut,
-                personne_id=None,
+                personne_id=c.personne_id,
             )
         )
 
     rapport.nb_a_archiver = len(rapport.mouvements)
 
     if rapport.retardataires:
+        detail = (
+            "Ils suivent le calendrier de la destination, comme les autres."
+            if prevenance is not None
+            else (
+                "Leur départ est daté de leur dernière année réelle, pas de "
+                "celle de la branche — retenir la date de la branche "
+                "écourterait leur conservation."
+            )
+        )
         rapport.avertissements.append(
             f"{len(rapport.retardataires)} compte(s) figurent au référentiel "
             "dans une année postérieure au nom de la branche : la bascule "
-            "précédente ne les a pas déplacés. Leur départ est daté de leur "
-            "dernière année réelle, pas de celle de la branche — les archiver "
-            "à la date de la branche écourterait leur conservation."
+            f"précédente ne les a pas déplacés. {detail}"
         )
     if rapport.epargnes:
         rapport.avertissements.append(
@@ -238,6 +303,13 @@ def planifier_vidange(
             "La suspension est demandée : ces comptes ne pourront plus être "
             "consultés par leur titulaire. L'usage de l'établissement est de "
             "déplacer sans suspendre — décoche si ce n'était pas voulu."
+        )
+    if prevenance is not None:
+        rapport.avertissements.append(
+            f"La destination fixe le calendrier : prévenance le "
+            f"{prevenance.strftime('%d/%m/%Y')}, suppression le "
+            f"{echeance.strftime('%d/%m/%Y')}. La date lue dans le nom de "
+            "l'OU annonce la lettre, pas la suppression."
         )
     if echeance <= (aujourd_hui or date.today()):
         rapport.avertissements.append(
