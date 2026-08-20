@@ -518,6 +518,18 @@
           {/if}
         </div>
       {:else}
+        <!--
+          Deux écrans savaient appliquer un déplacement d'OU, sans que rien
+          ne dise lequel choisir. Celui-ci reste utile pour les créations et
+          les suspensions ; pour les OU, la Bascule montre l'avancement.
+        -->
+        <p class="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200">
+          Pour <strong>déplacer les élèves d'OU</strong>, préfère l'onglet
+          <strong>Bascule des OU</strong> : même traitement, mais avec
+          l'avancement élève par élève et la reprise des échecs. Cette
+          section-ci sert aux créations de comptes et aux suspensions.
+        </p>
+
         <div class="mb-3">
           <span class="libelle-champ">Phase de rentrée</span>
           <Segments

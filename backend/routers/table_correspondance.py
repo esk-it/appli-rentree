@@ -224,3 +224,74 @@ async def apercu_import(fichier: UploadFile = File(...)) -> OngletsApercuOut:
             pass
 
     return OngletsApercuOut(onglets=onglets)
+
+
+# ---------------------------------------------------------------------------
+# Rotation annuelle des OU
+# ---------------------------------------------------------------------------
+
+
+class RotationPayload(BaseModel):
+    chercher: str = Field(..., min_length=1, max_length=50)
+    remplacer: str = Field(..., max_length=50)
+    site_id: int | None = None
+    mode: str = "simulation"
+
+
+class LigneRenommeeOut(BaseModel):
+    id: int
+    classe: str
+    site: str | None
+    avant_pre_rentree: str
+    apres_pre_rentree: str
+    avant_definitive: str
+    apres_definitive: str
+
+
+class RotationOut(BaseModel):
+    chercher: str
+    remplacer: str
+    mode: str
+    nb_lignes_examinees: int
+    nb_lignes_modifiees: int
+    nb_inchangees: int
+    avertissements: list[str]
+    lignes: list[LigneRenommeeOut]
+
+
+@router.post("/rotation-ou", response_model=RotationOut)
+def rotation_ou(
+    payload: RotationPayload, session: Session = Depends(db_session)
+) -> RotationOut:
+    """Remplace un fragment dans les chemins d'OU — l'année, en pratique.
+
+    L'arborescence Google porte l'année qui se termine : à chaque rentrée
+    la Table doit viser l'arbre suivant. Le faire ligne à ligne est une
+    source d'erreur invisible, les deux chemins étant également valides
+    pour le programme.
+
+    En mode `simulation`, rien n'est écrit.
+    """
+    from backend.services.rotation_ou import renommer_dans_les_ou
+
+    try:
+        r = renommer_dans_les_ou(
+            session,
+            chercher=payload.chercher,
+            remplacer=payload.remplacer,
+            site_id=payload.site_id,
+            mode=payload.mode,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    return RotationOut(
+        chercher=r.chercher,
+        remplacer=r.remplacer,
+        mode=r.mode,
+        nb_lignes_examinees=r.nb_lignes_examinees,
+        nb_lignes_modifiees=r.nb_lignes_modifiees,
+        nb_inchangees=r.nb_inchangees,
+        avertissements=r.avertissements,
+        lignes=[LigneRenommeeOut(**vars(l)) for l in r.lignes],
+    )

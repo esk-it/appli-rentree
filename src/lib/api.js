@@ -158,6 +158,16 @@ export const tableCorrespondance = {
       }),
     );
   },
+  /** Bascule l'année dans les chemins d'OU (2026 → 2027). Simulation par défaut. */
+  async rotationOu({ chercher, remplacer, siteId = null, mode = "simulation" }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/table-correspondance/rotation-ou`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ chercher, remplacer, site_id: siteId, mode }),
+      }),
+    );
+  },
   async apercuXlsx({ fichier }) {
     const form = new FormData();
     form.append("fichier", fichier);

@@ -9,6 +9,7 @@
   import Plus from "@lucide/svelte/icons/plus";
   import Pencil from "@lucide/svelte/icons/pencil";
   import Trash2 from "@lucide/svelte/icons/trash-2";
+  import CalendarArrowUp from "@lucide/svelte/icons/calendar-arrow-up";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
   import Modale from "$lib/components/Modale.svelte";
@@ -21,6 +22,49 @@
   let filtreSite = $state("");
   let chargement = $state(true);
   let erreur = $state("");
+
+  // Rotation annuelle des OU
+  //
+  // L'arborescence Google porte l'année qui se termine : à chaque rentrée la
+  // Table doit viser l'arbre suivant. Le faire ligne à ligne sur 87 classes
+  // est une source d'erreur invisible — les deux chemins sont également
+  // valides pour le programme.
+  let rotationOuverte = $state(false);
+  let rotChercher = $state("");
+  let rotRemplacer = $state("");
+  let rapportRotation = $state(/** @type {null | any} */ (null));
+  let rotationEnCours = $state(false);
+
+  function ouvrirRotation() {
+    // Pré-remplissage depuis l'année trouvée dans les OU existantes : c'est
+    // presque toujours « celle-ci → la suivante ».
+    const trouve = liste
+      .map((l) => (l.ou_definitive ?? "").match(/20\d\d/)?.[0])
+      .find(Boolean);
+    rotChercher = trouve ?? "";
+    rotRemplacer = trouve ? String(Number(trouve) + 1) : "";
+    rapportRotation = null;
+    rotationOuverte = true;
+  }
+
+  async function lancerRotation(mode) {
+    if (!rotChercher || !rotRemplacer) return;
+    rotationEnCours = true;
+    try {
+      rapportRotation = await tableCorrespondance.rotationOu({
+        chercher: rotChercher, remplacer: rotRemplacer, mode,
+      });
+      if (mode === "reel") {
+        notify.succes(`${rapportRotation.nb_lignes_modifiees} ligne(s) mises à jour`);
+        rotationOuverte = false;
+        await rafraichir();
+      }
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      rotationEnCours = false;
+    }
+  }
 
   // Import XLSX
   let panneauImportOuvert = $state(false);
@@ -203,6 +247,10 @@
     description="Fait le pont entre les codes classe Charlemagne et les cibles : unité d'organisation Google (pré-rentrée + définitive) et adresses des groupes Google. Une classe absente est un cas bloquant à l'ingestion — le programme refuse plutôt que d'affecter par défaut."
   >
     {#snippet actions()}
+      <button class="btn-secondary" onclick={ouvrirRotation}>
+        <CalendarArrowUp class="h-4 w-4" />
+        Changer l'année des OU
+      </button>
       <button class="btn-secondary" onclick={() => (panneauImportOuvert = !panneauImportOuvert)}>
         <Upload class="h-4 w-4" />
         Importer XLSX
@@ -542,6 +590,90 @@
       </button>
       <button class="btn-primary" onclick={enregistrer} disabled={!formValide || enregistrement}>
         {modale.mode === "creer" ? "Ajouter" : "Enregistrer"}
+      </button>
+    {/snippet}
+  </Modale>
+{/if}
+
+{#if rotationOuverte}
+  <Modale titre="Changer l'année dans les OU" largeur="lg" onFermer={() => (rotationOuverte = false)}>
+    <div class="space-y-4">
+      <p class="text-sm text-stone-600 dark:text-stone-300">
+        L'arborescence Google porte l'année qui <strong>se termine</strong> :
+        <code>NDK2026</code> contient l'année scolaire 2025-2026. À chaque
+        rentrée, la Table doit viser l'arbre suivant.
+      </p>
+
+      <div class="flex flex-wrap items-end gap-3">
+        <div>
+          <label class="libelle-champ" for="rot-de">Remplacer</label>
+          <input id="rot-de" class="champ w-28 font-mono" bind:value={rotChercher} />
+        </div>
+        <div>
+          <label class="libelle-champ" for="rot-vers">par</label>
+          <input id="rot-vers" class="champ w-28 font-mono" bind:value={rotRemplacer} />
+        </div>
+        <button
+          class="btn-secondary"
+          disabled={rotationEnCours || !rotChercher || !rotRemplacer}
+          onclick={() => lancerRotation("simulation")}
+        >
+          Prévisualiser
+        </button>
+      </div>
+
+      <p class="text-xs text-stone-500 dark:text-stone-400">
+        Ne touche que les chemins d'OU. Les adresses de groupes ne portent pas
+        d'année et restent intactes.
+      </p>
+
+      {#if rapportRotation}
+        <div class="rounded-lg border border-stone-200 p-3 text-sm dark:border-stone-700">
+          <p class="font-medium">
+            {rapportRotation.nb_lignes_modifiees} ligne(s) sur
+            {rapportRotation.nb_lignes_examinees} seraient modifiées
+          </p>
+          {#each rapportRotation.avertissements as a}
+            <p class="mt-2 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+              {a}
+            </p>
+          {/each}
+          <div class="mt-3 max-h-64 overflow-auto">
+            <table class="tableau w-full text-xs">
+              <thead>
+                <tr>
+                  <th class="text-left">Classe</th>
+                  <th class="text-left">Avant</th>
+                  <th class="text-left">Après</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each rapportRotation.lignes as l (l.id)}
+                  <tr>
+                    <td class="whitespace-nowrap font-medium">{l.classe}</td>
+                    <td class="whitespace-nowrap font-mono text-stone-500 dark:text-stone-400">
+                      {l.avant_definitive}
+                    </td>
+                    <td class="whitespace-nowrap font-mono text-emerald-700 dark:text-emerald-400">
+                      {l.apres_definitive}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {/if}
+    </div>
+
+    {#snippet actions()}
+      <button class="btn-secondary" onclick={() => (rotationOuverte = false)}>Annuler</button>
+      <button
+        class="btn-primary"
+        disabled={rotationEnCours || !rapportRotation || rapportRotation.nb_lignes_modifiees === 0}
+        onclick={() => lancerRotation("reel")}
+      >
+        Appliquer
       </button>
     {/snippet}
   </Modale>

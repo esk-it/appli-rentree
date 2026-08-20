@@ -422,8 +422,15 @@
                 <td class="px-3 py-1.5 text-xs text-stone-600 dark:text-stone-400">
                   {#if e.statut === "echec"}
                     <span class="text-red-700 dark:text-red-400">{e.message}</span>
+                  {:else if e.ou_visee}
+                    {e.ou_visee}
+                  {:else if e.message}
+                    <!-- Cas « pas encore de compte » : lu sans erreur, mais
+                         rien à relever. Le dire plutôt qu'afficher un libellé
+                         technique. -->
+                    <span class="italic text-stone-500 dark:text-stone-400">{e.message}</span>
                   {:else}
-                    {e.ou_visee ?? e.libelle}
+                    {e.libelle}
                   {/if}
                 </td>
               </tr>

@@ -214,22 +214,44 @@ def relever_ou_reelles(
     for lecture, etape in zip(lectures, job.etapes):
         lecture.etape = etape
 
+    # Un relevé de 1600 comptes prend plusieurs minutes. Tout écrire à la fin
+    # ferait perdre l'intégralité du travail si l'application est fermée
+    # entre-temps — on enregistre donc par paquets, au fil de l'eau.
+    TAILLE_LOT = 50
+    en_attente: list[tuple[int, str]] = []
+
+    def ecrire(lot: list[tuple[int, str]]) -> None:
+        from backend.database import _SessionLocal
+
+        if not lot:
+            return
+        s = _SessionLocal()
+        try:
+            enregistrer_ou_appliquees(s, lot)
+        finally:
+            s.close()
+
     def relever_une(lecture) -> None:
         constat = client.lire_utilisateur(lecture.email)
         if constat.erreur:
             raise RuntimeError(constat.erreur)
         if not constat.existe:
-            raise RuntimeError("Compte absent de Google")
+            # Pas un échec : c'est l'état normal d'un élève dont le compte
+            # reste à créer. Les compter comme des erreurs noierait les vraies
+            # — sur le relevé réel, 217 « absents » pour zéro problème.
+            lecture.etape.message = "Aucun compte Google — à créer"
+            return
         lecture.etape.ou_visee = constat.ou
+        en_attente.append((lecture.personne_id, constat.ou))
+        if len(en_attente) >= TAILLE_LOT:
+            ecrire(en_attente)
+            en_attente.clear()
 
-    def memoriser(appliquees) -> None:
-        from backend.database import _SessionLocal
-
-        s = _SessionLocal()
-        try:
-            enregistrer_ou_appliquees(s, appliquees)
-        finally:
-            s.close()
+    def memoriser(_) -> None:
+        # Le job ne connaît que les lots déjà écrits ; il reste le dernier,
+        # forcément incomplet.
+        ecrire(en_attente)
+        en_attente.clear()
 
     lancer_en_tache_de_fond(job, lectures, appliquer=relever_une, au_succes=memoriser)
     return ReleveOut(job_id=job.id, nb_a_relever=len(lectures))
