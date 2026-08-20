@@ -349,6 +349,7 @@
                   <th class="text-left">Nom</th>
                   <th class="text-left">Adresse</th>
                   <th class="text-left">OU actuelle</th>
+                  <th class="text-left">Purge</th>
                 </tr>
               </thead>
               <tbody>
@@ -358,6 +359,15 @@
                     <td class="whitespace-nowrap font-mono">{m.email}</td>
                     <td class="whitespace-nowrap font-mono text-stone-500 dark:text-stone-400">
                       {m.ou_actuelle}
+                    </td>
+                    <td class="whitespace-nowrap">
+                      {#if m.date_echeance && m.date_echeance !== planVidange.date_echeance}
+                        <span class="text-amber-700 dark:text-amber-400">
+                          {formaterIso(m.date_echeance)}
+                        </span>
+                      {:else}
+                        <span class="text-stone-400">—</span>
+                      {/if}
                     </td>
                   </tr>
                 {/each}

@@ -192,3 +192,49 @@ def test_homonymes_ne_sont_pas_rapproches_au_hasard(
     # Aucun des deux n'est inscrit : le compte part, mais sans rapprochement
     assert r.nb_a_archiver == 1
     assert r.mouvements[0].statut_referentiel == "inconnu"
+
+
+def test_compte_oublie_par_la_bascule_garde_sa_vraie_date(
+    session, site_factory, annee_factory, personne_factory
+):
+    """Le cas réel : quatre comptes restés dans NDK2025 en 2025-2026.
+
+    La branche date leur départ d'août 2025 ; le référentiel sait qu'ils
+    étaient encore là un an plus tard. Retenir la date de la branche
+    écourterait leur conservation de dix mois.
+    """
+    from backend.models import Snapshot
+    from backend.services.vidange_ou import planifier_vidange
+
+    site = site_factory("NDK")
+    annee = annee_factory("2025-2026")
+    annee_factory("2026-2027")  # l'année préparée : la personne n'y est plus
+    p = personne_factory(
+        nom="LE LAY", prenom="Leane", login="llelay", site_id=site.id,
+        email_constate="leane.le.lay@lekreisker.fr",
+    )
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=annee.id,
+                         nom="LE LAY", prenom="Leane", classe="BTS_2"))
+    session.commit()
+
+    r = planifier_vidange(
+        session,
+        [
+            _compte("leane.le.lay@lekreisker.fr", "/3. NDK/NDK2025"),
+            _compte("parti@lekreisker.fr", "/3. NDK/NDK2025/T_G1A"),
+        ],
+        ou_source="/3. NDK/NDK2025",
+        aujourd_hui=date(2026, 8, 20),
+    )
+
+    assert len(r.retardataires) == 1
+    assert any("bascule" in a for a in r.avertissements)
+
+    par_mail = {m.email: m for m in r.mouvements}
+    tardif = par_mail["leane.le.lay@lekreisker.fr"]
+    normal = par_mail["parti@lekreisker.fr"]
+
+    assert tardif.date_echeance == date(2028, 2, 29), "18 mois après août 2026"
+    assert normal.date_echeance == date(2027, 2, 28), "18 mois après août 2025"
+    assert tardif.ou_visee != normal.ou_visee
+    assert "29-02-2028" in tardif.ou_visee

@@ -509,6 +509,7 @@ class MouvementVidangeOut(BaseModel):
     nom: str
     prenom: str
     statut_referentiel: str
+    date_echeance: str | None = None
 
 
 class EparneOut(BaseModel):
@@ -527,6 +528,7 @@ class VidangeOut(BaseModel):
     nb_a_archiver: int
     nb_deja_suspendus: int
     nb_epargnes: int
+    nb_retardataires: int = 0
     avertissements: list[str]
     mouvements: list[MouvementVidangeOut]
     epargnes: list[EparneOut]
@@ -562,6 +564,7 @@ def _vidange_vers_out(r) -> VidangeOut:
         nb_a_archiver=r.nb_a_archiver,
         nb_deja_suspendus=r.nb_deja_suspendus,
         nb_epargnes=len(r.epargnes),
+        nb_retardataires=len(r.retardataires),
         avertissements=r.avertissements,
         mouvements=[
             MouvementVidangeOut(
@@ -572,6 +575,7 @@ def _vidange_vers_out(r) -> VidangeOut:
                 nom=m.nom,
                 prenom=m.prenom,
                 statut_referentiel=m.statut_referentiel,
+                date_echeance=m.date_echeance.isoformat() if m.date_echeance else None,
             )
             for m in r.mouvements
         ],

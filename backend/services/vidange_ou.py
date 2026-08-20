@@ -57,6 +57,9 @@ class MouvementVidange:
     prenom: str
     statut_referentiel: str
     personne_id: int | None = None
+    date_echeance: date | None = None
+    """Propre au compte : elle diffère de celle de la branche pour qui y a
+    séjourné plus longtemps que son nom ne l'indique."""
 
 
 @dataclass
@@ -71,6 +74,9 @@ class RapportVidange:
     nb_deja_suspendus: int = 0
     mouvements: list[MouvementVidange] = field(default_factory=list)
     epargnes: list[CompteTrouve] = field(default_factory=list)
+    retardataires: list[CompteTrouve] = field(default_factory=list)
+    """Comptes restés dans la branche alors que leur titulaire était encore
+    là l'année suivante : la bascule précédente les a oubliés."""
     """Comptes laissés en place parce que la personne est encore inscrite."""
 
     avertissements: list[str] = field(default_factory=list)
@@ -82,6 +88,12 @@ def annee_depuis_ou(chemin: str) -> int | None:
     `/3. NDK/NDK2025` → 2025, soit l'année scolaire 2024-2025.
     """
     annees = re.findall(r"20\d\d", chemin or "")
+    return int(annees[-1]) if annees else None
+
+
+def _annee_fin(libelle: str | None) -> int | None:
+    """`2025-2026` → 2026, l'année où cette année scolaire se termine."""
+    annees = re.findall(r"20\d\d", libelle or "")
     return int(annees[-1]) if annees else None
 
 
@@ -125,13 +137,15 @@ def planifier_vidange(
             site = s
             break
 
-    if site is not None and (site.ou_sortants or "").strip():
-        ou_archivage = site.ou_sortants.strip().rstrip("/")
-    else:
+    def archivage_pour(ech: date) -> str:
+        if site is not None and (site.ou_sortants or "").strip():
+            return site.ou_sortants.strip().rstrip("/")
         from backend.services.configuration import get_param
 
         racine = (get_param(session, "google.ou_sortants") or "/7. Sortis").rstrip("/")
-        ou_archivage = f"{racine}/Comptes à supprimer au {echeance.strftime('%d-%m-%Y')}"
+        return f"{racine}/Comptes à supprimer au {ech.strftime('%d-%m-%Y')}"
+
+    ou_archivage = archivage_pour(echeance)
 
     inspection = recouper_avec_referentiel(session, comptes_google, prefixe_ou=ou_source)
     rapport = RapportVidange(
@@ -148,11 +162,27 @@ def planifier_vidange(
             continue
         if c.suspendu:
             rapport.nb_deja_suspendus += 1
+
+        # La branche date le départ de tout le monde. Mais un compte que la
+        # bascule précédente a oublié y séjourne alors que son titulaire est
+        # resté un an de plus : le référentiel le sait, et lui appliquer la
+        # date de la branche écourterait sa quarantaine. On retient la plus
+        # tardive des deux — jamais la plus courte.
+        fin = _annee_fin(c.derniere_annee)
+        if fin and fin > annee:
+            depart_c = date(fin, 8, 31)
+            echeance_c = date_echeance(depart_c)
+            destination = archivage_pour(echeance_c)
+            rapport.retardataires.append(c)
+        else:
+            echeance_c, destination = echeance, ou_archivage
+
         rapport.mouvements.append(
             MouvementVidange(
                 email=c.email,
                 ou_actuelle=c.ou,
-                ou_visee=ou_archivage,
+                ou_visee=destination,
+                date_echeance=echeance_c,
                 suspendre=not c.suspendu,
                 nom=c.nom or c.nom_google,
                 prenom=c.prenom or c.prenom_google,
@@ -163,6 +193,14 @@ def planifier_vidange(
 
     rapport.nb_a_archiver = len(rapport.mouvements)
 
+    if rapport.retardataires:
+        rapport.avertissements.append(
+            f"{len(rapport.retardataires)} compte(s) figurent au référentiel "
+            "dans une année postérieure au nom de la branche : la bascule "
+            "précédente ne les a pas déplacés. Leur départ est daté de leur "
+            "dernière année réelle, pas de celle de la branche — les archiver "
+            "à la date de la branche écourterait leur conservation."
+        )
     if rapport.epargnes:
         rapport.avertissements.append(
             f"{len(rapport.epargnes)} compte(s) laissé(s) en place : la personne "
