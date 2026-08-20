@@ -14,6 +14,7 @@
   import EtatVide from "$lib/components/EtatVide.svelte";
   import Segments from "$lib/components/Segments.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
+  import Modale from "$lib/components/Modale.svelte";
   import {
     enregistrerFichierBase64,
     googleApi,
@@ -421,30 +422,43 @@
     <div class="card p-4">
       <EtatVide
         icon={LogOut}
-        titre="Aucun compte en sortie"
-        message="Rien n'a encore été enregistré comme sortie. Trois conditions à réunir, dans cet ordre."
+        titre="Aucun compte en sortie enregistré"
+        message="Ce tableau ne liste que les comptes déjà mis en quarantaine. Deux chemins y mènent, et ils ne se ressemblent pas."
       />
       <!--
         Un état vide qui ne dit pas quoi faire laisse croire à une panne.
-        Ces trois étapes sont exactement celles qui manquent le plus souvent.
+        Ici le piège est autre : la vidange ci-dessus alimente ce tableau,
+        et l'utilisateur qui vient de s'en servir ne doit pas lire des
+        prérequis qui ne le concernent pas.
       -->
-      <ol class="mx-auto mt-4 max-w-xl space-y-2 text-sm text-stone-600 dark:text-stone-400">
-        <li>
-          <strong>1.</strong> L'année précédente doit contenir les élèves
-          partis — export Charlemagne avec l'option « inclure les sortants ».
-          Sans eux, aucune différence ne peut faire apparaître un départ.
-        </li>
-        <li>
-          <strong>2.</strong> La réconciliation doit trouver des sortants.
-          Si elle affiche un avertissement « aucun sortant détecté », c'est
-          le point 1 qui n'est pas rempli.
-        </li>
-        <li>
-          <strong>3.</strong> Le bouton <strong>Traiter les sortants</strong>,
-          dans l'onglet Suivi, met leurs comptes en quarantaine avec leur date
-          de suppression. C'est lui qui alimente cet écran.
-        </li>
-      </ol>
+      <div class="mx-auto mt-4 grid max-w-3xl gap-3 text-sm sm:grid-cols-2">
+        <div class="rounded-lg border border-stone-200 p-3 text-left dark:border-stone-700">
+          <p class="font-medium text-stone-800 dark:text-stone-200">
+            Par l'arborescence — le bloc ci-dessus
+          </p>
+          <p class="mt-1 text-stone-600 dark:text-stone-400">
+            Les comptes logés dans l'arbre d'une année révolue, quelle que soit
+            la raison de leur présence. C'est le chemin habituel à la rentrée :
+            prévisualise <span class="font-mono text-xs">/3. NDK/NDK2025</span>,
+            puis archive. Ce tableau se remplit ensuite.
+          </p>
+        </div>
+        <div class="rounded-lg border border-stone-200 p-3 text-left dark:border-stone-700">
+          <p class="font-medium text-stone-800 dark:text-stone-200">
+            Par le référentiel — écran Suivi
+          </p>
+          <p class="mt-1 text-stone-600 dark:text-stone-400">
+            Les élèves présents l'an dernier et absents cette année. Suppose un
+            export Charlemagne <strong>incluant les sortants</strong>, une
+            réconciliation qui en trouve, puis le bouton
+            <strong>Traiter les sortants</strong> dans l'écran Suivi.
+          </p>
+          <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">
+            Ce chemin ne donne rien quand l'année précédente est entièrement
+            contenue dans la nouvelle — aucun départ ne s'y lit.
+          </p>
+        </div>
+      </div>
     </div>
   {:else}
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 sans-impression">
