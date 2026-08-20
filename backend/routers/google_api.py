@@ -494,3 +494,149 @@ def inspecter_ou(
         nb_inconnus=r.nb_inconnus,
         comptes=[CompteTrouveOut(**vars(c)) for c in r.comptes],
     )
+
+
+# ---------------------------------------------------------------------------
+# Vidange d'une branche d'OU
+# ---------------------------------------------------------------------------
+
+
+class MouvementVidangeOut(BaseModel):
+    email: str
+    ou_actuelle: str
+    ou_visee: str
+    suspendre: bool
+    nom: str
+    prenom: str
+    statut_referentiel: str
+
+
+class EparneOut(BaseModel):
+    email: str
+    ou: str
+    nom: str | None
+    prenom: str | None
+
+
+class VidangeOut(BaseModel):
+    ou_source: str
+    ou_archivage: str
+    date_depart: str
+    date_echeance: str
+    nb_trouves: int
+    nb_a_archiver: int
+    nb_deja_suspendus: int
+    nb_epargnes: int
+    avertissements: list[str]
+    mouvements: list[MouvementVidangeOut]
+    epargnes: list[EparneOut]
+
+
+def _plan_vidange(session: Session, ou: str, annee_depart: int | None):
+    from backend.services.vidange_ou import planifier_vidange
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    try:
+        comptes = client.lister_utilisateurs(prefixe_ou=ou)
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+    try:
+        return client, planifier_vidange(
+            session, comptes, ou_source=ou, annee_depart=annee_depart
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+
+def _vidange_vers_out(r) -> VidangeOut:
+    return VidangeOut(
+        ou_source=r.ou_source,
+        ou_archivage=r.ou_archivage,
+        date_depart=r.date_depart.isoformat(),
+        date_echeance=r.date_echeance.isoformat(),
+        nb_trouves=r.nb_trouves,
+        nb_a_archiver=r.nb_a_archiver,
+        nb_deja_suspendus=r.nb_deja_suspendus,
+        nb_epargnes=len(r.epargnes),
+        avertissements=r.avertissements,
+        mouvements=[
+            MouvementVidangeOut(
+                email=m.email,
+                ou_actuelle=m.ou_actuelle,
+                ou_visee=m.ou_visee,
+                suspendre=m.suspendre,
+                nom=m.nom,
+                prenom=m.prenom,
+                statut_referentiel=m.statut_referentiel,
+            )
+            for m in r.mouvements
+        ],
+        epargnes=[
+            EparneOut(email=c.email, ou=c.ou, nom=c.nom, prenom=c.prenom)
+            for c in r.epargnes
+        ],
+    )
+
+
+@router.get("/vidange-ou/plan", response_model=VidangeOut)
+def plan_vidange(
+    ou: str = Query(..., min_length=1),
+    annee_depart: int | None = Query(None, description="Déduite du nom de l'OU si absente"),
+    session: Session = Depends(db_session),
+) -> VidangeOut:
+    """Ce que la vidange ferait. N'envoie rien."""
+    _, r = _plan_vidange(session, ou, annee_depart)
+    return _vidange_vers_out(r)
+
+
+class LancerVidangePayload(BaseModel):
+    ou: str
+    annee_depart: int | None = None
+    confirmation: bool = False
+
+
+@router.post("/vidange-ou", response_model=JobOut)
+def lancer_vidange(
+    payload: LancerVidangePayload, session: Session = Depends(db_session)
+) -> JobOut:
+    """Suspend les comptes de la branche et les déplace vers l'archivage.
+
+    Suspendre prive quelqu'un de son compte : la confirmation est donc
+    explicite, et les personnes encore inscrites sont écartées d'office.
+    """
+    if not payload.confirmation:
+        raise HTTPException(
+            400,
+            "Confirmation requise : relis le plan puis renvoie "
+            "`confirmation: true`.",
+        )
+
+    client, r = _plan_vidange(session, payload.ou, payload.annee_depart)
+    if not r.mouvements:
+        raise HTTPException(400, "Aucun compte à archiver dans cette OU.")
+
+    from backend.services.jobs_google import creer_job, lancer_en_tache_de_fond
+
+    operations = [
+        OperationGoogle(
+            action="suspendre",
+            email=m.email,
+            payload={
+                **(payload_suspension() if m.suspendre else {}),
+                **payload_deplacement_ou(org_unit_path=m.ou_visee),
+            },
+            libelle=f"Archiver {m.email} dans {m.ou_visee}",
+        )
+        for m in r.mouvements
+    ]
+    job = creer_job(
+        phase="vidange",
+        libelle=f"Vidange de {r.ou_source} — {len(operations)} compte(s)",
+        operations=operations,
+    )
+    lancer_en_tache_de_fond(job, operations, appliquer=client.appliquer_operation)
+    return _job_vers_out(job)

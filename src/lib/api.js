@@ -361,6 +361,28 @@ export const googleApi = {
       }),
     );
   },
+  /** Liste les comptes présents sous une branche d'OU, avec leur identité. */
+  async inspecterOu(ou) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/inspecter-ou?ou=${encodeURIComponent(ou)}`),
+    );
+  },
+  /** Ce que la vidange ferait — n'envoie rien. */
+  async planVidange({ ou, anneeDepart = null }) {
+    const p = new URLSearchParams({ ou });
+    if (anneeDepart) p.set("annee_depart", String(anneeDepart));
+    return jsonOrThrow(await fetch(`${BASE}/google/vidange-ou/plan?${p}`));
+  },
+  /** Suspend et archive les comptes de la branche. Retourne un job. */
+  async lancerVidange({ ou, anneeDepart = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/vidange-ou`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ou, annee_depart: anneeDepart, confirmation: true }),
+      }),
+    );
+  },
   async suivreJob(jobId) {
     return jsonOrThrow(await fetch(`${BASE}/google/jobs/${jobId}`));
   },

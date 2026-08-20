@@ -7,6 +7,8 @@
   import Download from "@lucide/svelte/icons/download";
   import Printer from "@lucide/svelte/icons/printer";
   import HelpCircle from "@lucide/svelte/icons/help-circle";
+  import Eraser from "@lucide/svelte/icons/eraser";
+  import Search from "@lucide/svelte/icons/search";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
@@ -35,6 +37,46 @@
   let apiUtilisable = $derived(
     statutApi?.bibliotheques_disponibles && statutApi?.configuration_complete,
   );
+
+  // --- Vidange d'une branche d'OU -----------------------------------------
+  // Une arborescence d'année garde la promotion qui l'a occupée. Tant que
+  // personne ne la vide, ses comptes restent actifs — et l'arbre ne peut pas
+  // être recyclé pour la rentrée suivante.
+  let ouAVider = $state("");
+  let planVidange = $state(/** @type {any} */ (null));
+  let vidangeEnCours = $state(false);
+  let confirmationVidange = $state(false);
+
+  async function previsualiserVidange() {
+    if (!ouAVider.trim()) return;
+    vidangeEnCours = true;
+    planVidange = null;
+    try {
+      planVidange = await googleApi.planVidange({ ou: ouAVider.trim() });
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
+    } finally {
+      vidangeEnCours = false;
+    }
+  }
+
+  async function appliquerVidange() {
+    vidangeEnCours = true;
+    try {
+      job = await googleApi.lancerVidange({ ou: ouAVider.trim() });
+      confirmationVidange = false;
+      planVidange = null;
+      demarrerSondage();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
+    } finally {
+      vidangeEnCours = false;
+    }
+  }
+
+  function formaterIso(iso) {
+    return iso ? iso.split("-").reverse().join("/") : "\u2014";
+  }
 
   let affiches = $derived.by(() => {
     if (!liste) return [];
@@ -223,6 +265,110 @@
     </p>
   </div>
 
+  {#if apiUtilisable}
+    <div class="card p-3 sans-impression">
+      <h2 class="titre-section mb-2 flex items-center gap-2">
+        <Eraser class="h-4 w-4" />
+        Vider une arborescence d'année
+      </h2>
+      <p class="mb-3 text-xs text-stone-600 dark:text-stone-400">
+        Une branche d'année conserve la promotion qui l'a occupée : ses comptes
+        restent actifs tant que personne ne les archive, et l'arbre ne peut pas
+        être recyclé pour la rentrée suivante. L'échéance de suppression court
+        depuis le <strong>départ réel</strong>, déduit du nom de la branche —
+        pas depuis aujourd'hui.
+      </p>
+
+      <div class="flex flex-wrap items-end gap-3">
+        <div>
+          <label class="libelle-champ" for="ou-vider">Branche à vider</label>
+          <input
+            id="ou-vider"
+            class="champ w-72 font-mono"
+            placeholder="/3. NDK/NDK2025"
+            bind:value={ouAVider}
+            onkeydown={(e) => e.key === "Enter" && previsualiserVidange()}
+          />
+        </div>
+        <Bouton icon={Search} occupe={vidangeEnCours} onclick={previsualiserVidange}>
+          Prévisualiser
+        </Bouton>
+        {#if planVidange && planVidange.nb_a_archiver > 0}
+          <Bouton
+            variante="danger"
+            icon={Eraser}
+            disabled={job && !job.est_termine}
+            onclick={() => (confirmationVidange = true)}
+          >
+            Archiver {planVidange.nb_a_archiver} compte(s)
+          </Bouton>
+        {/if}
+      </div>
+
+      {#if planVidange}
+        <div class="mt-3 rounded-lg border border-stone-200 p-3 text-sm dark:border-stone-700">
+          <div class="flex flex-wrap gap-x-6 gap-y-1">
+            <span><strong>{planVidange.nb_trouves}</strong> compte(s) trouvés</span>
+            <span class="text-red-700 dark:text-red-400">
+              <strong>{planVidange.nb_a_archiver}</strong> à archiver
+            </span>
+            {#if planVidange.nb_deja_suspendus > 0}
+              <span class="text-stone-500">{planVidange.nb_deja_suspendus} déjà suspendus</span>
+            {/if}
+            {#if planVidange.nb_epargnes > 0}
+              <span class="text-emerald-700 dark:text-emerald-400">
+                {planVidange.nb_epargnes} épargnés
+              </span>
+            {/if}
+          </div>
+          <p class="mt-2 text-xs text-stone-600 dark:text-stone-400">
+            Départ constaté au <strong>{formaterIso(planVidange.date_depart)}</strong>,
+            suppression prévue le <strong>{formaterIso(planVidange.date_echeance)}</strong>.
+            Destination : <span class="font-mono">{planVidange.ou_archivage}</span>
+          </p>
+
+          {#each planVidange.avertissements as a}
+            <p class="mt-2 rounded bg-amber-50 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
+              {a}
+            </p>
+          {/each}
+
+          {#if planVidange.epargnes.length}
+            <p class="mt-2 text-xs font-medium">Laissés en place :</p>
+            <ul class="text-xs text-stone-600 dark:text-stone-400">
+              {#each planVidange.epargnes.slice(0, 10) as e (e.email)}
+                <li>{e.prenom ?? ""} {e.nom ?? ""} — <span class="font-mono">{e.email}</span></li>
+              {/each}
+            </ul>
+          {/if}
+
+          <div class="mt-3 max-h-64 overflow-auto">
+            <table class="tableau w-full text-xs">
+              <thead>
+                <tr>
+                  <th class="text-left">Nom</th>
+                  <th class="text-left">Adresse</th>
+                  <th class="text-left">OU actuelle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each planVidange.mouvements.slice(0, 200) as m (m.email)}
+                  <tr>
+                    <td class="whitespace-nowrap">{m.prenom} {m.nom}</td>
+                    <td class="whitespace-nowrap font-mono">{m.email}</td>
+                    <td class="whitespace-nowrap font-mono text-stone-500 dark:text-stone-400">
+                      {m.ou_actuelle}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
   <div class="impression-seule mb-3">
     <h1 class="text-lg font-bold">Comptes sortants</h1>
     <p class="text-xs">
@@ -365,3 +511,37 @@
     </p>
   {/if}
 </section>
+
+{#if confirmationVidange && planVidange}
+  <Modale
+    titre="Archiver {planVidange.nb_a_archiver} compte(s) ?"
+    largeur="lg"
+    onFermer={() => (confirmationVidange = false)}
+  >
+    <div class="space-y-3 text-sm text-stone-600 dark:text-stone-300">
+      <p>
+        Ces comptes vont être <strong>suspendus</strong> et déplacés vers
+        <span class="font-mono">{planVidange.ou_archivage}</span>. Leurs
+        titulaires ne pourront plus se connecter.
+      </p>
+      <p>
+        Rien n'est supprimé : les données restent en place jusqu'au
+        <strong>{formaterIso(planVidange.date_echeance)}</strong>, et la
+        suppression définitive reste un geste manuel dans la console Google.
+      </p>
+      {#if planVidange.nb_epargnes > 0}
+        <p class="rounded bg-emerald-50 px-2 py-1.5 text-xs text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200">
+          {planVidange.nb_epargnes} compte(s) ne seront pas touchés : leur
+          titulaire est encore inscrit cette année.
+        </p>
+      {/if}
+    </div>
+
+    {#snippet actions()}
+      <Bouton onclick={() => (confirmationVidange = false)}>Annuler</Bouton>
+      <Bouton variante="danger" occupe={vidangeEnCours} onclick={appliquerVidange}>
+        Suspendre et archiver
+      </Bouton>
+    {/snippet}
+  </Modale>
+{/if}
