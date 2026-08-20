@@ -12,6 +12,7 @@
   import FolderTree from "@lucide/svelte/icons/folder-tree";
   import Cloud from "@lucide/svelte/icons/cloud";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import KeyRound from "@lucide/svelte/icons/key-round";
 
   const sections = [
     { id: "flux", label: "Flux global", icon: BookOpen },
@@ -22,6 +23,7 @@
     { id: "bascule", label: "Bascule des OU", icon: FolderTree },
     { id: "compte_service", label: "Compte de service Google", icon: Cloud },
     { id: "conformite", label: "Conformité Google", icon: ShieldCheck },
+    { id: "ordre_koxo_google", label: "KoXo puis Google", icon: KeyRound },
     { id: "arbitrage", label: "Arbitrage", icon: Scale },
     { id: "simulation", label: "Simulation", icon: Zap },
     { id: "exports", label: "Exports", icon: FileDown },
@@ -395,6 +397,55 @@
           Si un site entier n'a aucun élève pour l'année préparée, l'écran le
           signale en rouge. Ce n'est pas une classe qui a fermé : c'est un
           export Charlemagne qui n'a pas été chargé.
+        </p>
+
+      {:else if sectionActive === "ordre_koxo_google"}
+        <h2>KoXo d'abord, Google ensuite</h2>
+        <p>
+          Créer un compte Google suppose de lui donner un mot de passe. Le
+          programme n'en fabrique aucun : <strong>KoXo est l'autorité
+          unique</strong>, il génère le mot de passe à la création et ne le
+          régénère jamais. L'ordre des opérations en découle, et il n'est pas
+          négociable.
+        </p>
+
+        <h3>La séquence</h3>
+        <ol>
+          <li>Ingérer l'export Charlemagne de l'année préparée.</li>
+          <li>Générer l'export <strong>KoXo / Nouveaux</strong> et l'importer
+            dans KoXo. C'est là que les comptes naissent, avec leur mot de
+            passe.</li>
+          <li>Ré-exporter depuis KoXo, <em>en incluant les mots de passe</em>.</li>
+          <li>Revenir dans Exports, choisir <strong>Google / Nouveaux</strong>,
+            et déposer le fichier KoXo dans l'encadré prévu. Le CSV Google en
+            sort avec la colonne « Password » remplie.</li>
+          <li>Importer ce CSV dans la console Google.</li>
+        </ol>
+
+        <h3>Ce qui arrive si on saute l'étape</h3>
+        <p>
+          Le CSV se génère quand même, et il n'a l'air de rien manquer : toutes
+          les colonnes sont là, les lignes sont présentes. Seule la colonne
+          « Password » est vide, et Google refuse les créations sans mot de
+          passe. L'échec ne se découvre alors qu'à l'import, une fois le
+          fichier transmis. L'écran Exports le signale désormais avant la
+          génération.
+        </p>
+
+        <h3>Où passent les mots de passe</h3>
+        <p>
+          Ils traversent l'application <strong>en mémoire seulement</strong>. Le
+          fichier KoXo n'est pas conservé, les mots de passe ne sont écrits
+          dans aucune base, et le seul endroit où ils réapparaissent est le CSV
+          Google que tu enregistres toi-même. Efface-le une fois l'import fait.
+        </p>
+
+        <h3>Pourquoi les autres cibles restent des fichiers</h3>
+        <p>
+          KoXo, PMB, JPM et CardStudio n'exposent pas d'API : l'export est le
+          seul canal, et c'est ainsi que c'était prévu. Google est la seule
+          cible où le programme peut agir directement — c'est aussi celle qui
+          demande le plus de travail, d'où l'écran Conformité Google.
         </p>
 
       {:else if sectionActive === "arbitrage"}

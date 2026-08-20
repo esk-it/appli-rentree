@@ -223,9 +223,10 @@
       Exports vers les cibles
     </h1>
     <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
-      Génère les fichiers à importer dans les systèmes tiers. Pour l'instant
-      seul <strong>KoXo</strong> est disponible (Lot 8a) — Google, PMB, JPM,
-      CardStudio viennent dans les lots suivants.
+      Génère les fichiers à importer dans les systèmes tiers. KoXo, PMB, JPM
+      et CardStudio n'ont pas d'API : ces exports restent le seul canal. Côté
+      Google, le CSV reste disponible, mais l'écran <strong>Conformité
+      Google</strong> fait le même travail directement.
     </p>
   </header>
 
@@ -402,13 +403,22 @@
     {#if cible === "google" && categorie === "nouveaux"}
       <div class="rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-50/40 p-3 dark:border-emerald-700 dark:bg-emerald-900/10">
         <p class="text-xs font-medium text-emerald-900 dark:text-emerald-200 mb-2">
-          Boucle de retour KoXo → Google (Lot 8b)
+          KoXo d'abord, Google ensuite
         </p>
         <p class="text-xs text-stone-700 dark:text-stone-300 mb-2">
-          Si tu as déjà importé le CSV KoXo Nouveaux et re-exporté les comptes avec
-          leurs mots de passe, dépose ce fichier ici — le CSV Google sera enrichi
-          des MDP correspondants. <strong>Aucun MDP n'est stocké côté serveur.</strong>
+          Créer un compte Google suppose un mot de passe, et c'est
+          <strong>KoXo qui les génère</strong> — jamais le programme. L'ordre est
+          donc : exporter les nouveaux vers KoXo, les y importer, puis
+          re-exporter depuis KoXo <em>avec</em> les mots de passe et déposer ce
+          fichier ici. Les mots de passe ne font que transiter en mémoire :
+          <strong>rien n'est stocké côté serveur.</strong>
         </p>
+        {#if !fichierKoxoEnrichi}
+          <p class="mb-2 rounded bg-amber-100 px-2 py-1.5 text-xs text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+            Sans ce fichier, la colonne « Password » restera vide et Google
+            refusera les créations. Le CSV n'en aura pas l'air.
+          </p>
+        {/if}
         <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
           <Upload class="h-3.5 w-3.5" />
           {fichierKoxoEnrichi?.name ?? "Choisir le CSV KoXo (avec MDP)"}
@@ -613,9 +623,21 @@
             {dernierRapport.nb_lignes} ligne(s) — {dernierRapport.cible}, site {dernierRapport.site_nom},
             {dernierRapport.type_personne}s, catégorie {dernierRapport.categorie}
           </p>
-          {#if dernierRapport.nb_sans_ou > 0}
+          {#each dernierRapport.avertissements ?? [] as a}
+            <p class="mt-1 text-xs text-amber-700 dark:text-amber-400">⚠ {a}</p>
+          {/each}
+          {#if dernierRapport.nb_sans_ou > 0 && !(dernierRapport.avertissements ?? []).length}
             <p class="text-xs text-amber-700 dark:text-amber-400">
               ⚠ {dernierRapport.nb_sans_ou} ligne(s) sans OU — leur classe n'est pas dans la Table de correspondance.
+            </p>
+          {/if}
+          {#if dernierRapport.nb_lignes_avec_mdp !== undefined}
+            <p class="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
+              {dernierRapport.nb_lignes_avec_mdp} ligne(s) sur {dernierRapport.nb_lignes}
+              ont reçu leur mot de passe
+              {#if dernierRapport.nb_mdp_orphelins > 0}
+                · {dernierRapport.nb_mdp_orphelins} entrée(s) KoXo sans correspondance
+              {/if}
             </p>
           {/if}
           {#if dernierRapport.classes_sans_groupe?.length > 0}

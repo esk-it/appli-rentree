@@ -342,3 +342,67 @@ def test_google_nom_fichier_suggere(session, site_factory, annee_factory):
         categorie="nouveaux", annee_cible_id=annee.id, annee_source_id=annee.id,
     )
     assert rapport.nom_fichier_suggere == "Google_NDK_eleves_nouveaux.csv"
+
+
+def test_export_nouveaux_previent_que_le_mot_de_passe_manque(
+    session, site_factory, annee_factory, personne_factory
+):
+    """Un CSV de créations sans mot de passe est refusé par Google.
+
+    Le fichier paraît complet : sans avertissement, l'échec ne se découvre
+    qu'à l'import, une fois le fichier transmis.
+    """
+    from backend.models import Snapshot, TableCorrespondance
+    from backend.services.exports_google import generer_csv_google
+
+    site = site_factory("NDK")
+    source = annee_factory("2025-2026")
+    cible = annee_factory("2026-2027")
+    session.add(
+        TableCorrespondance(
+            site_id=site.id, classe_charlemagne_long="SECONDE 1",
+            classe_code_court="2_1", ou_pre_rentree="/3. NDK/NDK2027",
+            ou_definitive="/3. NDK/NDK2027/2_1",
+        )
+    )
+    p = personne_factory(nom="DUPONT", prenom="Jean", login="jdupont", site_id=site.id)
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=cible.id,
+                         nom="DUPONT", prenom="Jean", classe="2_1"))
+    session.commit()
+
+    _, r = generer_csv_google(
+        session=session, site_id=site.id, type_personne="eleve",
+        categorie="nouveaux", annee_cible_id=cible.id, annee_source_id=source.id,
+    )
+
+    assert r.nb_lignes == 1
+    assert any("Password" in a and "KoXo" in a for a in r.avertissements)
+
+
+def test_export_tous_ne_previent_pas_du_mot_de_passe(
+    session, site_factory, annee_factory, personne_factory
+):
+    """L'avertissement ne vaut que pour des créations."""
+    from backend.models import Snapshot, TableCorrespondance
+    from backend.services.exports_google import generer_csv_google
+
+    site = site_factory("NDK")
+    cible = annee_factory("2026-2027")
+    session.add(
+        TableCorrespondance(
+            site_id=site.id, classe_charlemagne_long="SECONDE 1",
+            classe_code_court="2_1", ou_pre_rentree="/3. NDK/NDK2027",
+            ou_definitive="/3. NDK/NDK2027/2_1",
+        )
+    )
+    p = personne_factory(nom="DUPONT", prenom="Jean", login="jdupont", site_id=site.id)
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=cible.id,
+                         nom="DUPONT", prenom="Jean", classe="2_1"))
+    session.commit()
+
+    _, r = generer_csv_google(
+        session=session, site_id=site.id, type_personne="eleve",
+        categorie="tous", annee_cible_id=cible.id,
+    )
+
+    assert not any("Password" in a for a in r.avertissements)

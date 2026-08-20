@@ -192,6 +192,7 @@ def exporter_koxo(
         nom_fichier=rapport.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
         nb_prevus_enregistres=nb_prevus,
+        avertissements=rapport.avertissements,
     )
 
 
@@ -218,6 +219,7 @@ class ExportGoogleReponse(BaseModel):
     nom_fichier: str
     contenu_base64: str
     nb_prevus_enregistres: int = 0
+    avertissements: list[str] = []
 
 
 @router.post("/google", response_model=ExportGoogleReponse)
@@ -298,6 +300,7 @@ class ExportGoogleAvecMdpReponse(BaseModel):
     nb_mdp_orphelins: int
     nom_fichier: str
     contenu_base64: str
+    avertissements: list[str] = []
 
 
 @router.post("/google-avec-mdp", response_model=ExportGoogleAvecMdpReponse)
@@ -335,6 +338,7 @@ def exporter_google_avec_mdp(
         nb_mdp_orphelins=rapport.nb_mdp_orphelins,
         nom_fichier=rapport.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
+        avertissements=rapport.avertissements,
     )
 
 

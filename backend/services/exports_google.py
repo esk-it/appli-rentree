@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import csv
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Literal
 
@@ -125,6 +125,7 @@ class RapportExportGoogle:
     nb_sans_ou: int
     """Nombre de personnes exportées sans OU résolue (classe absente de
     la table de correspondance) — signalé pour attirer l'attention."""
+    avertissements: list[str] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +188,24 @@ def generer_csv_google(
         nom_fichier_suggere=_nom_fichier(site.nom, type_personne, categorie),
         nb_sans_ou=nb_sans_ou,
     )
+
+    # Google refuse une création sans mot de passe, et la colonne reste vide
+    # ici par construction : c'est KoXo qui les génère. Le fichier paraît
+    # pourtant complet — sans cet avertissement, l'échec ne se découvre qu'au
+    # moment de l'import, une fois le fichier transmis.
+    if categorie == "nouveaux" and lignes:
+        rapport.avertissements.append(
+            f"{len(lignes)} création(s) sans mot de passe : la colonne "
+            "« Password » est vide et Google refusera ces lignes. Importe "
+            "d'abord ce fichier dans KoXo, qui génère les mots de passe, puis "
+            "reviens ici avec l'export KoXo pour produire le CSV définitif."
+        )
+    if nb_sans_ou:
+        rapport.avertissements.append(
+            f"{nb_sans_ou} ligne(s) sans unité d'organisation : leur classe "
+            "manque à la Table de correspondance. Google les créera à la "
+            "racine du domaine."
+        )
     return contenu, rapport
 
 
@@ -492,6 +511,7 @@ class RapportExportGoogleAvecMdp:
     """Nb entrées KoXo sans correspondance dans Google (logins présents dans
     le CSV KoXo mais absents du CSV Google généré) — signalé pour info."""
     nom_fichier_suggere: str
+    avertissements: list[str] = field(default_factory=list)
 
 
 def generer_csv_google_avec_mdp(
@@ -570,6 +590,16 @@ def generer_csv_google_avec_mdp(
 
     # 5. Rapport enrichi
     orphelins = sum(1 for login in mdp_par_login if login not in logins_google)
+    avertissements = [
+        a for a in rapport_base.avertissements if "Password" not in a
+    ]
+    manquants = rapport_base.nb_lignes - nb_avec_mdp
+    if manquants > 0:
+        avertissements.append(
+            f"{manquants} ligne(s) restent sans mot de passe : leur login est "
+            "absent de l'export KoXo fourni. Vérifie que l'import KoXo a bien "
+            "été fait pour tout le monde avant de transmettre ce fichier."
+        )
 
     return (
         contenu_enrichi,
@@ -581,6 +611,7 @@ def generer_csv_google_avec_mdp(
             nb_lignes_avec_mdp=nb_avec_mdp,
             nb_sans_ou=rapport_base.nb_sans_ou,
             nb_mdp_orphelins=orphelins,
+            avertissements=avertissements,
             nom_fichier_suggere=rapport_base.nom_fichier_suggere.replace(
                 ".csv", "_avec_mdp.csv"
             ),
