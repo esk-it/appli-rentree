@@ -614,6 +614,14 @@ export const bascule = {
   async csv(options) {
     return jsonOrThrow(await fetch(`${BASE}/bascule/csv?${bascule._qs(options)}`));
   },
+  /** Lit l'OU actuelle de chaque élève dans Google. Retourne un job. */
+  async relever({ anneeId, siteId = null }) {
+    const p = new URLSearchParams({ annee_id: String(anneeId) });
+    if (siteId) p.set("site_id", String(siteId));
+    return jsonOrThrow(
+      await fetch(`${BASE}/bascule/relever?${p}`, { method: "POST" }),
+    );
+  },
   async confirmer({ anneeId, phase, siteId = null, mode = "simulation" }) {
     return jsonOrThrow(
       await fetch(`${BASE}/bascule/confirmer`, {

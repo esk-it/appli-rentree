@@ -72,6 +72,24 @@
     return btoa(binary);
   }
 
+  let testEnCours = $state(false);
+
+  async function testerConnexion() {
+    testEnCours = true;
+    try {
+      const r = await googleApi.testerConnexion();
+      notify.succes(
+        `Connexion Google établie — ${r.nb_utilisateurs_visibles} utilisateur(s) lu(s). ` +
+          "Aucune modification n'a été faite.",
+        { duree: 8000 },
+      );
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 12000 });
+    } finally {
+      testEnCours = false;
+    }
+  }
+
   async function calculerPlanApi() {
     if (!siteId || !anneeCibleId || !anneeSourceId) {
       notify.avertissement("Site et deux années requis pour le plan API");
@@ -468,6 +486,17 @@
           </span>
         {/if}
       </div>
+
+      {#if statutApi.bibliotheques_disponibles}
+        <div class="mb-3">
+          <Bouton icon={Cloud} occupe={testEnCours} onclick={testerConnexion}>
+            Tester la connexion
+          </Bouton>
+          <span class="ml-2 text-xs text-stone-500 dark:text-stone-400">
+            Lit un seul utilisateur, ne modifie rien.
+          </span>
+        </div>
+      {/if}
 
       {#if !statutApi.configuration_complete}
         <div class="rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs dark:border-stone-700 dark:bg-stone-800">

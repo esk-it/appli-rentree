@@ -266,8 +266,29 @@
       <EtatVide
         icon={LogOut}
         titre="Aucun compte en sortie"
-        message="Les sortants apparaissent ici une fois traités depuis l'onglet Suivi. Tant qu'aucune sortie n'a été enregistrée, la liste reste vide."
+        message="Rien n'a encore été enregistré comme sortie. Trois conditions à réunir, dans cet ordre."
       />
+      <!--
+        Un état vide qui ne dit pas quoi faire laisse croire à une panne.
+        Ces trois étapes sont exactement celles qui manquent le plus souvent.
+      -->
+      <ol class="mx-auto mt-4 max-w-xl space-y-2 text-sm text-stone-600 dark:text-stone-400">
+        <li>
+          <strong>1.</strong> L'année précédente doit contenir les élèves
+          partis — export Charlemagne avec l'option « inclure les sortants ».
+          Sans eux, aucune différence ne peut faire apparaître un départ.
+        </li>
+        <li>
+          <strong>2.</strong> La réconciliation doit trouver des sortants.
+          Si elle affiche un avertissement « aucun sortant détecté », c'est
+          le point 1 qui n'est pas rempli.
+        </li>
+        <li>
+          <strong>3.</strong> Le bouton <strong>Traiter les sortants</strong>,
+          dans l'onglet Suivi, met leurs comptes en quarantaine avec leur date
+          de suppression. C'est lui qui alimente cet écran.
+        </li>
+      </ol>
     </div>
   {:else}
     <div class="grid grid-cols-1 gap-3 sm:grid-cols-3 sans-impression">

@@ -4,8 +4,30 @@
   import Check from "@lucide/svelte/icons/check";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
   import Squelette from "$lib/components/Squelette.svelte";
-  import { parametres } from "$lib/api.js";
+  import Cloud from "@lucide/svelte/icons/cloud";
+  import Bouton from "$lib/components/Bouton.svelte";
+  import { googleApi, parametres } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+
+  // Un test de connexion appartient à l'écran où l'on saisit la
+  // configuration : c'est là qu'on veut savoir tout de suite si elle tient.
+  let testEnCours = $state(false);
+
+  async function testerGoogle() {
+    testEnCours = true;
+    try {
+      const r = await googleApi.testerConnexion();
+      notify.succes(
+        `Connexion établie — ${r.nb_utilisateurs_visibles} utilisateur(s) lu(s). ` +
+          "Rien n'a été modifié.",
+        { duree: 8000 },
+      );
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 12000 });
+    } finally {
+      testEnCours = false;
+    }
+  }
 
   let liste = $state(/** @type {any[]} */ ([]));
   let valeursEnEdition = $state(/** @type {Record<string, any>} */ ({}));
@@ -80,6 +102,18 @@
           <Settings class="h-4 w-4" />
           {categorie}
         </h2>
+        {#if categorie === "Google Workspace"}
+          <div class="mb-4 flex flex-wrap items-center gap-2 rounded-lg bg-stone-50 p-3 dark:bg-stone-800">
+            <Bouton icon={Cloud} occupe={testEnCours} onclick={testerGoogle}>
+              Tester la connexion
+            </Bouton>
+            <span class="text-xs text-stone-600 dark:text-stone-400">
+              Lit un seul utilisateur pour valider les credentials, les portées
+              et la délégation. Ne modifie rien.
+            </span>
+          </div>
+        {/if}
+
         <div class="space-y-4">
           {#each params as p (p.cle)}
             <div class="border-b border-stone-100 pb-4 last:border-0 last:pb-0 dark:border-stone-700">

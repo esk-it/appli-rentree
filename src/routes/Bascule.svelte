@@ -62,6 +62,22 @@
     return [...echecs, ...faites.filter((e) => e.statut !== "echec").slice(-60).reverse()];
   });
 
+  let releve = $state(false);
+
+  async function releverOu() {
+    if (!anneeId) return;
+    releve = true;
+    try {
+      const r = await bascule.relever({ anneeId, siteId: filtreSite || null });
+      job = await googleApi.suivreJob(r.job_id);
+      demarrerSondage();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      releve = false;
+    }
+  }
+
   async function lancerJob() {
     if (!anneeId) return;
     lancement = true;
@@ -90,8 +106,9 @@
         if (job.est_termine) {
           arreterSondage();
           await rafraichir();
+          const quoi = job.phase === "releve" ? "OU relevée(s)" : "déplacement(s) appliqué(s)";
           if (job.nb_echecs === 0) {
-            notify.succes(`${job.nb_reussies} déplacement(s) appliqué(s)`);
+            notify.succes(`${job.nb_reussies} ${quoi}`);
           } else {
             notify.erreur(
               `${job.nb_echecs} échec(s) sur ${job.total} — voir le détail`,
@@ -293,6 +310,19 @@
             J'ai importé
           </Bouton>
         {:else}
+          <!--
+            Sans relevé, le programme ne connaît que les OU qu'il a lui-même
+            demandées : pour un compte antérieur, il affiche « ? » faute de
+            point de départ.
+          -->
+          <Bouton
+            icon={RotateCcw}
+            occupe={releve}
+            disabled={job && !job.est_termine}
+            onclick={releverOu}
+          >
+            Relever les OU actuelles
+          </Bouton>
           <Bouton
             variante="primary"
             icon={Cloud}
@@ -496,7 +526,11 @@
                     <td class="text-xs">
                       <span class="inline-flex items-center gap-1.5 font-mono">
                         <span class="text-stone-500 dark:text-stone-400">
-                          {m.ou_appliquee ?? "?"}
+                          {#if m.ou_appliquee}
+                            {m.ou_appliquee}
+                          {:else}
+                            <span class="italic">OU inconnue</span>
+                          {/if}
                         </span>
                         <ArrowRight class="h-3 w-3 shrink-0 text-stone-400" />
                         <span class="text-emerald-700 dark:text-emerald-400">{m.ou_visee}</span>
