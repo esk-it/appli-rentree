@@ -252,12 +252,34 @@ def test_groupes_site_introuvable(session, annee_factory):
 
 
 def test_ou_sortants_contient_lecheance(session):
-    """L'échéance de purge (today + 18 mois) figure dans le nom de l'OU."""
+    """L'échéance réelle figure dans le nom de l'OU, au jour près.
+
+    Auparavant elle était arrondie au 31 décembre de l'année d'expiration,
+    ce qui étirait la conservation bien au-delà des 18 mois de la règle :
+    un départ d'août tombait au 31 décembre suivant, soit 29 mois.
+    """
     from backend.services.exports_google import calculer_ou_sortants
 
     ou = calculer_ou_sortants(session, aujourd_hui=date(2026, 1, 1))
-    # 2026-01-01 + 548 jours = 2027-07-03 → année 2027
-    assert ou == "/7. Sortis/Comptes à supprimer au 31-12-2027"
+    assert ou == "/7. Sortis/Comptes à supprimer au 01-07-2027"
+
+
+def test_ou_sortants_propre_au_site(session, site_factory):
+    """NDE range ses partants dans son OU à elle, sans date.
+
+    Cet usage précède le programme ; lui imposer la convention datée
+    obligerait à déplacer l'existant sans rien y gagner.
+    """
+    from backend.services.exports_google import calculer_ou_sortants
+
+    nde = site_factory("NDE")
+    nde.ou_sortants = "/2. NDE/Sortie"
+    session.commit()
+
+    assert calculer_ou_sortants(session, site=nde) == "/2. NDE/Sortie"
+    # Un site sans convention propre garde le dossier daté
+    ndk = site_factory("NDK")
+    assert calculer_ou_sortants(session, site=ndk).startswith("/7. Sortis/Comptes")
 
 
 def test_ou_sortants_respecte_le_parametre(session):

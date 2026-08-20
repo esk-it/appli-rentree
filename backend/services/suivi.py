@@ -21,8 +21,35 @@ from sqlalchemy.orm import Session
 from backend.models import CompteCible, Personne, Site
 from backend.models.compte_cible import CIBLES, ETATS
 
-# 18 mois = ~547 jours
+# La règle de l'établissement : un compte sortant est conservé 18 mois, le
+# temps qu'une demande de réactivation puisse arriver.
+QUARANTAINE_MOIS = 18
+
+# Conservé pour les appels existants ; l'échéance exacte se calcule en mois
+# calendaires, qui tombent sur le même quantième et se lisent mieux qu'un
+# décompte en jours.
 QUARANTAINE_GOOGLE = timedelta(days=548)
+
+
+def date_echeance(depart: date, *, mois: int = QUARANTAINE_MOIS) -> date:
+    """Date de suppression : `depart` + N mois calendaires.
+
+    En mois plutôt qu'en jours pour que l'échéance tombe sur le même
+    quantième — une sortie au 31 août donne un 28 février, lisible, plutôt
+    qu'un 18 février issu d'un décompte de 548 jours.
+
+    Le quantième est ramené au dernier jour du mois quand il n'existe pas
+    (31 août + 6 mois = 28 ou 29 février).
+    """
+    total = depart.month - 1 + mois
+    annee = depart.year + total // 12
+    mois_cible = total % 12 + 1
+    # Dernier jour du mois cible
+    if mois_cible == 12:
+        fin = date(annee, 12, 31)
+    else:
+        fin = date(annee, mois_cible + 1, 1) - timedelta(days=1)
+    return date(annee, mois_cible, min(depart.day, fin.day))
 
 # Cibles avec quarantaine (sortie différée) vs immédiate
 CIBLES_QUARANTAINE = {"google"}
@@ -58,7 +85,7 @@ def marquer_sortant(
     etat_avant = compte.etat
     if cible in CIBLES_QUARANTAINE:
         compte.etat = "quarantaine"
-        compte.date_prevue_purge = today + QUARANTAINE_GOOGLE
+        compte.date_prevue_purge = date_echeance(today)
     else:
         compte.etat = "purge"
         compte.date_prevue_purge = today
@@ -106,7 +133,7 @@ def enregistrer_sortie_anterieure(
         compte = CompteCible(personne_id=personne_id, cible="google")
         session.add(compte)
     compte.etat = "quarantaine"
-    compte.date_prevue_purge = depart + QUARANTAINE_GOOGLE
+    compte.date_prevue_purge = date_echeance(depart)
     compte.note = f"Sortie constatée en fin d'année scolaire {annee_fin - 1}-{annee_fin}"
     session.flush()
     return True

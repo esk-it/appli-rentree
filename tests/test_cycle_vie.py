@@ -322,7 +322,7 @@ def test_traiter_sortants_applique_la_politique(
     ).one()
 
     assert google.etat == "quarantaine"
-    assert google.date_prevue_purge == date(2026, 1, 1) + timedelta(days=548)
+    assert google.date_prevue_purge == date(2027, 7, 1)  # 18 mois calendaires
     assert koxo.etat == "purge"
     assert koxo.date_prevue_purge == date(2026, 1, 1)
 

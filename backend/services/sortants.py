@@ -98,8 +98,13 @@ def lister_sortants(
     """
     from backend.services.exports_google import calculer_ou_sortants
 
-    ou_attendue = calculer_ou_sortants(session)
-    sites = {s.id: s.nom for s in session.query(Site).all()}
+    objets_sites = {s.id: s for s in session.query(Site).all()}
+    sites = {i: s.nom for i, s in objets_sites.items()}
+    # Une OU par site : NDE garde sa convention propre.
+    ou_par_site = {
+        i: calculer_ou_sortants(session, site=s) for i, s in objets_sites.items()
+    }
+    ou_defaut = calculer_ou_sortants(session)
 
     q = (
         session.query(CompteCible, Personne)
@@ -132,7 +137,7 @@ def lister_sortants(
                 # L'OU d'archivage est datée : celle d'un compte sorti l'an
                 # dernier n'est pas celle calculée aujourd'hui. On ne l'affiche
                 # comme attendue que pour les sorties de la campagne en cours.
-                ou_attendue=ou_attendue,
+                ou_attendue=ou_par_site.get(personne.site_id, ou_defaut),
                 note=compte.note,
             )
         )

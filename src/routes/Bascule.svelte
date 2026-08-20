@@ -370,7 +370,9 @@
         <div class="ml-auto flex gap-2">
           {#if !job.est_termine}
             <Bouton taille="sm" onclick={annuler}>Arrêter</Bouton>
-          {:else if job.nb_echecs > 0}
+          {:else if job.nb_echecs > 0 && job.phase !== "releve"}
+            <!-- Un relevé ne modifie rien : il n'y a rien à reprendre, on le
+                 relance en entier. -->
             <Bouton taille="sm" icon={RotateCcw} onclick={rejouer}>
               Rejouer les {job.nb_echecs} échec(s)
             </Bouton>

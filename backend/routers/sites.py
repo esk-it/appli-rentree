@@ -20,6 +20,7 @@ class SiteOut(BaseModel):
     nom: str
     nom_complet: str
     domaine_mail: str
+    ou_sortants: str | None = None
     prefixe_annee_ou: str
     numero_ordre: int
     prefixe_racine_ou: str
@@ -29,6 +30,7 @@ class SitePayload(BaseModel):
     nom: str = Field(..., min_length=1, max_length=20)
     nom_complet: str = Field(..., min_length=1, max_length=150)
     domaine_mail: str = Field(..., min_length=3, max_length=100)
+    ou_sortants: str | None = Field(None, max_length=200)
     prefixe_annee_ou: str = Field(..., min_length=1, max_length=20)
     numero_ordre: int = Field(..., ge=1)
 
@@ -39,6 +41,7 @@ def _serialiser(s: Site) -> SiteOut:
         nom=s.nom,
         nom_complet=s.nom_complet,
         domaine_mail=s.domaine_mail,
+        ou_sortants=s.ou_sortants,
         prefixe_annee_ou=s.prefixe_annee_ou,
         numero_ordre=s.numero_ordre,
         prefixe_racine_ou=s.prefixe_racine_ou(),
@@ -60,6 +63,7 @@ def creer_site(
         nom=payload.nom,
         nom_complet=payload.nom_complet,
         domaine_mail=payload.domaine_mail,
+        ou_sortants=payload.ou_sortants,
         prefixe_annee_ou=payload.prefixe_annee_ou,
         numero_ordre=payload.numero_ordre,
     )
@@ -79,6 +83,7 @@ def modifier_site(
     s.nom = payload.nom
     s.nom_complet = payload.nom_complet
     s.domaine_mail = payload.domaine_mail
+    s.ou_sortants = payload.ou_sortants
     s.prefixe_annee_ou = payload.prefixe_annee_ou
     s.numero_ordre = payload.numero_ordre
     session.commit()

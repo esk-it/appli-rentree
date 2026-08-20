@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -26,6 +26,11 @@ from backend.services.google_api import (
 )
 
 router = APIRouter(prefix="/api/google", tags=["google_api"])
+
+# Seuls ces traitements écrivent dans Google, donc sont rejouables : leurs
+# opérations portent un corps de requête. Un relevé ou une vérification n'en
+# ont pas — les rejouer partirait sur le chemin d'écriture, à partir de rien.
+PHASES_MODIFIANTES = {"pre_rentree", "definitive"}
 
 
 class StatutOut(BaseModel):
@@ -392,6 +397,16 @@ def rejouer_echecs(job_id: str, session: Session = Depends(db_session)) -> JobOu
     if not precedent.est_termine:
         raise HTTPException(409, "Traitement encore en cours.")
 
+    # Un relevé ou une vérification lisent Google ; leurs opérations n'ont pas
+    # de corps de requête. Les rejouer ici les enverrait sur le chemin
+    # d'écriture — c'est-à-dire tenter une modification à partir de rien.
+    if precedent.phase not in PHASES_MODIFIANTES:
+        raise HTTPException(
+            409,
+            f"« {precedent.libelle} » ne modifie rien dans Google : il n'y a "
+            "pas de reprise possible. Relance-le simplement.",
+        )
+
     operations = operations_en_echec(job_id)
     if not operations:
         raise HTTPException(400, "Aucun échec à rejouer.")
@@ -413,3 +428,69 @@ def rejouer_echecs(job_id: str, session: Session = Depends(db_session)) -> JobOu
         au_succes=_memoriser_dans_sa_propre_session,
     )
     return _job_vers_out(job)
+
+
+# ---------------------------------------------------------------------------
+# Inspection d'une branche d'OU — « qui sont ces comptes ? »
+# ---------------------------------------------------------------------------
+
+
+class CompteTrouveOut(BaseModel):
+    email: str
+    ou: str
+    suspendu: bool
+    nom_google: str
+    prenom_google: str
+    derniere_connexion: str | None
+    statut: str
+    cle_pivot: str | None
+    nom: str | None
+    prenom: str | None
+    derniere_annee: str | None
+    derniere_classe: str | None
+
+
+class InspectionOut(BaseModel):
+    prefixe_ou: str
+    annee_reference: str | None
+    nb_total: int
+    nb_sortis: int
+    nb_encore_inscrits: int
+    nb_inconnus: int
+    comptes: list[CompteTrouveOut]
+
+
+@router.get("/inspecter-ou", response_model=InspectionOut)
+def inspecter_ou(
+    ou: str = Query(..., min_length=1, description="Préfixe d'OU, ex. /3. NDK/NDK2025"),
+    session: Session = Depends(db_session),
+) -> InspectionOut:
+    """Liste les comptes présents sous une branche d'OU, et dit qui ils sont.
+
+    Lecture seule, des deux côtés : rien n'est modifié dans Google ni en
+    base. Sert à comprendre ce qui traîne dans une arborescence avant de
+    décider quoi en faire.
+    """
+    from backend.services.inspection_ou import recouper_avec_referentiel
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    try:
+        comptes = client.lister_utilisateurs(prefixe_ou=ou)
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+
+    r = recouper_avec_referentiel(session, comptes, prefixe_ou=ou)
+    return InspectionOut(
+        prefixe_ou=r.prefixe_ou,
+        annee_reference=r.annee_reference,
+        nb_total=r.nb_total,
+        nb_sortis=r.nb_sortis,
+        nb_encore_inscrits=r.nb_encore_inscrits,
+        nb_inconnus=r.nb_inconnus,
+        comptes=[CompteTrouveOut(**vars(c)) for c in r.comptes],
+    )

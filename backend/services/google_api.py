@@ -418,7 +418,7 @@ def construire_plan(
         )
 
     # Sortants — suspension + déplacement en OU d'archivage, jamais suppression
-    ou_sortants = calculer_ou_sortants(session)
+    ou_sortants = calculer_ou_sortants(session, site=site)
     for entree in rapport.sortants:
         if entree.site_id != site.id:
             continue
@@ -522,6 +522,49 @@ class ClientGoogle:
             ou=u.get("orgUnitPath"),
             suspendu=bool(u.get("suspended", False)),
         )
+
+    def lister_utilisateurs(self, prefixe_ou: str | None = None) -> list[dict]:
+        """Tous les comptes du domaine, filtrés sur un préfixe d'OU.
+
+        L'API n'offre pas de recherche par sous-arbre : `orgUnitPath=` ne
+        matche que l'OU exacte. On parcourt donc le domaine et on filtre par
+        préfixe côté client — quelques appels paginés pour un établissement,
+        et cela couvre d'un coup toute une branche et ses classes.
+
+        Lecture seule.
+        """
+        utilisateurs: list[dict] = []
+        jeton = None
+        while True:
+            reponse = (
+                self._service.users()
+                .list(
+                    customer="my_customer",
+                    maxResults=500,
+                    projection="basic",
+                    orderBy="email",
+                    pageToken=jeton,
+                )
+                .execute()
+            )
+            for u in reponse.get("users", []):
+                ou = u.get("orgUnitPath") or ""
+                if prefixe_ou and not ou.startswith(prefixe_ou):
+                    continue
+                utilisateurs.append(
+                    {
+                        "email": (u.get("primaryEmail") or "").lower(),
+                        "ou": ou,
+                        "suspendu": bool(u.get("suspended", False)),
+                        "nom": (u.get("name") or {}).get("familyName") or "",
+                        "prenom": (u.get("name") or {}).get("givenName") or "",
+                        "derniere_connexion": u.get("lastLoginTime"),
+                    }
+                )
+            jeton = reponse.get("nextPageToken")
+            if not jeton:
+                break
+        return utilisateurs
 
     def appliquer_operation(self, operation: OperationGoogle) -> None:
         """Envoie une opération unitaire. Lève si Google la refuse.

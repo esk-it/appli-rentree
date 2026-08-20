@@ -166,7 +166,7 @@ def generer_csv_google(
         annee_source_id=annee_source_id,
         ou_par_classe=ou_par_classe,
         ou_sortants=(
-            calculer_ou_sortants(session) if categorie == "anciens" else ""
+            calculer_ou_sortants(session, site=site) if categorie == "anciens" else ""
         ),
     )
 
@@ -325,24 +325,40 @@ def _formatter_ligne(
     return ligne
 
 
-def calculer_ou_sortants(session: Session, *, aujourd_hui: date | None = None) -> str:
-    """OU d'archivage horodatée des sortants.
+def calculer_ou_sortants(
+    session: Session,
+    *,
+    site: "Site | None" = None,
+    aujourd_hui: date | None = None,
+) -> str:
+    """OU d'archivage des sortants, pour un site donné.
 
-    Reprend la convention du prédécesseur : la date d'échéance de purge
-    figure dans le nom de l'OU, ce qui rend le ménage annuel lisible depuis
-    la console Google sans consulter le référentiel.
+    Deux conventions coexistent, et c'est voulu :
 
-        /7. Sortis/Comptes à supprimer au 31-12-2027
+    - **Le site impose la sienne** quand `Site.ou_sortants` est renseigné.
+      NDE range ses partants dans `/2. NDE/Sortie`, sans date : cet usage
+      est antérieur au programme et déplacer l'existant n'apporterait rien.
+    - **Sinon, un dossier daté** sous la racine `google.ou_sortants` :
 
-    L'échéance est la fin de quarantaine (18 mois), arrondie au 31 décembre
-    de l'année concernée — un seul dossier par campagne plutôt qu'un par jour.
+          /7. Sortis/Comptes à supprimer au 28-02-2028
+
+      La date est l'échéance réelle — 18 mois après le traitement. Elle
+      figure dans le nom pour que le ménage annuel se lise depuis la
+      console Google seule, sans consulter le référentiel.
+
+    L'échéance n'est plus arrondie à la fin de l'année civile : un départ
+    d'août tombait alors au 31 décembre suivant, soit près de 29 mois au
+    lieu de 18.
     """
     from backend.services.configuration import get_param
-    from backend.services.suivi import QUARANTAINE_GOOGLE
+    from backend.services.suivi import date_echeance
+
+    if site is not None and (site.ou_sortants or "").strip():
+        return site.ou_sortants.strip().rstrip("/")
 
     racine = (get_param(session, "google.ou_sortants") or "/7. Sortis").rstrip("/")
-    echeance = (aujourd_hui or date.today()) + QUARANTAINE_GOOGLE
-    return f"{racine}/Comptes à supprimer au 31-12-{echeance.year}"
+    echeance = date_echeance(aujourd_hui or date.today())
+    return f"{racine}/Comptes à supprimer au {echeance.strftime('%d-%m-%Y')}"
 
 
 def _resoudre_ou(snapshot: Snapshot, ctx: ContexteExport, *, ou_pre_rentree: bool) -> str:

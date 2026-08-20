@@ -27,6 +27,17 @@ class Site(Base):
     """Ex : Notre-Dame d'Espérance, Notre-Dame du Kreisker, Sainte-Ursule."""
 
     domaine_mail: Mapped[str] = mapped_column(String(100))
+
+    ou_sortants: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    """OU d'archivage propre à ce site, utilisée **telle quelle**.
+
+    Les conventions diffèrent d'un site à l'autre parce qu'elles se sont
+    installées avant le programme : NDE range ses partants dans un
+    `/2. NDE/Sortie` unique, sans date. Imposer une règle commune
+    obligerait à déplacer l'existant pour rien.
+
+    Vide : le site suit la convention datée, `<racine>/Comptes à supprimer
+    au JJ-MM-AAAA`, où la racine vient du paramètre `google.ou_sortants`."""
     """Domaine Google Workspace utilisé pour les emails : lekreisker.fr, ndecleder.fr."""
 
     prefixe_annee_ou: Mapped[str] = mapped_column(String(20))

@@ -15,7 +15,7 @@
   let erreur = $state("");
 
   let modaleOuverte = $state(null);
-  let form = $state({ nom: "", nom_complet: "", domaine_mail: "", prefixe_annee_ou: "", numero_ordre: 2 });
+  let form = $state({ nom: "", nom_complet: "", domaine_mail: "", prefixe_annee_ou: "", numero_ordre: 2, ou_sortants: "" });
 
   onMount(rafraichir);
 
@@ -31,7 +31,7 @@
   }
 
   function ouvrirNouveau() {
-    form = { nom: "", nom_complet: "", domaine_mail: "", prefixe_annee_ou: "", numero_ordre: liste.length + 2 };
+    form = { nom: "", nom_complet: "", domaine_mail: "", prefixe_annee_ou: "", numero_ordre: liste.length + 2, ou_sortants: "" };
     modaleOuverte = { mode: "creer" };
   }
 
@@ -153,6 +153,25 @@
       <span class="libelle-champ">Nom complet</span>
       <input type="text" bind:value={form.nom_complet} class="champ mt-1" />
     </label>
+    <label class="block">
+      <span class="libelle-champ">OU des sortants (optionnel)</span>
+      <input
+        type="text"
+        bind:value={form.ou_sortants}
+        placeholder="/2. NDE/Sortie"
+        class="champ mt-1 font-mono"
+      />
+      <!--
+        Les conventions d'archivage précèdent le programme et diffèrent d'un
+        site à l'autre. Renseigné, ce chemin est utilisé tel quel ; laissé
+        vide, le site suit le dossier daté commun.
+      -->
+      <span class="mt-1 block text-xs text-stone-500 dark:text-stone-400">
+        Chemin utilisé tel quel pour ce site. Vide : dossier daté commun
+        <span class="font-mono">/7. Sortis/Comptes à supprimer au …</span>
+      </span>
+    </label>
+
     <label class="block">
       <span class="libelle-champ">Domaine mail (Google Workspace)</span>
       <input

@@ -31,7 +31,7 @@ def test_marquer_sortant_google_met_en_quarantaine(session, personne_factory, co
     assert t.etat_avant == "actif"
     assert t.etat_apres == "quarantaine"
     # 18 mois (~548 jours) plus tard
-    assert t.date_prevue_purge == date(2026, 1, 1) + timedelta(days=548)
+    assert t.date_prevue_purge == date(2027, 7, 1)  # 18 mois calendaires
 
 
 def test_marquer_sortant_koxo_passe_direct_a_purge(session, personne_factory, compte_factory):
@@ -140,7 +140,7 @@ def test_sortie_anterieure_date_depuis_lannee_de_depart(
     from datetime import date
 
     from backend.models import CompteCible
-    from backend.services.suivi import QUARANTAINE_GOOGLE, enregistrer_sortie_anterieure
+    from backend.services.suivi import date_echeance, enregistrer_sortie_anterieure
 
     site = site_factory("NDK")
     p = personne_factory(nom="PARTI", prenom="Luc", login="lparti", site_id=site.id)
@@ -148,7 +148,8 @@ def test_sortie_anterieure_date_depuis_lannee_de_depart(
     assert enregistrer_sortie_anterieure(session, p.id, 2025) is True
     c = session.query(CompteCible).filter_by(personne_id=p.id, cible="google").one()
     assert c.etat == "quarantaine"
-    assert c.date_prevue_purge == date(2025, 8, 31) + QUARANTAINE_GOOGLE
+    assert c.date_prevue_purge == date_echeance(date(2025, 8, 31))
+    assert c.date_prevue_purge == date(2027, 2, 28)  # 18 mois pleins
     assert "2024-2025" in c.note
 
 
