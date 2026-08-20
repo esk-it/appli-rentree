@@ -132,3 +132,63 @@ def test_annee_explicite_prime(session, site_factory):
         session, [], ou_source="/2. NDE/Sortie", annee_depart=2024
     )
     assert r.date_depart == date(2024, 8, 31)
+
+
+def test_eleve_dont_ladresse_du_referentiel_est_fausse_est_epargne(
+    session, site_factory, annee_factory, personne_factory
+):
+    """Cas réel : Louis LE GALL, inscrit, sauvé de justesse.
+
+    Charlemagne porte `louis.legall@`, son vrai compte Google est
+    `louis.le.gall@`. S'en tenir à l'adresse constatée l'aurait fait
+    suspendre alors qu'il fait sa rentrée ; l'adresse calculée depuis son
+    nom, elle, tombe juste.
+    """
+    from backend.models import Snapshot
+    from backend.services.vidange_ou import planifier_vidange
+
+    site = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    p = personne_factory(
+        nom="LE GALL", prenom="Louis", login="llegall", site_id=site.id,
+        email_constate="louis.legall@lekreisker.fr",
+    )
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=annee.id,
+                         nom="LE GALL", prenom="Louis", classe="1_G2"))
+    session.commit()
+
+    r = planifier_vidange(
+        session,
+        [_compte("louis.le.gall@lekreisker.fr", "/3. NDK/NDK2025/2_8",
+                 nom="LE GALL", prenom="Louis")],
+        ou_source="/3. NDK/NDK2025",
+    )
+    assert r.nb_a_archiver == 0
+    assert len(r.epargnes) == 1
+    assert r.epargnes[0].apparie_par == "adresse"
+
+
+def test_homonymes_ne_sont_pas_rapproches_au_hasard(
+    session, site_factory, annee_factory, personne_factory
+):
+    """Deux personnes du même nom rendraient l'attribution arbitraire."""
+    from backend.services.vidange_ou import planifier_vidange
+
+    site = site_factory("NDK")
+    annee_factory("2026-2027")
+    for i in range(2):
+        personne_factory(
+            nom="GUILLOU", prenom="Hugo", login=f"hguillou{i}", site_id=site.id,
+            id_charlemagne=8100 + i,
+        )
+    session.commit()
+
+    r = planifier_vidange(
+        session,
+        [_compte("hugo.guillou@lekreisker.fr", "/3. NDK/NDK2025/T_G1A",
+                 nom="GUILLOU", prenom="Hugo")],
+        ou_source="/3. NDK/NDK2025",
+    )
+    # Aucun des deux n'est inscrit : le compte part, mais sans rapprochement
+    assert r.nb_a_archiver == 1
+    assert r.mouvements[0].statut_referentiel == "inconnu"

@@ -24,7 +24,8 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
-from backend.models import AnneeScolaire, Personne, Snapshot
+from backend.models import AnneeScolaire, Personne, Site, Snapshot
+from backend.services.regles_metier import calculer_email, normaliser_nom
 
 # Ce qu'on peut dire d'un compte trouvé dans une branche
 INCONNU = "inconnu"
@@ -51,6 +52,9 @@ class CompteTrouve:
     derniere_annee: str | None = None
     """Dernière année scolaire où la personne apparaît dans un export."""
     derniere_classe: str | None = None
+    apparie_par: str | None = None
+    """`adresse`, `nom`, ou `None` si la personne n'a pas été retrouvée.
+    Un rapprochement par nom est moins sûr : il mérite un œil humain."""
 
 
 @dataclass
@@ -93,11 +97,37 @@ def recouper_avec_referentiel(
         annee_reference=recente.libelle if recente else None,
     )
 
-    # Index adresse → personne. On indexe l'adresse constatée, seule à faire
-    # foi : une adresse calculée ne correspond pas forcément à un vrai compte.
+    # Trois passes de rapprochement, de la plus sûre à la plus faible.
+    #
+    # L'adresse seule ne suffit pas : sur l'instance réelle, quatre élèves
+    # inscrits portent dans Charlemagne une adresse qui n'existe pas dans
+    # Google — `louis.legall@` contre `louis.le.gall@`, une faute de frappe
+    # sur `ralavao`, un suffixe d'homonymie qui diffère. L'un d'eux se
+    # trouvait dans une branche à vider : s'en tenir à l'adresse l'aurait
+    # fait suspendre alors qu'il fait sa rentrée.
     par_email: dict[str, Personne] = {}
-    for p in session.query(Personne).filter(Personne.email_constate.isnot(None)).all():
-        par_email[p.email_constate.strip().lower()] = p
+    par_nom: dict[tuple[str, str], list[Personne]] = {}
+    domaines = [s.domaine_mail for s in session.query(Site).all() if s.domaine_mail]
+
+    calcules: dict[str, list[Personne]] = {}
+    for p in session.query(Personne).all():
+        if p.email_constate:
+            par_email[p.email_constate.strip().lower()] = p
+        for d in domaines:
+            calcule = calculer_email(p.prenom, p.nom, d)
+            if calcule:
+                calcules.setdefault(calcule.lower(), []).append(p)
+        par_nom.setdefault(
+            (normaliser_nom(p.nom), normaliser_nom(p.prenom)), []
+        ).append(p)
+
+    # Une adresse calculée ne vaut que si elle ne désigne qu'une personne :
+    # deux homonymes produisent la même, et en retenir une au hasard
+    # attribuerait un compte à la mauvaise. Elle ne prime jamais sur une
+    # adresse constatée.
+    for adresse, candidats in calcules.items():
+        if len(candidats) == 1:
+            par_email.setdefault(adresse, candidats[0])
 
     libelles = {a.id: a.libelle for a in annees}
     ids_recents: set[int] = set()
@@ -124,6 +154,17 @@ def recouper_avec_referentiel(
     for c in comptes:
         email = (c.get("email") or "").strip().lower()
         personne = par_email.get(email)
+        apparie_par = "adresse" if personne else None
+        if personne is None:
+            # Repli sur le nom, et seulement s'il ne désigne qu'une personne :
+            # deux homonymes rendraient l'attribution arbitraire.
+            candidats = par_nom.get(
+                (normaliser_nom(c.get("nom")), normaliser_nom(c.get("prenom"))), []
+            )
+            if len(candidats) == 1:
+                personne = candidats[0]
+                apparie_par = "nom"
+
         if personne is None:
             statut = INCONNU
         elif personne.id in ids_recents:
@@ -146,6 +187,7 @@ def recouper_avec_referentiel(
                 prenom=personne.prenom if personne else None,
                 derniere_annee=derniere[0] if derniere else None,
                 derniere_classe=derniere[1] if derniere else None,
+                apparie_par=apparie_par,
             )
         )
 
