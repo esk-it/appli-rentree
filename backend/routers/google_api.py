@@ -930,6 +930,7 @@ def occupants_sortie(
 class AppareilOut(BaseModel):
     recupere_le: str | None = None
     attribue_a: str | None = None
+    dort: bool = False
     serie: str
     modele: str
     ou: str
@@ -952,6 +953,7 @@ class ProfAvecAppareilsOut(BaseModel):
     methode: str = "exact"
     approximatif: bool = False
     homonymes: list[str] = []
+    raison: str = ""
 
 
 class DiscordanceOut(BaseModel):
@@ -972,6 +974,9 @@ class FlotteOut(BaseModel):
     rapproches: list[ProfAvecAppareilsOut]
     etiquettes_a_mettre_a_jour: list[AppareilOut]
     recuperees: list[AppareilOut]
+    dormantes: list[AppareilOut]
+    tous: list[AppareilOut]
+    """Toute la flotte, pour la recherche par numéro depuis l'écran."""
     legende: list[dict]
     nb_par_code: dict[str, int]
     avertissements: list[str]
@@ -983,7 +988,7 @@ def _appareil_out(a) -> AppareilOut:
         etiquette=a.etiquette, porteur=a.porteur, emplacement=a.emplacement,
         derniers_utilisateurs=a.derniers_utilisateurs,
         derniere_synchro=a.derniere_synchro,
-        recupere_le=a.recupere_le, attribue_a=a.attribue_a,
+        recupere_le=a.recupere_le, attribue_a=a.attribue_a, dort=a.dort,
     )
 
 
@@ -992,7 +997,7 @@ def _prof_out(p) -> ProfAvecAppareilsOut:
         nom=p.nom, prenom=p.prenom, discipline=p.discipline, code=p.code,
         email=p.email, appareils=[_appareil_out(a) for a in p.appareils],
         attribue=p.attribue, methode=p.methode,
-        approximatif=p.approximatif, homonymes=p.homonymes,
+        approximatif=p.approximatif, homonymes=p.homonymes, raison=p.raison,
     )
 
 
@@ -1050,6 +1055,7 @@ async def analyser_chromebooks(
         x.serie: {
             "recupere_le": x.recupere_le.isoformat() if x.recupere_le else None,
             "attribue_a": x.attribue_a,
+            "recupere_de": x.recupere_de,
         }
         for x in session.query(SuiviChromebook).all()
     }
@@ -1067,6 +1073,11 @@ async def analyser_chromebooks(
             _appareil_out(a) for a in r.etiquettes_a_mettre_a_jour
         ],
         recuperees=[_appareil_out(a) for a in r.recuperees],
+        dormantes=[_appareil_out(a) for a in r.dormantes],
+        tous=[
+            _appareil_out(a) for a in r.appareils
+            if a.ou.startswith("/1. Chromebooks/1. Personnel")
+        ],
         discordances=[
             DiscordanceOut(
                 appareil=_appareil_out(d.appareil),

@@ -21,6 +21,27 @@
   let vue = $state("a_recuperer");
   let enCours = $state(/** @type {string|null} */ (null));
   let attribution = $state(/** @type {any} */ (null));
+  let recherche = $state("");
+
+  /**
+   * Rendre un Chromebook, c'est en avoir un dans les mains et lire le
+   * numéro inscrit dessous. Partir du nom du porteur supposé demande que
+   * l'étiquette soit juste — c'est-à-dire ce qui manque quand on en a
+   * besoin. La recherche porte aussi sur les derniers utilisateurs, qui
+   * ne mentent pas sur qui s'en est servi.
+   */
+  let resultats = $derived.by(() => {
+    const q = recherche.trim().toLowerCase();
+    if (q.length < 3 || !flotte) return [];
+    return flotte.tous
+      .filter((a) =>
+        [a.serie, a.etiquette, a.porteur ?? "", a.emplacement, a.modele]
+          .concat(a.derniers_utilisateurs)
+          .some((c) => (c ?? "").toLowerCase().includes(q)),
+      )
+      .sort((x, y) => (y.derniere_synchro ?? "").localeCompare(x.derniere_synchro ?? ""))
+      .slice(0, 40);
+  });
 
   /** Note un geste, puis relit la flotte : le suivi change les listes. */
   async function noter(params, message) {
@@ -67,9 +88,16 @@
     { id: "discordances", label: "À vérifier", badge: flotte?.discordances?.length ?? 0 },
     { id: "sans_compte", label: "Sans compte", badge: flotte?.sans_compte?.length ?? 0 },
     { id: "rapproches", label: "Rapprochés", badge: flotte?.rapproches?.length ?? 0 },
+    { id: "recherche", label: "Retrouver une machine", badge: 0 },
   ]);
 
   /** Comment le compte a été retrouvé, en français. */
+  const RAISONS = {
+    arrivant: "arrivant",
+    remplace: "remplacement",
+    revenu: "a rendu sa machine en juin, et revient",
+  };
+
   const METHODES = {
     exact: "nom identique",
     nom_compose: "nom composé tronqué",
@@ -216,7 +244,10 @@
                       <td class="whitespace-nowrap text-stone-600 dark:text-stone-400">{p.discipline}</td>
                       <td class="whitespace-nowrap text-xs">{a.modele}</td>
                       <td class="whitespace-nowrap font-mono text-xs">{a.serie}</td>
-                      <td class="whitespace-nowrap text-xs text-stone-500">{jour(a.derniere_synchro)}</td>
+                      <td class="whitespace-nowrap text-xs {a.dort ? 'text-amber-700 dark:text-amber-400' : 'text-stone-500'}">
+                        {jour(a.derniere_synchro)}
+                        {#if a.dort}<span class="ml-1">· en sommeil</span>{/if}
+                      </td>
                       <td class="whitespace-nowrap">
                         <label class="inline-flex cursor-pointer items-center gap-2 text-xs">
                           <input
@@ -242,7 +273,9 @@
         {:else if vue === "a_attribuer"}
           <div class="px-4 py-3 text-xs text-stone-600 dark:text-stone-400">
             <UserPlus class="mr-1 inline h-3.5 w-3.5" />
-            Arrivants auxquels aucune machine n'est rattachée.
+            Enseignants sans machine : arrivants, remplaçants, et ceux qui ont
+            rendu la leur avant l'été par précaution puis sont revenus. Un
+            titulaire qui n'en a jamais eu n'y figure pas.
           </div>
           <div class="max-h-[28rem] overflow-auto">
             <table class="tableau w-full text-sm">
@@ -251,6 +284,7 @@
                   <th class="text-left">Enseignant</th>
                   <th class="text-left">Discipline</th>
                   <th class="text-left">Adresse</th>
+                  <th class="text-left">Pourquoi</th>
                   <th class="text-left">Machine confiée</th>
                 </tr>
               </thead>
@@ -267,6 +301,9 @@
                           aucun compte Google — à créer d'abord
                         </span>
                       {/if}
+                    </td>
+                    <td class="whitespace-nowrap text-xs {p.raison === 'revenu' ? 'text-amber-700 dark:text-amber-400' : 'text-stone-600 dark:text-stone-400'}">
+                      {RAISONS[p.raison] ?? p.raison}
                     </td>
                     <td class="whitespace-nowrap">
                       {#if !p.email}
@@ -331,6 +368,86 @@
               </tbody>
             </table>
           </div>
+
+        {:else if vue === "recherche"}
+          <div class="px-4 py-3 text-xs text-stone-600 dark:text-stone-400">
+            Tu as la machine en main : tape son numéro de série, son étiquette,
+            ou le nom de quelqu'un qui s'en est servi. Tu peux la marquer rendue
+            même si son étiquette désigne quelqu'un d'autre — c'est justement le
+            cas où elle ne sert à rien.
+          </div>
+          <div class="px-4 pb-3">
+            <input
+              class="champ w-full font-mono text-sm"
+              placeholder="numéro de série, étiquette, adresse…"
+              bind:value={recherche}
+            />
+          </div>
+          {#if recherche.trim().length >= 3}
+            <div class="max-h-[24rem] overflow-auto">
+              <table class="tableau w-full text-sm">
+                <thead>
+                  <tr>
+                    <th class="text-left">N° de série</th>
+                    <th class="text-left">Étiquette</th>
+                    <th class="text-left">Qui s'en sert</th>
+                    <th class="text-left">Dernière synchro</th>
+                    <th class="text-left">État</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each resultats as a (a.serie)}
+                    <tr class:ligne-douteuse={a.dort}>
+                      <td class="whitespace-nowrap font-mono text-xs">{a.serie}</td>
+                      <td class="whitespace-nowrap font-mono text-xs">{a.etiquette}</td>
+                      <td class="whitespace-nowrap font-mono text-xs">
+                        {a.derniers_utilisateurs[0] ?? "—"}
+                      </td>
+                      <td class="whitespace-nowrap text-xs {a.dort ? 'text-amber-700 dark:text-amber-400' : 'text-stone-500'}">
+                        {jour(a.derniere_synchro)}
+                      </td>
+                      <td class="whitespace-nowrap">
+                        {#if a.recupere_le}
+                          <span class="text-xs text-emerald-700 dark:text-emerald-400">
+                            rendue le {jour(a.recupere_le)}
+                          </span>
+                          <button
+                            class="ml-2 text-xs text-stone-500 hover:text-red-600"
+                            onclick={() =>
+                              noter({ serie: a.serie, recupere: false },
+                                    a.serie + " : restitution annulée")}
+                          >
+                            annuler
+                          </button>
+                        {:else if a.attribue_a}
+                          <span class="text-xs text-stone-500">
+                            confiée à {a.attribue_a}
+                          </span>
+                        {:else}
+                          <Bouton
+                            taille="sm"
+                            occupe={enCours === a.serie}
+                            onclick={() =>
+                              noter({ serie: a.serie, recupere: true,
+                                      recupereDe: a.porteur },
+                                    a.serie + " notée rendue")}
+                          >
+                            Je l'ai récupérée
+                          </Bouton>
+                        {/if}
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+            {#if !resultats.length}
+              <p class="px-4 pb-4 text-sm text-stone-500 dark:text-stone-400">
+                Aucun appareil ne correspond. Le numéro de série est inscrit
+                sous la machine, souvent précédé de « S/N ».
+              </p>
+            {/if}
+          {/if}
 
         {:else if vue === "rapproches"}
           <div class="px-4 py-3 text-xs text-stone-600 dark:text-stone-400">

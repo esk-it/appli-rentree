@@ -259,3 +259,154 @@ def test_une_machine_confiee_nest_plus_une_discordance():
         suivi={"A": {"recupere_le": None, "attribue_a": "nouveau@lekreisker.fr"}},
     )
     assert r.discordances == []
+
+
+def _avec_synchro(etiquette, serie, iso):
+    a = _appareil(etiquette, serie=serie)
+    a["derniere_synchro"] = iso
+    return a
+
+
+def test_une_etiquette_survit_a_la_machine_quelle_decrit():
+    """Trois machines au nom d'une enseignante, une seule vivante.
+
+    Les deux autres sont des étiquettes que personne n'a corrigées en les
+    rangeant. Les compter comme un dû envoie réclamer un objet que la
+    personne n'a pas.
+    """
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_avec_synchro("helene.maurice@lekreisker.fr", "VIVE", "2026-07-05T10:00:00.000Z"),
+         _avec_synchro("helene.maurice@lekreisker.fr", "DORT1", "2025-04-03T10:00:00.000Z"),
+         _avec_synchro("helene.maurice@lekreisker.fr", "DORT2", "2024-12-26T10:00:00.000Z")],
+        [_Prof("MAURICE", "Hélène", "Lettres", "sortant")],
+        [_compte("helene.maurice@lekreisker.fr", "MAURICE", "Hélène")],
+    )
+    assert {a.serie for a in r.dormantes} == {"DORT1", "DORT2"}
+    assert any("plus d'un an" in x for x in r.avertissements)
+    assert r.nb_a_recuperer == 3, "elles restent listées, mais signalées"
+
+
+def test_une_machine_jamais_synchronisee_dort():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte([_appareil("x@lekreisker.fr", serie="N")], [], [])
+    assert r.appareils[0].dort is True
+
+
+def test_on_retrouve_une_machine_par_son_numero():
+    """Le geste part de l'objet : on lit le numéro inscrit dessous."""
+    from backend.services.chromebooks import analyser_flotte, chercher_appareil
+
+    r = analyser_flotte(
+        [_appareil("helene.maurice@lekreisker.fr", serie="NXHPXEF0020394916B7611"),
+         _appareil("Prof_08", serie="AUTRE")],
+        [], [],
+    )
+    assert [a.serie for a in chercher_appareil(r, "916B76")] == ["NXHPXEF0020394916B7611"]
+    assert [a.serie for a in chercher_appareil(r, "prof_08")] == ["AUTRE"]
+
+
+def test_on_retrouve_une_machine_par_qui_sen_sert_vraiment():
+    """L'étiquette peut désigner quelqu'un d'autre : c'est le cas utile."""
+    from backend.services.chromebooks import analyser_flotte, chercher_appareil
+
+    r = analyser_flotte(
+        [_appareil("ancienne.etiquette@lekreisker.fr", serie="X",
+                   recents=["gaelle.bauduin@lekreisker.fr"])],
+        [], [],
+    )
+    assert [a.serie for a in chercher_appareil(r, "bauduin")] == ["X"]
+
+
+def test_une_requete_trop_courte_ne_ratisse_pas_tout():
+    from backend.services.chromebooks import analyser_flotte, chercher_appareil
+
+    r = analyser_flotte([_appareil("x@lekreisker.fr", serie="ABC")], [], [])
+    assert chercher_appareil(r, "AB") == []
+    assert len(chercher_appareil(r, "ABC")) == 1
+
+
+def test_le_plus_recemment_vu_vient_en_premier():
+    """C'est celui qu'on a le plus de chances d'avoir entre les mains."""
+    from backend.services.chromebooks import analyser_flotte, chercher_appareil
+
+    r = analyser_flotte(
+        [_avec_synchro("helene.maurice@lekreisker.fr", "VIEUX", "2024-12-26T10:00:00.000Z"),
+         _avec_synchro("helene.maurice@lekreisker.fr", "RECENT", "2026-07-05T10:00:00.000Z")],
+        [], [],
+    )
+    assert [a.serie for a in chercher_appareil(r, "maurice")] == ["RECENT", "VIEUX"]
+
+
+def test_celui_qui_a_rendu_en_juin_et_qui_revient_est_a_reequiper():
+    """Ni arrivant ni partant : rien ne le signalait, et il n'a plus rien.
+
+    Le cas réel : un enseignant qui ignore s'il sera reconduit rend sa
+    machine avant l'été, puis revient en septembre.
+    """
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("nicole.lanconneur@lekreisker.fr", serie="R1")],
+        [_Prof("LANCONNEUR", "Nicole", "Anglais", "en_poste")],
+        [_compte("nicole.lanconneur@lekreisker.fr", "LANCONNEUR", "Nicole")],
+        suivi={"R1": {"recupere_le": "2026-06-30", "attribue_a": None,
+                      "recupere_de": "nicole.lanconneur@lekreisker.fr"}},
+    )
+    assert [p.nom for p in r.a_attribuer] == ["LANCONNEUR"]
+    assert r.a_attribuer[0].raison == "revenu"
+    assert any("revenus" in a for a in r.avertissements)
+
+
+def test_un_titulaire_qui_na_jamais_eu_de_machine_nen_attend_pas():
+    """Les signaler tous noierait les cas qui comptent."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [],
+        [_Prof("SANSMACHINE", "Paul", "Maths", "en_poste")],
+        [_compte("paul.sansmachine@lekreisker.fr", "SANSMACHINE", "Paul")],
+    )
+    assert r.a_attribuer == []
+    assert len(r.profs) == 1, "il reste au tableau, simplement sans alerte"
+
+
+def test_les_raisons_dattendre_une_machine_sont_distinguees():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("revenu@lekreisker.fr", serie="R")],
+        [_Prof("NOUVEAU", "Alice", "SVT", "arrivant"),
+         _Prof("REMPLACE / X", "Bob / Y", "Breton", "remplace"),
+         _Prof("REVENU", "Carla", "Anglais", "en_poste")],
+        [_compte("alice.nouveau@lekreisker.fr", "NOUVEAU", "Alice"),
+         _compte("revenu@lekreisker.fr", "REVENU", "Carla")],
+        suivi={"R": {"recupere_le": "2026-06-30", "attribue_a": None,
+                     "recupere_de": "revenu@lekreisker.fr"}},
+    )
+    raisons = {p.nom: p.raison for p in r.a_attribuer}
+    assert raisons == {
+        "NOUVEAU": "arrivant",
+        "REMPLACE / X": "remplace",
+        "REVENU": "revenu",
+    }
+
+
+def test_un_revenu_deja_reequipe_disparait_de_la_liste():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("nicole.lanconneur@lekreisker.fr", serie="R1"),
+         _appareil("Prof_08", serie="P8")],
+        [_Prof("LANCONNEUR", "Nicole", "Anglais", "en_poste")],
+        [_compte("nicole.lanconneur@lekreisker.fr", "LANCONNEUR", "Nicole")],
+        suivi={
+            "R1": {"recupere_le": "2026-06-30", "attribue_a": None,
+                   "recupere_de": "nicole.lanconneur@lekreisker.fr"},
+            "P8": {"recupere_le": None,
+                   "attribue_a": "nicole.lanconneur@lekreisker.fr"},
+        },
+    )
+    assert r.a_attribuer == []

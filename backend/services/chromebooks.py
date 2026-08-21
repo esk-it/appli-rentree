@@ -17,6 +17,26 @@ contre-épreuve. Quand les deux se contredisent, on ne tranche pas — deux
 appareils échangés par erreur se voient précisément à cet endroit, et
 c'est l'humain qui le corrige.
 
+## Une étiquette survit à la machine qu'elle décrit
+
+Trois appareils portent l'adresse d'une même enseignante ; un seul a
+synchronisé cette année, les deux autres dorment depuis 2024 et 2025. Ce
+ne sont pas trois machines en circulation, mais une vivante et deux
+étiquettes que personne n'a corrigées en les rangeant.
+
+La **dernière synchronisation** départage : au-delà d'un an sans donner
+signe de vie, un appareil n'est plus chez quelqu'un, il est quelque part.
+Le rapport le dit plutôt que de le compter comme un dû.
+
+## Le geste part de la machine, pas de la personne
+
+Rendre un Chromebook, c'est en avoir un dans les mains et lire le numéro
+inscrit dessous. Chercher d'abord le nom de son porteur supposé suppose
+que l'étiquette est juste — c'est-à-dire précisément ce qui manque quand
+on en a besoin. D'où `chercher_appareil`, qui accepte un numéro de série,
+une étiquette, ou une adresse, et rend ce que Google sait de l'appareil,
+quel qu'en soit le porteur déclaré.
+
 ## Ce qu'il en tire
 
 À qui réclamer une machine — les partants qui en détiennent une. À qui en
@@ -31,6 +51,18 @@ son second terme, et une orthographe hésite. Le rapprochement passe donc
 par `rapprochement.py`, qui applique des règles successives et dit
 laquelle a conclu — un lien obtenu autrement que par l'égalité stricte
 reste affiché comme tel, à vérifier d'un coup d'œil.
+
+## Rendre en juin et revenir en septembre
+
+Un enseignant qui ignore s'il sera reconduit rend sa machine avant l'été.
+S'il revient, il figure au tableau comme n'importe quel titulaire — et se
+retrouve sans appareil, sans que rien ne le signale : il n'est ni un
+arrivant, ni un partant.
+
+Le suivi permet de le voir, parce qu'il garde **de qui** chaque machine a
+été reprise. Quelqu'un dont on a noté la restitution et qui figure encore
+au tableau n'est pas parti : il est revenu, et il lui faut de nouveau une
+machine.
 
 ## Ce que Google ne peut pas savoir
 
@@ -64,6 +96,10 @@ ROLES = re.compile(r"^(prof|stagiaire|maintenance|vs|pret|remplac)", re.I)
 
 ACTIF = "ACTIVE"
 
+MOIS_DORMANCE = 12
+"""Au-delà, l'appareil n'a plus donné signe de vie : son étiquette ne
+décrit plus sa situation, elle décrit son passé."""
+
 
 def normaliser(texte: str | None) -> str:
     sans = unicodedata.normalize("NFD", (texte or "").strip().lower())
@@ -87,12 +123,29 @@ class Appareil:
 
     recupere_le: str | None = None
     """Date de restitution notée dans l'application."""
+    recupere_de: str | None = None
+    """Adresse de qui l'a rendue — c'est elle qui trahit un retour."""
     attribue_a: str | None = None
     """Adresse à qui elle a été confiée, avant mise à jour de l'étiquette."""
 
     @property
     def est_de_pret(self) -> bool:
         return bool(ROLES.match(self.etiquette)) and self.porteur is None
+
+    @property
+    def dort(self) -> bool:
+        """Aucune synchronisation depuis plus d'un an — ou jamais."""
+        from datetime import datetime, timedelta
+
+        if not self.derniere_synchro:
+            return True
+        try:
+            vue = datetime.fromisoformat(
+                self.derniere_synchro.replace("Z", "+00:00")
+            ).replace(tzinfo=None)
+        except ValueError:
+            return False
+        return vue < datetime.utcnow() - timedelta(days=30 * MOIS_DORMANCE)
 
     @property
     def est_actif(self) -> bool:
@@ -117,6 +170,9 @@ class LigneProf:
     appareils: list[Appareil] = field(default_factory=list)
     attribue: str | None = None
     """Série d'une machine confiée dans l'application, avant que Google le sache."""
+    raison: str = ""
+    """Pourquoi cette personne attend une machine : `arrivant`, `remplace`,
+    ou `revenu` — elle a rendu la sienne avant l'été et elle est de retour."""
     methode: str = "exact"
     """Comment l'adresse a été retrouvée : `exact`, `nom_compose`, …"""
     approximatif: bool = False
@@ -144,6 +200,8 @@ class RapportFlotte:
     etiquettes_a_mettre_a_jour: list[Appareil] = field(default_factory=list)
     """Confiées à quelqu'un dans l'application, mais l'étiquette dit autre chose."""
     recuperees: list[Appareil] = field(default_factory=list)
+    dormantes: list[Appareil] = field(default_factory=list)
+    """Étiquetées au nom de quelqu'un, mais sans signe de vie depuis un an."""
     avertissements: list[str] = field(default_factory=list)
 
     @property
@@ -194,6 +252,7 @@ def analyser_flotte(
                 emplacement=a.get("emplacement") or "",
                 derniere_synchro=a.get("derniere_synchro"),
                 recupere_le=(suivi.get(a.get("serie") or "") or {}).get("recupere_le"),
+                recupere_de=(suivi.get(a.get("serie") or "") or {}).get("recupere_de"),
                 attribue_a=(suivi.get(a.get("serie") or "") or {}).get("attribue_a"),
             )
         )
@@ -211,6 +270,12 @@ def analyser_flotte(
     # Une machine confiée dans l'application appartient déjà à son nouveau
     # porteur, quoi qu'en dise l'étiquette : c'est le geste physique qui
     # compte, la console suivra.
+    rendues_par = {
+        a.recupere_de.lower()
+        for a in rapport.appareils
+        if a.recupere_le and a.recupere_de
+    }
+
     par_porteur: dict[str, list[Appareil]] = {}
     for ap in rapport.appareils:
         if ap.attribue_a:
@@ -243,9 +308,22 @@ def analyser_flotte(
             rapport.sans_compte.append(ligne)
         if p.code == "sortant" and ligne.appareils:
             rapport.a_recuperer.append(ligne)
-        elif p.code in ("arrivant", "remplace") and not ligne.appareils:
+        elif not ligne.appareils and p.code != "sortant":
             # Un remplaçant reçoit une machine du parc de prêt, au même
             # titre qu'un arrivant : il enseigne, il lui en faut une.
+            #
+            # Et celui dont on a noté la restitution, mais qui figure
+            # toujours au tableau, n'est pas parti : il a rendu sa machine
+            # avant l'été par précaution, et il est revenu.
+            if p.code in ("arrivant", "remplace"):
+                ligne.raison = p.code
+            elif adresse and adresse in rendues_par:
+                ligne.raison = "revenu"
+            else:
+                # Un titulaire qui n'a jamais eu de machine n'en attend pas
+                # une : le signaler noierait les cas qui comptent.
+                rapport.profs[-1] = ligne
+                continue
             rapport.a_attribuer.append(ligne)
 
     # Machines libres : le parc de prêt, et celles dont le porteur a disparu.
@@ -284,6 +362,23 @@ def analyser_flotte(
             "les connexions démentent. Deux machines échangées par erreur se "
             "voient ici — le programme ne tranche pas, il montre."
         )
+    rapport.dormantes = [
+        a for a in rapport.appareils
+        if a.porteur and a.dort and a.est_actif and not a.recupere_le
+    ]
+    revenus = [p for p in rapport.a_attribuer if p.raison == "revenu"]
+    if revenus:
+        rapport.avertissements.append(
+            f"{len(revenus)} enseignant(s) ont rendu leur machine avant l'été et "
+            "figurent toujours au tableau : ils sont revenus, et il leur en faut "
+            "une de nouveau."
+        )
+    if rapport.dormantes:
+        rapport.avertissements.append(
+            f"{len(rapport.dormantes)} appareil(s) portent le nom de quelqu'un "
+            "sans avoir synchronisé depuis plus d'un an. Leur étiquette décrit "
+            "sans doute un porteur d'avant : ne les réclame pas sans vérifier."
+        )
     if rapport.etiquettes_a_mettre_a_jour:
         rapport.avertissements.append(
             f"{len(rapport.etiquettes_a_mettre_a_jour)} machine(s) ont été "
@@ -310,3 +405,26 @@ def analyser_flotte(
             "leur être rattachées. La liste est dans l'onglet « Sans compte »."
         )
     return rapport
+
+
+def chercher_appareil(rapport: RapportFlotte, requete: str) -> list[Appareil]:
+    """Retrouve un appareil par son numéro, son étiquette ou une adresse.
+
+    C'est l'entrée qui correspond au geste réel : on a la machine en main
+    et on lit ce qui est inscrit dessus. Rien n'oblige l'étiquette à être
+    juste — la recherche porte aussi sur les derniers utilisateurs, qui,
+    eux, ne mentent pas sur qui s'en est servi.
+    """
+    q = (requete or "").strip().lower()
+    if len(q) < 3:
+        return []
+    trouves = []
+    for a in rapport.appareils:
+        champs = [a.serie, a.etiquette, a.porteur or "", a.emplacement, a.modele]
+        champs += a.derniers_utilisateurs
+        if any(q in (c or "").lower() for c in champs):
+            trouves.append(a)
+    # Le plus récemment vu en premier : c'est celui qu'on a le plus de
+    # chances d'avoir entre les mains.
+    trouves.sort(key=lambda a: a.derniere_synchro or "", reverse=True)
+    return trouves
