@@ -23,9 +23,22 @@ c'est l'humain qui le corrige.
 donner une — les arrivants qui n'en ont pas. Et lesquelles sont libres :
 le parc de prêt, plus celles dont le porteur n'a plus de compte.
 
+## Ce que Google ne peut pas savoir
+
+Rendre une machine et en confier une autre sont des gestes **physiques**.
+Ils précèdent de plusieurs jours, parfois de semaines, la mise à jour de
+l'étiquette dans la console. Sans mémoire, la liste des machines à
+réclamer resterait identique du premier au dernier jour de la rentrée.
+
+Le suivi tenu par l'application se superpose donc au relevé : une machine
+notée rendue quitte la liste des réclamations, et une personne à qui on
+vient d'en confier une quitte celle des équipements. Quand l'étiquette
+Google finit par diverger de ce suivi, l'écart est signalé — c'est le
+rappel qu'il reste à mettre la console à jour.
+
 ## Ce qu'il ne fait pas
 
-Aucune écriture. Le droit demandé à Google est en lecture seule, et
+Aucune écriture dans Google. Le droit demandé est en lecture seule, et
 réattribuer une machine reste un geste physique : le programme dit ce
 qu'il constate, il ne déplace rien.
 """
@@ -63,6 +76,11 @@ class Appareil:
     emplacement: str = ""
     derniere_synchro: str | None = None
 
+    recupere_le: str | None = None
+    """Date de restitution notée dans l'application."""
+    attribue_a: str | None = None
+    """Adresse à qui elle a été confiée, avant mise à jour de l'étiquette."""
+
     @property
     def est_de_pret(self) -> bool:
         return bool(ROLES.match(self.etiquette)) and self.porteur is None
@@ -88,6 +106,8 @@ class LigneProf:
     code: str
     email: str | None
     appareils: list[Appareil] = field(default_factory=list)
+    attribue: str | None = None
+    """Série d'une machine confiée dans l'application, avant que Google le sache."""
 
 
 @dataclass
@@ -102,6 +122,11 @@ class RapportFlotte:
     orphelins: list[Appareil] = field(default_factory=list)
     """Étiquetés au nom de quelqu'un qui n'a plus de compte."""
     discordances: list[Discordance] = field(default_factory=list)
+    sans_compte: list[LigneProf] = field(default_factory=list)
+    """Enseignants du tableau qu'aucun compte Google ne porte."""
+    etiquettes_a_mettre_a_jour: list[Appareil] = field(default_factory=list)
+    """Confiées à quelqu'un dans l'application, mais l'étiquette dit autre chose."""
+    recuperees: list[Appareil] = field(default_factory=list)
     avertissements: list[str] = field(default_factory=list)
 
     @property
@@ -119,6 +144,7 @@ def analyser_flotte(
     profs: list,
     comptes: list[dict],
     *,
+    suivi: dict[str, dict] | None = None,
     prefixe_personnel: str = "/1. Chromebooks/1. Personnel",
 ) -> RapportFlotte:
     """Croise les machines, le tableau des enseignants et les comptes Google.
@@ -128,7 +154,11 @@ def analyser_flotte(
         profs: les `Prof` lus par `import_profs`.
         comptes: retour de `ClientGoogle.lister_utilisateurs`, pour relier
             un nom du tableau à une adresse — le tableau n'en porte pas.
+        suivi: `{série: {recupere_le, attribue_a, …}}`, ce que
+            l'établissement a noté avoir fait. Sans lui, l'analyse ne
+            décrit que l'état de Google, qui ignore les gestes physiques.
     """
+    suivi = suivi or {}
     rapport = RapportFlotte()
 
     for a in appareils_bruts:
@@ -146,6 +176,8 @@ def analyser_flotte(
                 ],
                 emplacement=a.get("emplacement") or "",
                 derniere_synchro=a.get("derniere_synchro"),
+                recupere_le=(suivi.get(a.get("serie") or "") or {}).get("recupere_le"),
+                attribue_a=(suivi.get(a.get("serie") or "") or {}).get("attribue_a"),
             )
         )
 
@@ -164,8 +196,19 @@ def analyser_flotte(
         par_nom[cle] = "" if cle in par_nom else adresse
     par_nom = {k: v for k, v in par_nom.items() if v}
 
+    # Une machine confiée dans l'application appartient déjà à son nouveau
+    # porteur, quoi qu'en dise l'étiquette : c'est le geste physique qui
+    # compte, la console suivra.
     par_porteur: dict[str, list[Appareil]] = {}
     for ap in rapport.appareils:
+        if ap.attribue_a:
+            par_porteur.setdefault(ap.attribue_a, []).append(ap)
+            if ap.porteur != ap.attribue_a:
+                rapport.etiquettes_a_mettre_a_jour.append(ap)
+            continue
+        if ap.recupere_le:
+            rapport.recuperees.append(ap)
+            continue
         if ap.porteur:
             par_porteur.setdefault(ap.porteur, []).append(ap)
 
@@ -175,15 +218,27 @@ def analyser_flotte(
             nom=p.nom, prenom=p.prenom, discipline=p.discipline, code=p.code,
             email=adresse, appareils=par_porteur.get(adresse, []) if adresse else [],
         )
+        ligne.attribue = next(
+            (a.serie for a in ligne.appareils if a.attribue_a == adresse), None
+        )
         rapport.profs.append(ligne)
+        if adresse is None:
+            rapport.sans_compte.append(ligne)
         if p.code == "sortant" and ligne.appareils:
             rapport.a_recuperer.append(ligne)
-        elif p.code == "arrivant" and not ligne.appareils:
+        elif p.code in ("arrivant", "remplace") and not ligne.appareils:
+            # Un remplaçant reçoit une machine du parc de prêt, au même
+            # titre qu'un arrivant : il enseigne, il lui en faut une.
             rapport.a_attribuer.append(ligne)
 
     # Machines libres : le parc de prêt, et celles dont le porteur a disparu.
     for ap in rapport.appareils:
         if not ap.ou.startswith(prefixe_personnel) or not ap.est_actif:
+            continue
+        if ap.attribue_a:
+            continue
+        if ap.recupere_le:
+            rapport.disponibles.append(ap)
             continue
         if ap.est_de_pret:
             rapport.disponibles.append(ap)
@@ -193,6 +248,8 @@ def analyser_flotte(
 
     # Contre-épreuve : l'étiquette dit une chose, l'usage en dit une autre.
     for ap in rapport.appareils:
+        if ap.attribue_a or ap.recupere_le:
+            continue
         if not ap.porteur or not ap.derniers_utilisateurs:
             continue
         if ap.porteur not in ap.derniers_utilisateurs:
@@ -210,11 +267,16 @@ def analyser_flotte(
             "les connexions démentent. Deux machines échangées par erreur se "
             "voient ici — le programme ne tranche pas, il montre."
         )
-    sans_adresse = [p for p in rapport.profs if p.email is None]
-    if sans_adresse:
+    if rapport.etiquettes_a_mettre_a_jour:
         rapport.avertissements.append(
-            f"{len(sans_adresse)} enseignant(s) du tableau n'ont pas de compte "
-            "Google retrouvé par leur nom : leurs machines ne peuvent pas leur "
-            "être rattachées."
+            f"{len(rapport.etiquettes_a_mettre_a_jour)} machine(s) ont été "
+            "confiées dans l'application sans que l'étiquette Google ait suivi. "
+            "Le suivi fait foi ici ; la console reste à mettre à jour."
+        )
+    if rapport.sans_compte:
+        rapport.avertissements.append(
+            f"{len(rapport.sans_compte)} enseignant(s) du tableau n'ont pas de "
+            "compte Google retrouvé par leur nom : leurs machines ne peuvent pas "
+            "leur être rattachées. La liste est dans l'onglet « Sans compte »."
         )
     return rapport

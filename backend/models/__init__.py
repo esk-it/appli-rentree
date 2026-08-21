@@ -13,6 +13,7 @@ from backend.models.parametre import Parametre
 from backend.models.personne import Personne
 from backend.models.site import Site
 from backend.models.snapshot import Snapshot
+from backend.models.suivi_chromebook import SuiviChromebook
 from backend.models.table_correspondance import TableCorrespondance
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     "Personne",
     "Site",
     "Snapshot",
+    "SuiviChromebook",
     "TableCorrespondance",
 ]

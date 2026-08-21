@@ -466,6 +466,20 @@ export const googleApi = {
       await fetch(`${BASE}/google/chromebooks`, { method: "POST", body: corps }),
     );
   },
+  /** Note qu'une machine a été rendue, ou confiée à quelqu'un. */
+  async noterSuiviAppareil({ serie, recupere = null, recupereDe = null,
+                             attribueA = null, note = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/chromebooks/suivi`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          serie, recupere, recupere_de: recupereDe,
+          attribue_a: attribueA, note,
+        }),
+      }),
+    );
+  },
   /** Les OU de sortie existantes, avec leurs échéances et leur état. */
   async destinationsSortie({ pourOu = null } = {}) {
     const q = new URLSearchParams();

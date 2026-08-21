@@ -923,6 +923,8 @@ def occupants_sortie(
 
 
 class AppareilOut(BaseModel):
+    recupere_le: str | None = None
+    attribue_a: str | None = None
     serie: str
     modele: str
     ou: str
@@ -941,6 +943,7 @@ class ProfAvecAppareilsOut(BaseModel):
     code: str
     email: str | None
     appareils: list[AppareilOut]
+    attribue: str | None = None
 
 
 class DiscordanceOut(BaseModel):
@@ -957,6 +960,9 @@ class FlotteOut(BaseModel):
     a_attribuer: list[ProfAvecAppareilsOut]
     disponibles: list[AppareilOut]
     discordances: list[DiscordanceOut]
+    sans_compte: list[ProfAvecAppareilsOut]
+    etiquettes_a_mettre_a_jour: list[AppareilOut]
+    recuperees: list[AppareilOut]
     legende: list[dict]
     nb_par_code: dict[str, int]
     avertissements: list[str]
@@ -968,6 +974,7 @@ def _appareil_out(a) -> AppareilOut:
         etiquette=a.etiquette, porteur=a.porteur, emplacement=a.emplacement,
         derniers_utilisateurs=a.derniers_utilisateurs,
         derniere_synchro=a.derniere_synchro,
+        recupere_le=a.recupere_le, attribue_a=a.attribue_a,
     )
 
 
@@ -975,6 +982,7 @@ def _prof_out(p) -> ProfAvecAppareilsOut:
     return ProfAvecAppareilsOut(
         nom=p.nom, prenom=p.prenom, discipline=p.discipline, code=p.code,
         email=p.email, appareils=[_appareil_out(a) for a in p.appareils],
+        attribue=p.attribue,
     )
 
 
@@ -1026,7 +1034,16 @@ async def analyser_chromebooks(
     except Exception as e:
         raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
 
-    r = analyser_flotte(appareils, rapport_profs.profs, comptes)
+    from backend.models import SuiviChromebook
+
+    suivi = {
+        x.serie: {
+            "recupere_le": x.recupere_le.isoformat() if x.recupere_le else None,
+            "attribue_a": x.attribue_a,
+        }
+        for x in session.query(SuiviChromebook).all()
+    }
+    r = analyser_flotte(appareils, rapport_profs.profs, comptes, suivi=suivi)
     return FlotteOut(
         nb_appareils=len(r.appareils),
         nb_profs=len(r.profs),
@@ -1034,6 +1051,11 @@ async def analyser_chromebooks(
         a_recuperer=[_prof_out(p) for p in r.a_recuperer],
         a_attribuer=[_prof_out(p) for p in r.a_attribuer],
         disponibles=[_appareil_out(a) for a in r.disponibles],
+        sans_compte=[_prof_out(p) for p in r.sans_compte],
+        etiquettes_a_mettre_a_jour=[
+            _appareil_out(a) for a in r.etiquettes_a_mettre_a_jour
+        ],
+        recuperees=[_appareil_out(a) for a in r.recuperees],
         discordances=[
             DiscordanceOut(
                 appareil=_appareil_out(d.appareil),
@@ -1045,6 +1067,78 @@ async def analyser_chromebooks(
         legende=[vars(e) for e in rapport_profs.legende],
         nb_par_code=rapport_profs.nb_par_code,
         avertissements=rapport_profs.avertissements + r.avertissements,
+    )
+
+
+class SuiviAppareilPayload(BaseModel):
+    serie: str
+    recupere: bool | None = None
+    """Vrai note la restitution, faux l'annule."""
+    recupere_de: str | None = None
+    attribue_a: str | None = None
+    """Adresse du nouveau porteur. Chaîne vide pour annuler l'attribution."""
+    note: str | None = None
+
+
+class SuiviAppareilOut(BaseModel):
+    serie: str
+    recupere_le: str | None
+    recupere_de: str | None
+    attribue_a: str | None
+    attribue_le: str | None
+    note: str | None
+
+
+@router.post("/chromebooks/suivi", response_model=SuiviAppareilOut)
+def noter_suivi_appareil(
+    payload: SuiviAppareilPayload, session: Session = Depends(db_session)
+) -> SuiviAppareilOut:
+    """Note ce qui a été fait d'une machine — rendue, ou confiée à quelqu'un.
+
+    Google ignore ces deux gestes : ils sont physiques et précèdent de
+    plusieurs jours la mise à jour de l'étiquette. Sans cette trace, la
+    liste des machines à réclamer resterait identique du premier au dernier
+    jour de la rentrée.
+
+    Rien n'est envoyé à Google : le droit accordé est en lecture seule.
+    """
+    from backend.models import SuiviChromebook
+
+    serie = (payload.serie or "").strip()
+    if not serie:
+        raise HTTPException(400, "Numéro de série manquant.")
+
+    ligne = (
+        session.query(SuiviChromebook).filter_by(serie=serie).one_or_none()
+    )
+    if ligne is None:
+        ligne = SuiviChromebook(serie=serie)
+        session.add(ligne)
+
+    if payload.recupere is not None:
+        ligne.recupere_le = date.today() if payload.recupere else None
+        ligne.recupere_de = payload.recupere_de if payload.recupere else None
+        if payload.recupere:
+            # Une machine rendue redevient libre : elle n'est plus confiée.
+            ligne.attribue_a = None
+            ligne.attribue_le = None
+
+    if payload.attribue_a is not None:
+        adresse = payload.attribue_a.strip().lower()
+        ligne.attribue_a = adresse or None
+        ligne.attribue_le = date.today() if adresse else None
+
+    if payload.note is not None:
+        ligne.note = payload.note.strip() or None
+
+    session.commit()
+    return SuiviAppareilOut(
+        serie=ligne.serie,
+        recupere_le=ligne.recupere_le.isoformat() if ligne.recupere_le else None,
+        recupere_de=ligne.recupere_de,
+        attribue_a=ligne.attribue_a,
+        attribue_le=ligne.attribue_le.isoformat() if ligne.attribue_le else None,
+        note=ligne.note,
     )
 
 

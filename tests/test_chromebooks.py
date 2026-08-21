@@ -167,3 +167,95 @@ def test_le_rapprochement_ignore_accents_et_casse():
         [_compte("helene.maurice@lekreisker.fr", "Maurice", "Helene")],
     )
     assert len(r.a_recuperer) == 1
+
+
+def test_une_machine_notee_rendue_quitte_les_reclamations():
+    """Sans mémoire, la liste resterait identique du premier au dernier jour."""
+    from backend.services.chromebooks import analyser_flotte
+
+    appareils = [_appareil("adele.lemordant@lekreisker.fr", serie="A1")]
+    profs = [_Prof("LEMORDANT", "Adèle", "Anglais", "sortant")]
+    comptes = [_compte("adele.lemordant@lekreisker.fr", "LEMORDANT", "Adèle")]
+
+    avant = analyser_flotte(appareils, profs, comptes)
+    assert avant.nb_a_recuperer == 1
+
+    apres = analyser_flotte(
+        appareils, profs, comptes,
+        suivi={"A1": {"recupere_le": "2026-09-02", "attribue_a": None}},
+    )
+    assert apres.nb_a_recuperer == 0
+    assert [a.serie for a in apres.recuperees] == ["A1"]
+    assert [a.serie for a in apres.disponibles] == ["A1"], "rendue donc réattribuable"
+
+
+def test_une_machine_confiee_equipe_son_nouveau_porteur():
+    """Le geste physique précède la console de plusieurs jours."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("Prof_08", serie="P8")],
+        [_Prof("BILLANT", "Pierre", "Maths", "arrivant")],
+        [_compte("pierre.billant@lekreisker.fr", "BILLANT", "Pierre")],
+        suivi={"P8": {"recupere_le": None,
+                      "attribue_a": "pierre.billant@lekreisker.fr"}},
+    )
+    assert r.a_attribuer == [], "il a sa machine, même si l'étiquette l'ignore"
+    assert r.profs[0].attribue == "P8"
+    assert [a.serie for a in r.etiquettes_a_mettre_a_jour] == ["P8"]
+    assert any("étiquette Google ait suivi" in a for a in r.avertissements)
+    assert r.disponibles == [], "une machine confiée n'est plus libre"
+
+
+def test_une_etiquette_deja_a_jour_ne_rappelle_rien():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("pierre.billant@lekreisker.fr", serie="P8")],
+        [_Prof("BILLANT", "Pierre", "Maths", "arrivant")],
+        [_compte("pierre.billant@lekreisker.fr", "BILLANT", "Pierre")],
+        suivi={"P8": {"recupere_le": None,
+                      "attribue_a": "pierre.billant@lekreisker.fr"}},
+    )
+    assert r.etiquettes_a_mettre_a_jour == []
+
+
+def test_un_remplacant_a_besoin_dune_machine_comme_un_arrivant():
+    """Les lignes à deux noms sont des remplacements : ils enseignent aussi."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("Prof_08", serie="P8")],
+        [_Prof("CLOITRE / FUMAT", "Morgane / Linda", "Breton", "remplace")],
+        [],
+    )
+    assert [p.nom for p in r.a_attribuer] == ["CLOITRE / FUMAT"]
+    assert [a.etiquette for a in r.disponibles] == ["Prof_08"]
+
+
+def test_les_enseignants_sans_compte_sont_listes_pas_seulement_comptes():
+    """Savoir combien ne dit pas si c'est normal — il faut voir qui."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [],
+        [_Prof("COSSE", "Clara", "NSI", "arrivant"),
+         _Prof("MORIO", "Erwann", "Lettres", "en_poste")],
+        [],
+    )
+    assert {p.nom for p in r.sans_compte} == {"COSSE", "MORIO"}
+    assert {p.code for p in r.sans_compte} == {"arrivant", "en_poste"}
+    assert any("Sans compte" in a for a in r.avertissements)
+
+
+def test_une_machine_confiee_nest_plus_une_discordance():
+    """L'étiquette périmée est un rappel, pas une contradiction à trancher."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("ancien@lekreisker.fr", serie="A",
+                   recents=["quelquun.dautre@lekreisker.fr"])],
+        [], [],
+        suivi={"A": {"recupere_le": None, "attribue_a": "nouveau@lekreisker.fr"}},
+    )
+    assert r.discordances == []

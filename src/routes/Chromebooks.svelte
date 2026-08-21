@@ -19,6 +19,30 @@
   let flotte = $state(/** @type {any} */ (null));
   let chargement = $state(false);
   let vue = $state("a_recuperer");
+  let enCours = $state(/** @type {string|null} */ (null));
+  let attribution = $state(/** @type {any} */ (null));
+
+  /** Note un geste, puis relit la flotte : le suivi change les listes. */
+  async function noter(params, message) {
+    enCours = params.serie;
+    try {
+      await googleApi.noterSuiviAppareil(params);
+      notify.succes(message);
+      await analyser();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
+    } finally {
+      enCours = null;
+    }
+  }
+
+  function confirmerAttribution(serie) {
+    if (!attribution) return;
+    const a = attribution;
+    noter({ serie, attribueA: a }, serie + " confiée à " + a).then(
+      () => (attribution = null),
+    );
+  }
 
   let apiUtilisable = $derived(
     statutApi?.bibliotheques_disponibles && statutApi?.configuration_complete,
@@ -41,6 +65,7 @@
     { id: "a_attribuer", label: "À équiper", badge: flotte?.a_attribuer?.length ?? 0 },
     { id: "disponibles", label: "Libres", badge: flotte?.disponibles?.length ?? 0 },
     { id: "discordances", label: "À vérifier", badge: flotte?.discordances?.length ?? 0 },
+    { id: "sans_compte", label: "Sans compte", badge: flotte?.sans_compte?.length ?? 0 },
   ]);
 
   function exporter() {
@@ -168,6 +193,7 @@
                   <th class="text-left">Modèle</th>
                   <th class="text-left">N° de série</th>
                   <th class="text-left">Dernière synchro</th>
+                  <th class="text-left">Rendue</th>
                 </tr>
               </thead>
               <tbody>
@@ -179,6 +205,21 @@
                       <td class="whitespace-nowrap text-xs">{a.modele}</td>
                       <td class="whitespace-nowrap font-mono text-xs">{a.serie}</td>
                       <td class="whitespace-nowrap text-xs text-stone-500">{jour(a.derniere_synchro)}</td>
+                      <td class="whitespace-nowrap">
+                        <label class="inline-flex cursor-pointer items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            class="rounded"
+                            disabled={enCours === a.serie}
+                            onchange={() =>
+                              noter(
+                                { serie: a.serie, recupere: true, recupereDe: p.email },
+                                a.serie + " notée rendue",
+                              )}
+                          />
+                          je l'ai récupérée
+                        </label>
+                      </td>
                     </tr>
                   {/each}
                 {/each}
@@ -198,6 +239,7 @@
                   <th class="text-left">Enseignant</th>
                   <th class="text-left">Discipline</th>
                   <th class="text-left">Adresse</th>
+                  <th class="text-left">Machine confiée</th>
                 </tr>
               </thead>
               <tbody>
@@ -212,6 +254,36 @@
                         <span class="font-sans text-amber-700 dark:text-amber-400">
                           aucun compte Google — à créer d'abord
                         </span>
+                      {/if}
+                    </td>
+                    <td class="whitespace-nowrap">
+                      {#if !p.email}
+                        <span class="text-xs text-stone-400">—</span>
+                      {:else if attribution === p.email}
+                        <select
+                          class="champ w-56 font-mono text-xs"
+                          onchange={(e) => e.target.value && confirmerAttribution(e.target.value)}
+                        >
+                          <option value="">— choisir une machine —</option>
+                          {#each flotte.disponibles as d (d.serie)}
+                            <option value={d.serie}>{d.etiquette} · {d.serie.slice(-8)}</option>
+                          {/each}
+                        </select>
+                        <button
+                          class="ml-2 text-xs text-stone-500 hover:text-red-600"
+                          onclick={() => (attribution = null)}
+                        >
+                          annuler
+                        </button>
+                      {:else}
+                        <Bouton
+                          taille="sm"
+                          icon={UserPlus}
+                          disabled={!flotte.disponibles.length}
+                          onclick={() => (attribution = p.email)}
+                        >
+                          Lui attribuer
+                        </Bouton>
                       {/if}
                     </td>
                   </tr>
@@ -242,6 +314,48 @@
                     <td class="whitespace-nowrap text-xs">{a.modele}</td>
                     <td class="whitespace-nowrap font-mono text-xs">{a.serie}</td>
                     <td class="whitespace-nowrap text-xs text-stone-500">{jour(a.derniere_synchro)}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+
+        {:else if vue === "sans_compte"}
+          <div class="px-4 py-3 text-xs text-stone-600 dark:text-stone-400">
+            Enseignants du tableau qu'aucun compte Google ne porte. Un arrivant
+            attend sans doute la création du sien ; un enseignant en poste dans
+            ce cas signale plutôt un écart à regarder — nom orthographié
+            différemment d'un côté ou de l'autre, ou compte jamais créé.
+          </div>
+          <div class="max-h-[28rem] overflow-auto">
+            <table class="tableau w-full text-sm">
+              <thead>
+                <tr>
+                  <th class="text-left">Enseignant</th>
+                  <th class="text-left">Discipline</th>
+                  <th class="text-left">Situation</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each flotte.sans_compte as p (p.nom + p.prenom)}
+                  <tr class:ligne-douteuse={p.code === "en_poste"}>
+                    <td class="whitespace-nowrap font-medium">{p.prenom} {p.nom}</td>
+                    <td class="whitespace-nowrap text-stone-600 dark:text-stone-400">{p.discipline}</td>
+                    <td class="whitespace-nowrap text-xs">
+                      {#if p.code === "arrivant"}
+                        <span class="text-emerald-700 dark:text-emerald-400">
+                          arrivant — compte à créer
+                        </span>
+                      {:else if p.code === "sortant"}
+                        <span class="text-stone-500">sortant — compte sans doute déjà retiré</span>
+                      {:else if p.code === "remplace"}
+                        <span class="text-stone-500">remplacement — deux personnes sur la ligne</span>
+                      {:else}
+                        <span class="text-amber-700 dark:text-amber-400">
+                          en poste sans compte — à regarder
+                        </span>
+                      {/if}
+                    </td>
                   </tr>
                 {/each}
               </tbody>
