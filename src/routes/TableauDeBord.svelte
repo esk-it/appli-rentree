@@ -109,6 +109,69 @@
     ];
   });
 
+  /**
+   * La bascule Google, dans l'ordre où elle doit être menée.
+   *
+   * Ces étapes ne se déduisent pas de l'état du référentiel : elles se
+   * constatent dans Google, et chaque écran le dit à sa manière. Les
+   * afficher comme des cases à cocher qui ne se cochent jamais serait
+   * décourageant et faux — ce sont des actions ordonnées, pas des états.
+   *
+   * L'ordre compte : renommer un arbre avant de l'avoir vidé emporterait
+   * ses comptes, et vérifier la conformité avant d'avoir tourné la Table
+   * mesurerait l'écart avec la mauvaise année.
+   */
+  const bascule = [
+    {
+      id: "b-vider",
+      titre: "Vider les arbres de l'année révolue",
+      detail: "Sortants → les comptes rejoignent leur OU de sortie, sans être suspendus",
+      page: "sortants",
+    },
+    {
+      id: "b-table",
+      titre: "Tourner la Table de correspondance",
+      detail: "Les chemins d'OU doivent viser la rentrée préparée",
+      page: "table_correspondance",
+    },
+    {
+      id: "b-ou",
+      titre: "Renommer et créer les unités d'organisation",
+      detail: "Conformité Google → Arborescence. Google refuse un déplacement vers une OU absente",
+      page: "conformite_google",
+    },
+    {
+      id: "b-adresses",
+      titre: "Corriger les adresses divergentes",
+      detail: "Conformité Google → Adresses. Sans quoi l'export crée un doublon",
+      page: "conformite_google",
+    },
+    {
+      id: "b-comptes",
+      titre: "Créer les comptes des nouveaux",
+      detail: "Exports → KoXo d'abord, qui génère les mots de passe, puis Google",
+      page: "exports",
+    },
+    {
+      id: "b-bascule",
+      titre: "Basculer les élèves dans leurs classes",
+      detail: "Bascule des OU, en deux phases",
+      page: "bascule",
+    },
+    {
+      id: "b-groupes",
+      titre: "Créer puis synchroniser les groupes",
+      detail: "Conformité Google → Groupes",
+      page: "conformite_google",
+    },
+    {
+      id: "b-chromebooks",
+      titre: "Faire le point sur les Chromebooks",
+      detail: "À réclamer aux partants, à attribuer aux arrivants",
+      page: "chromebooks",
+    },
+  ];
+
   let prochaineEtape = $derived(etapes.find((e) => !e.faite));
   let nbFaites = $derived(etapes.filter((e) => e.faite).length);
 
@@ -203,6 +266,9 @@
         ></div>
       </div>
 
+      <p class="mb-2 text-xs font-medium uppercase tracking-wide text-stone-400 dark:text-stone-500">
+        Préparer les données
+      </p>
       <ol class="space-y-1">
         {#each etapes as etape, i (etape.id)}
           {@const estProchaine = prochaineEtape?.id === etape.id}
@@ -236,6 +302,40 @@
               {#if estProchaine}
                 <span class="badge-nouveau shrink-0">à faire</span>
               {/if}
+              <ArrowRight
+                class="mt-0.5 h-4 w-4 shrink-0 text-stone-300 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-stone-500 dark:text-stone-600"
+              />
+            </button>
+          </li>
+        {/each}
+      </ol>
+
+      <p class="mb-2 mt-5 border-t border-stone-200 pt-4 text-xs font-medium uppercase tracking-wide text-stone-400 dark:border-stone-700 dark:text-stone-500">
+        Basculer dans Google
+      </p>
+      <p class="mb-3 max-w-2xl text-xs text-stone-500 dark:text-stone-400">
+        Ces opérations se constatent dans Google, pas dans le référentiel : chaque
+        écran dit où il en est. L'ordre, lui, n'est pas indifférent — renommer un
+        arbre avant de l'avoir vidé emporterait ses comptes.
+      </p>
+      <ol class="space-y-1">
+        {#each bascule as etape, i (etape.id)}
+          <li>
+            <button
+              class="group flex w-full items-start gap-3 rounded-lg p-2.5 text-left transition-colors duration-150 hover:bg-stone-50 dark:hover:bg-stone-700/40"
+              onclick={() => aller(etape.page)}
+            >
+              <span
+                class="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full border border-stone-300 font-mono text-[10px] tabular-nums text-stone-500 dark:border-stone-600 dark:text-stone-400"
+              >
+                {i + 1}
+              </span>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-medium text-stone-900 dark:text-stone-100">
+                  {etape.titre}
+                </p>
+                <p class="text-xs text-stone-500 dark:text-stone-400">{etape.detail}</p>
+              </div>
               <ArrowRight
                 class="mt-0.5 h-4 w-4 shrink-0 text-stone-300 transition-transform duration-150 group-hover:translate-x-0.5 group-hover:text-stone-500 dark:text-stone-600"
               />

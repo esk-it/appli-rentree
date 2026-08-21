@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -914,6 +914,137 @@ def occupants_sortie(
             )
             for c in sorted(comptes, key=lambda x: (x.get("nom") or "", x.get("prenom") or ""))
         ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Flotte Chromebook
+# ---------------------------------------------------------------------------
+
+
+class AppareilOut(BaseModel):
+    serie: str
+    modele: str
+    ou: str
+    statut: str
+    etiquette: str
+    porteur: str | None
+    emplacement: str
+    derniers_utilisateurs: list[str]
+    derniere_synchro: str | None
+
+
+class ProfAvecAppareilsOut(BaseModel):
+    nom: str
+    prenom: str
+    discipline: str
+    code: str
+    email: str | None
+    appareils: list[AppareilOut]
+
+
+class DiscordanceOut(BaseModel):
+    appareil: AppareilOut
+    attendu: str
+    constates: list[str]
+
+
+class FlotteOut(BaseModel):
+    nb_appareils: int
+    nb_profs: int
+    nb_a_recuperer: int
+    a_recuperer: list[ProfAvecAppareilsOut]
+    a_attribuer: list[ProfAvecAppareilsOut]
+    disponibles: list[AppareilOut]
+    discordances: list[DiscordanceOut]
+    legende: list[dict]
+    nb_par_code: dict[str, int]
+    avertissements: list[str]
+
+
+def _appareil_out(a) -> AppareilOut:
+    return AppareilOut(
+        serie=a.serie, modele=a.modele, ou=a.ou, statut=a.statut,
+        etiquette=a.etiquette, porteur=a.porteur, emplacement=a.emplacement,
+        derniers_utilisateurs=a.derniers_utilisateurs,
+        derniere_synchro=a.derniere_synchro,
+    )
+
+
+def _prof_out(p) -> ProfAvecAppareilsOut:
+    return ProfAvecAppareilsOut(
+        nom=p.nom, prenom=p.prenom, discipline=p.discipline, code=p.code,
+        email=p.email, appareils=[_appareil_out(a) for a in p.appareils],
+    )
+
+
+@router.post("/chromebooks", response_model=FlotteOut)
+async def analyser_chromebooks(
+    fichier: UploadFile = File(..., description="Tableau des professeurs (.xlsx)"),
+    session: Session = Depends(db_session),
+) -> FlotteOut:
+    """Croise la flotte, le tableau des enseignants et les comptes Google.
+
+    Lecture seule de bout en bout : le droit demandé à Google ne permet pas
+    d'écrire, et réattribuer une machine reste un geste physique. Le
+    classeur n'est pas conservé — il est lu puis effacé.
+    """
+    from pathlib import Path
+    from tempfile import NamedTemporaryFile
+
+    from backend.services.chromebooks import analyser_flotte
+    from backend.services.import_profs import lire_fichier_profs
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    if not client.appareils_disponibles:
+        raise HTTPException(
+            400,
+            "Le droit de lecture des Chromebooks n'est pas accordé au compte "
+            "de service. Ajoute le champ d'application "
+            "admin.directory.device.chromeos.readonly à la délégation, dans "
+            "la console d'administration.",
+        )
+
+    contenu = await fichier.read()
+    with NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        tmp.write(contenu)
+        chemin = Path(tmp.name)
+    try:
+        rapport_profs = lire_fichier_profs(chemin)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    finally:
+        chemin.unlink(missing_ok=True)
+
+    try:
+        appareils = client.lister_appareils()
+        comptes = client.lister_utilisateurs()
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+
+    r = analyser_flotte(appareils, rapport_profs.profs, comptes)
+    return FlotteOut(
+        nb_appareils=len(r.appareils),
+        nb_profs=len(r.profs),
+        nb_a_recuperer=r.nb_a_recuperer,
+        a_recuperer=[_prof_out(p) for p in r.a_recuperer],
+        a_attribuer=[_prof_out(p) for p in r.a_attribuer],
+        disponibles=[_appareil_out(a) for a in r.disponibles],
+        discordances=[
+            DiscordanceOut(
+                appareil=_appareil_out(d.appareil),
+                attendu=d.attendu,
+                constates=d.constates,
+            )
+            for d in r.discordances
+        ],
+        legende=[vars(e) for e in rapport_profs.legende],
+        nb_par_code=rapport_profs.nb_par_code,
+        avertissements=rapport_profs.avertissements + r.avertissements,
     )
 
 

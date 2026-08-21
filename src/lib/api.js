@@ -458,6 +458,14 @@ export const googleApi = {
       }),
     );
   },
+  /** Croise la flotte Chromebook, le tableau des profs et les comptes. */
+  async analyserChromebooks({ fichier }) {
+    const corps = new FormData();
+    corps.append("fichier", fichier);
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/chromebooks`, { method: "POST", body: corps }),
+    );
+  },
   /** Les OU de sortie existantes, avec leurs échéances et leur état. */
   async destinationsSortie({ pourOu = null } = {}) {
     const q = new URLSearchParams();

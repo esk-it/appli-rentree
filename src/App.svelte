@@ -17,6 +17,7 @@
   import FolderTree from "@lucide/svelte/icons/folder-tree";
   import LogOut from "@lucide/svelte/icons/log-out";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import Laptop from "@lucide/svelte/icons/laptop";
   import Scale from "@lucide/svelte/icons/scale";
   import Rocket from "@lucide/svelte/icons/rocket";
   import FileDown from "@lucide/svelte/icons/file-down";
@@ -33,6 +34,7 @@
   import Bascule from "./routes/Bascule.svelte";
   import Sortants from "./routes/Sortants.svelte";
   import ConformiteGoogle from "./routes/ConformiteGoogle.svelte";
+  import Chromebooks from "./routes/Chromebooks.svelte";
   import Nouveaux from "./routes/Nouveaux.svelte";
   import Reconciliation from "./routes/Reconciliation.svelte";
   import Arbitrage from "./routes/Arbitrage.svelte";
@@ -220,9 +222,11 @@
         { id: "snapshots", label: "Snapshots d'années", icon: Database },
         { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
         { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
-        { id: "bascule", label: "Bascule des OU", icon: FolderTree },
-        { id: "sortants", label: "Sortants", icon: LogOut },
+        // Vérifier avant d'agir : Conformité précède les écrans qui écrivent.
         { id: "conformite_google", label: "Conformité Google", icon: ShieldCheck },
+        { id: "sortants", label: "Sortants", icon: LogOut },
+        { id: "bascule", label: "Bascule des OU", icon: FolderTree },
+        { id: "chromebooks", label: "Chromebooks", icon: Laptop },
         {
           id: "arbitrage",
           label: "Arbitrage",
@@ -469,6 +473,8 @@
           <Bascule />
         {:else if page === "sortants"}
           <Sortants />
+        {:else if page === "chromebooks"}
+          <Chromebooks />
         {:else if page === "conformite_google"}
           <ConformiteGoogle
             onRotationTable={(a) => {
