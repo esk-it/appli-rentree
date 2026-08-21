@@ -12,6 +12,7 @@
   import FolderTree from "@lucide/svelte/icons/folder-tree";
   import Cloud from "@lucide/svelte/icons/cloud";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import KeyRound from "@lucide/svelte/icons/key-round";
 
   const sections = [
@@ -23,6 +24,7 @@
     { id: "bascule", label: "Bascule des OU", icon: FolderTree },
     { id: "compte_service", label: "Compte de service Google", icon: Cloud },
     { id: "conformite", label: "Conformité Google", icon: ShieldCheck },
+    { id: "cycle", label: "Le cycle annuel", icon: RefreshCw },
     { id: "ordre_koxo_google", label: "KoXo puis Google", icon: KeyRound },
     { id: "arbitrage", label: "Arbitrage", icon: Scale },
     { id: "simulation", label: "Simulation", icon: Zap },
@@ -456,6 +458,71 @@
           seul canal, et c'est ainsi que c'était prévu. Google est la seule
           cible où le programme peut agir directement — c'est aussi celle qui
           demande le plus de travail, d'où l'écran Conformité Google.
+        </p>
+
+      {:else if sectionActive === "cycle"}
+        <h2>Le cycle annuel</h2>
+        <p>
+          Deux arbres d'année vivent à tout moment, et ils se relaient. Le plus
+          ancien s'est vidé de lui-même : ses élèves sont partis, ou ont été
+          montés dans le suivant. Il est alors recyclé pour la rentrée qui
+          arrive, pendant que le second devient à son tour le plus ancien.
+        </p>
+
+        <h3>Une année, pas à pas</h3>
+        <p>
+          Pour la rentrée 2026-2027, avec <code>NDK2026</code> qui porte
+          l'année écoulée et <code>NDK2025</code> celle d'avant :
+        </p>
+        <ol>
+          <li><strong>Vider <code>NDK2025</code></strong>. Ce qui s'y trouve
+            encore, ce sont les élèves partis au 31 août 2025. Ils rejoignent
+            l'OU de sortie qui leur revient — <code>Comptes à supprimer au
+            31-12-2026</code> — et y resteront actifs jusqu'à la lettre de
+            prévenance.</li>
+          <li><strong>Renommer <code>NDK2025</code> en <code>NDK2027</code></strong>.
+            L'arbre vidé devient celui de la rentrée, et ses classes suivent :
+            c'est ce qui évite d'en recréer quarante-quatre.</li>
+          <li><strong>Tourner la Table</strong> de 2026 vers 2027, pour qu'elle
+            désigne le nouvel arbre.</li>
+          <li><strong>Basculer les élèves de <code>NDK2026</code></strong> vers
+            la racine de <code>NDK2027</code> — c'est la pré-rentrée — puis dans
+            leur classe le jour J.</li>
+          <li>Ce qui reste alors dans <code>NDK2026</code>, ce sont les élèves
+            <strong>partis au 31 août 2026</strong>. Ils y dorment un an.</li>
+        </ol>
+
+        <h3>Et l'année suivante, à l'identique</h3>
+        <p>
+          On vide <code>NDK2026</code> vers <code>Comptes à supprimer au
+          31-12-2027</code>, on le renomme <code>NDK2028</code>, on tourne la
+          Table de 2027 vers 2028, et les élèves de <code>NDK2027</code> montent
+          dans <code>NDK2028</code>. Puis ainsi de suite, chaque année.
+        </p>
+
+        <h3>Pourquoi les deux renommages ne partent pas de la même année</h3>
+        <p>
+          C'est la source de confusion la plus fréquente. Côté Google, c'est
+          <code>NDK2025</code> qui devient <code>NDK2027</code> : on recycle
+          l'arbre <em>vidé</em>, qui a deux ans. Côté Table, on remplace 2026
+          par 2027 : elle désignait l'arbre de l'année qui vient de finir. Les
+          deux aboutissent à 2027 en partant d'années différentes, et c'est
+          normal.
+        </p>
+
+        <h3>Ce qui découle du cycle</h3>
+        <p>
+          Un élève parti au 31 août N reste un an dans l'arbre de son année,
+          puis rejoint l'OU datée du 31 décembre N+1. La lettre part à cette
+          date, la suppression quatre mois plus tard : vingt mois de
+          conservation, au-delà des dix-huit promis.
+        </p>
+        <p>
+          Un élève encore inscrit qu'on trouve dans l'arbre à vider n'est pas
+          déplacé — le renommage l'emporte dans le nouvel arbre, et la bascule
+          de pré-rentrée le remet au rang. Le déplacer avant serait un détour :
+          l'arbre de destination n'existe pas encore, puisque c'est celui-ci qui
+          va le devenir.
         </p>
 
       {:else if sectionActive === "arbitrage"}
