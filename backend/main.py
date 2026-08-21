@@ -98,17 +98,10 @@ app = FastAPI(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.58.0",
+    version="0.58.1",
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +132,21 @@ async def middleware_trace(request: Request, call_next):
             status_code=500,
             content={"detail": f"Erreur interne : {type(e).__name__}: {e}"},
         )
+
+
+# Enregistré **après** le middleware de trace, donc plus à l'extérieur : une
+# réponse d'erreur fabriquée par la trace doit encore traverser CORS. Dans
+# l'ordre inverse, elle repartait sans en-tête `Access-Control-Allow-Origin`,
+# le navigateur refusait de la lire, et l'écran affichait « Failed to fetch »
+# — un message de réseau pour une erreur serveur, qui envoie chercher la
+# panne exactement là où elle n'est pas.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/api/health")

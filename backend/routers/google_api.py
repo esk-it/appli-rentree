@@ -20,9 +20,12 @@ from sqlalchemy.orm import Session
 from backend.database import db_session
 from backend.services.google_api import (
     ClientGoogle,
+    OperationGoogle,
     charger_config,
     construire_plan,
     est_disponible,
+    payload_deplacement_ou,
+    payload_suspension,
 )
 
 router = APIRouter(prefix="/api/google", tags=["google_api"])

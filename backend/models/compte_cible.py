@@ -32,6 +32,12 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    from backend.models.personne import Personne
+
+
 
 # Vocabulaire figé (valeurs stables en base — ne pas renommer sans migration)
 CIBLES = (

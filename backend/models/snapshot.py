@@ -16,6 +16,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.database import Base
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover
+    from backend.models.annee_scolaire import AnneeScolaire
+    from backend.models.personne import Personne
+
+
 
 class Snapshot(Base):
     __tablename__ = "snapshot"
