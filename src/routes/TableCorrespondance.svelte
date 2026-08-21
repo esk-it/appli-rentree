@@ -43,14 +43,34 @@
   let rapportRotation = $state(/** @type {null | any} */ (null));
   let rotationEnCours = $state(false);
 
+  /**
+   * Les millésimes réellement écrits dans les chemins, avec leur nombre.
+   *
+   * Les faire deviner est la source de la confusion : deux opérations
+   * mènent à la même année de destination en partant d'années
+   * différentes, et rien ne le disait.
+   */
+  let millesimesTable = $derived.by(() => {
+    const compte = {};
+    for (const l of liste) {
+      for (const champ of [l.ou_pre_rentree, l.ou_definitive]) {
+        for (const m of String(champ ?? "").match(/(?<!\d)20\d\d(?!\d)/g) ?? []) {
+          compte[m] = (compte[m] ?? 0) + 1;
+        }
+      }
+    }
+    return Object.entries(compte).sort(([a], [b]) => a.localeCompare(b));
+  });
+
   function ouvrirRotation() {
-    // Pré-remplissage depuis l'année trouvée dans les OU existantes : c'est
-    // presque toujours « celle-ci → la suivante ».
-    const trouve = liste
-      .map((l) => (l.ou_definitive ?? "").match(/20\d\d/)?.[0])
-      .find(Boolean);
-    rotChercher = trouve ?? "";
-    rotRemplacer = trouve ? String(Number(trouve) + 1) : "";
+    // Pré-remplissage depuis le millésime le plus répandu dans la Table —
+    // pas le premier rencontré : une ligne isolée d'une autre année
+    // proposerait une rotation qui ne concerne presque personne.
+    const dominant = millesimesTable
+      .slice()
+      .sort(([, a], [, b]) => b - a)[0]?.[0];
+    rotChercher = dominant ?? "";
+    rotRemplacer = dominant ? String(Number(dominant) + 1) : "";
     rapportRotation = null;
     rotationOuverte = true;
   }
@@ -626,6 +646,34 @@
         <code>NDK2026</code> contient l'année scolaire 2025-2026. À chaque
         rentrée, la Table doit viser l'arbre suivant.
       </p>
+
+      <div class="rounded-lg border border-stone-200 p-3 text-sm dark:border-stone-700">
+        <p class="font-medium text-stone-800 dark:text-stone-200">
+          Ce que la Table déclare aujourd'hui
+        </p>
+        {#if millesimesTable.length}
+          <ul class="mt-1 font-mono text-xs text-stone-600 dark:text-stone-400">
+            {#each millesimesTable as [annee, n]}
+              <li>{annee} — {n} chemin(s)</li>
+            {/each}
+          </ul>
+        {:else}
+          <p class="mt-1 text-xs text-amber-700 dark:text-amber-400">
+            Aucun millésime dans les chemins : il n'y a rien à tourner.
+          </p>
+        {/if}
+      </div>
+
+      <div class="rounded-lg border border-amber-300 bg-amber-50/60 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <p class="font-medium">À ne pas confondre avec le renommage Google</p>
+        <p class="mt-1">
+          Côté Google, c'est <code>NDK2025</code> qui devient
+          <code>NDK2027</code> : on recycle l'arbre qu'on vient de vider, et il
+          a deux ans. Ici, on met à jour ce que la <strong>Table</strong>
+          déclare, et elle vise l'année qui vient de finir. Les deux
+          aboutissent à 2027 en partant d'années différentes.
+        </p>
+      </div>
 
       <div class="flex flex-wrap items-end gap-3">
         <div>

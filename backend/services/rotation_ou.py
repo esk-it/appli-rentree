@@ -71,6 +71,11 @@ class RapportRotation:
     nb_lignes_modifiees: int = 0
     nb_dans_un_nombre: int = 0
     """Occurrences trouvées à l'intérieur d'une suite de chiffres plus longue."""
+    annees_presentes: dict[str, int] = field(default_factory=dict)
+    """Millésimes réellement écrits dans les chemins, et leur nombre.
+
+    Sans eux, « 87 lignes ne contiennent pas 2025 » laisse chercher ce
+    qu'elles contiennent — alors que c'est la seule chose utile à savoir."""
     lignes: list[LigneRenommee] = field(default_factory=list)
     avertissements: list[str] = field(default_factory=list)
 
@@ -120,6 +125,10 @@ def renommer_dans_les_ou(
         pre = tc.ou_pre_rentree or ""
         deff = tc.ou_definitive or ""
         rapport.nb_dans_un_nombre += len(noye.findall(pre)) + len(noye.findall(deff))
+        for millesime in re.findall(r"(?<!\d)(20\d\d)(?!\d)", pre + " " + deff):
+            rapport.annees_presentes[millesime] = (
+                rapport.annees_presentes.get(millesime, 0) + 1
+            )
         nouveau_pre = pre.replace(chercher, remplacer)
         nouveau_def = deff.replace(chercher, remplacer)
         if nouveau_pre == pre and nouveau_def == deff:
@@ -152,11 +161,22 @@ def renommer_dans_les_ou(
     # Une ligne épargnée n'est pas anodine : elle enverra sa classe dans
     # l'arbre de l'an dernier, sans que rien ne le signale ensuite.
     if rapport.nb_inchangees:
-        rapport.avertissements.append(
-            f"{rapport.nb_inchangees} ligne(s) ne contiennent pas {chercher!r} et "
-            "restent en l'état. Vérifie qu'elles visent bien la bonne année — une "
-            "seule oubliée envoie toute une classe dans l'arbre précédent."
+        declare = ", ".join(
+            f"{a} ({n} chemins)" for a, n in sorted(rapport.annees_presentes.items())
         )
+        if rapport.nb_lignes_modifiees == 0:
+            rapport.avertissements.append(
+                f"Aucun chemin ne contient {chercher!r} : rien n'a changé. "
+                + (f"La Table déclare aujourd'hui {declare}." if declare
+                   else "Aucun millésime n'apparaît dans les chemins.")
+            )
+        else:
+            rapport.avertissements.append(
+                f"{rapport.nb_inchangees} ligne(s) ne contiennent pas {chercher!r} "
+                "et restent en l'état. Vérifie qu'elles visent bien la bonne "
+                "année — une seule oubliée envoie toute une classe dans l'arbre "
+                "précédent."
+            )
 
     if mode == "reel":
         session.commit()

@@ -213,3 +213,58 @@ def test_aucun_fragment_noye_ne_declenche_rien(session, site_factory):
 
     assert r.nb_dans_un_nombre == 0
     assert not any("suite de chiffres" in a for a in r.avertissements)
+
+
+def _table(session, site_factory, chemins):
+    from backend.models import TableCorrespondance
+
+    site = site_factory("NDK")
+    for i, (pre, deff) in enumerate(chemins):
+        session.add(
+            TableCorrespondance(
+                site_id=site.id, classe_charlemagne_long=f"CLASSE {i}",
+                classe_code_court=f"C{i}", ou_pre_rentree=pre, ou_definitive=deff,
+            )
+        )
+    session.commit()
+    return site
+
+
+def test_le_rapport_dit_quels_millesimes_la_table_declare(session, site_factory):
+    """« 87 lignes ne contiennent pas 2025 » laisse chercher ce qu'elles ont."""
+    from backend.services.rotation_ou import renommer_dans_les_ou
+
+    _table(session, site_factory, [
+        ("/3. NDK/NDK2026", "/3. NDK/NDK2026/C0"),
+        ("/3. NDK/NDK2026", "/3. NDK/NDK2026/C1"),
+    ])
+    r = renommer_dans_les_ou(session, chercher="2026", remplacer="2027")
+    assert r.annees_presentes == {"2026": 4}
+
+
+def test_chercher_un_millesime_absent_dit_ce_quil_y_a(session, site_factory):
+    """Le cas vécu : chercher 2025 alors que la Table déclare 2026."""
+    from backend.services.rotation_ou import renommer_dans_les_ou
+
+    _table(session, site_factory, [("/3. NDK/NDK2026", "/3. NDK/NDK2026/C0")])
+    r = renommer_dans_les_ou(session, chercher="2025", remplacer="2027")
+
+    assert r.nb_lignes_modifiees == 0
+    message = " ".join(r.avertissements)
+    assert "Aucun chemin ne contient" in message
+    assert "2026" in message, "il faut dire ce que la Table déclare vraiment"
+
+
+def test_une_rotation_partielle_avertit_sur_le_reste(session, site_factory):
+    """Une ligne oubliée envoie toute une classe dans l'arbre précédent."""
+    from backend.services.rotation_ou import renommer_dans_les_ou
+
+    _table(session, site_factory, [
+        ("/3. NDK/NDK2026", "/3. NDK/NDK2026/C0"),
+        ("/9. Divers", "/9. Divers/C1"),
+    ])
+    r = renommer_dans_les_ou(session, chercher="2026", remplacer="2027")
+
+    assert r.nb_lignes_modifiees == 1
+    assert r.nb_inchangees == 1
+    assert any("restent en l'état" in a for a in r.avertissements)
