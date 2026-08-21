@@ -551,11 +551,22 @@
                   {planVidange.nb_epargnes} élève(s) encore inscrit(s).
                 </p>
                 <p class="mt-1 text-xs text-emerald-800 dark:text-emerald-300">
-                  Tu peux renommer la branche telle quelle. Renommer emporte son
-                  contenu : ces élèves se retrouveront dans l'arbre de la rentrée,
-                  à la racine de leur ancienne classe, et la
-                  <strong>bascule des OU</strong> les placera ensuite dans la
-                  bonne. Les déplacer maintenant serait un détour inutile.
+                  Tu peux renommer la branche telle quelle : renommer emporte son
+                  contenu. Ils se retrouveront donc dans l'arbre de la rentrée,
+                  mais dans l'OU de leur <strong>ancienne</strong> classe — pas
+                  encore à la racine.
+                </p>
+                <p class="mt-1 text-xs text-emerald-800 dark:text-emerald-300">
+                  C'est la <strong>bascule de pré-rentrée</strong> qui les amènera
+                  à la racine, avec tous les autres élèves, puis celle du jour J
+                  qui les placera dans leur nouvelle classe. Enchaîne le
+                  renommage et la pré-rentrée : la parenthèse ne dure que le temps
+                  qui les sépare.
+                </p>
+                <p class="mt-1 text-xs text-emerald-800 dark:text-emerald-300">
+                  Les déplacer à la main avant le renommage n'avancerait à rien :
+                  l'arbre de destination n'existe pas encore, puisque c'est
+                  celui-ci qui va le devenir.
                 </p>
               {/if}
             </div>
