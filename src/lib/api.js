@@ -383,7 +383,7 @@ export const googleApi = {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           ou, annee_depart: anneeDepart, ou_archivage: ouArchivage,
-          suspendre, confirmation: true,
+          suspendre, creer_destination: true, confirmation: true,
         }),
       }),
     );
@@ -457,6 +457,12 @@ export const googleApi = {
         }),
       }),
     );
+  },
+  /** Les OU de sortie existantes, avec leurs échéances et leur état. */
+  async destinationsSortie({ pourOu = null } = {}) {
+    const q = new URLSearchParams();
+    if (pourOu) q.set("pour_ou", pourOu);
+    return jsonOrThrow(await fetch(`${BASE}/google/sortie/destinations?${q}`));
   },
   /** Qui occupe une OU de sortie, lu dans Google. Sert à prévenir avant purge. */
   async occupantsSortie({ ou }) {

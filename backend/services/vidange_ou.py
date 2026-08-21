@@ -22,6 +22,19 @@ aucun n'est suspendu.
 
 La suspension reste possible, mais elle se demande explicitement.
 
+## Où va la promotion, et sous quel nom
+
+Un départ constaté au 31 août N rejoint l'OU datée du **31 décembre
+N+1**. La lettre part à cette date, la suppression suit quatre mois plus
+tard : vingt mois de conservation au total, au-delà des dix-huit que
+l'établissement s'est engagé à tenir.
+
+Cette règle n'est pas une invention : elle reproduit l'usage constaté.
+Les enseignants partis en juin 2026 occupent bien l'OU du 31-12-2027.
+Elle donne une OU par promotion, nommée par sa propre échéance, et
+permet de traiter tout un lot d'un geste — une lettre, puis une
+suppression — sans suivre les comptes un par un.
+
 ## Deux dates, pas une
 
 L'établissement date ses OU de sortie — « Comptes à supprimer au
@@ -128,6 +141,17 @@ def annee_depuis_ou(chemin: str) -> int | None:
 DELAI_APRES_PREVENANCE_MOIS = 4
 """Ce que la lettre annonce : le compte vit encore quatre mois."""
 
+RACINE_SORTIE_DEFAUT = "/7. Sortis"
+
+
+def ou_sortie_pour(annee_depart: int, racine: str = RACINE_SORTIE_DEFAUT) -> str:
+    """Destination d'une promotion partie au 31 août `annee_depart`.
+
+    Le 31 décembre de l'année suivante : seize mois après le départ pour
+    la lettre, vingt en tout avant la suppression.
+    """
+    return f"{racine.rstrip('/')}/Comptes à supprimer au 31-12-{annee_depart + 1}"
+
 _DATE_DANS_OU = re.compile(r"(?<!\d)(\d{2})-(\d{2})-(20\d\d)(?!\d)")
 
 
@@ -192,38 +216,51 @@ def planifier_vidange(
 
     depart = date(annee, 8, 31)
 
-    # Une destination datée impose son calendrier : la date qu'elle porte
-    # est celle de la prévenance, la suppression suit quatre mois plus tard.
-    prevenance = date_prevenance(ou_archivage)
-    if prevenance is not None:
-        echeance = date_echeance(prevenance, mois=DELAI_APRES_PREVENANCE_MOIS)
-    else:
-        echeance = date_echeance(depart)
-
     # Le site se reconnaît au préfixe de la branche : il porte parfois sa
-    # propre convention d'archivage.
+    # propre convention d'archivage, antérieure au programme.
     site = None
-    for s in session.query(Site).all():
-        if s.prefixe_annee_ou and s.prefixe_annee_ou in ou_source:
-            site = s
+    for s_ in session.query(Site).all():
+        if s_.prefixe_annee_ou and s_.prefixe_annee_ou in ou_source:
+            site = s_
             break
 
-    # Nom distinct : `ou_archivage` sert ensuite de variable locale, et la
-    # fermeture ci-dessous lirait alors la valeur calculée au lieu de celle
+    # Nom distinct : `ou_archivage` sert ensuite de variable locale, et les
+    # fermetures ci-dessous liraient la valeur calculée au lieu de celle
     # demandée par l'appelant.
     destination_imposee = (ou_archivage or "").strip().rstrip("/")
 
-    def archivage_pour(ech: date) -> str:
+    from backend.services.configuration import get_param
+
+    racine = (
+        get_param(session, "google.ou_sortants") or RACINE_SORTIE_DEFAUT
+    ).rstrip("/")
+
+    def destination_pour(annee_de_depart: int) -> str:
+        """Où va une promotion partie au 31 août de cette année-là.
+
+        Un choix explicite l'emporte sur tout : c'est une décision, pas une
+        déduction. Sinon la convention du site, puis la règle du 31 décembre.
+        """
         if destination_imposee:
             return destination_imposee
         if site is not None and (site.ou_sortants or "").strip():
             return site.ou_sortants.strip().rstrip("/")
-        from backend.services.configuration import get_param
+        return ou_sortie_pour(annee_de_depart, racine)
 
-        racine = (get_param(session, "google.ou_sortants") or "/7. Sortis").rstrip("/")
-        return f"{racine}/Comptes à supprimer au {ech.strftime('%d-%m-%Y')}"
+    def calendrier_pour(chemin: str, annee_de_depart: int) -> tuple[date | None, date]:
+        """Prévenance et suppression, lues sur la destination si elle est datée.
 
-    ou_archivage = archivage_pour(echeance)
+        C'est la destination qui commande, y compris quand le programme
+        vient de la calculer : sans cela, le plan annoncerait une échéance
+        que le nom de l'OU contredit.
+        """
+        prev = date_prevenance(chemin)
+        if prev is not None:
+            return prev, date_echeance(prev, mois=DELAI_APRES_PREVENANCE_MOIS)
+        return None, date_echeance(date(annee_de_depart, 8, 31))
+
+    ou_archivage = destination_pour(annee)
+    prevenance, echeance = calendrier_pour(ou_archivage, annee)
 
     inspection = recouper_avec_referentiel(session, comptes_google, prefixe_ou=ou_source)
     rapport = RapportVidange(
@@ -255,9 +292,12 @@ def planifier_vidange(
         if en_retard:
             rapport.retardataires.append(c)
 
-        if en_retard and prevenance is None:
-            echeance_c = date_echeance(date(fin, 8, 31))
-            destination = archivage_pour(echeance_c)
+        if en_retard and not destination_imposee:
+            # Parti un an plus tard, il relève de la promotion suivante :
+            # lui appliquer le calendrier de cette branche écourterait sa
+            # conservation de douze mois.
+            destination = destination_pour(fin)
+            _, echeance_c = calendrier_pour(destination, fin)
         else:
             echeance_c, destination = echeance, ou_archivage
 
@@ -280,11 +320,11 @@ def planifier_vidange(
     if rapport.retardataires:
         detail = (
             "Ils suivent le calendrier de la destination, comme les autres."
-            if prevenance is not None
+            if destination_imposee
             else (
-                "Leur départ est daté de leur dernière année réelle, pas de "
-                "celle de la branche — retenir la date de la branche "
-                "écourterait leur conservation."
+                "Ils rejoignent la destination de leur année réelle, pas "
+                "celle de cette branche — la confondre écourterait leur "
+                "conservation de douze mois."
             )
         )
         rapport.avertissements.append(

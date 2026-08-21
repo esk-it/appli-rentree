@@ -56,6 +56,33 @@
   // plupart sont parties avant les exports chargés, le référentiel ne les
   // connaît pas. L'OU, elle, sait exactement qui elle contient.
   let occupants = $state(/** @type {any} */ (null));
+  let destinations = $state(/** @type {any} */ (null));
+
+  const ETATS = {
+    a_venir: { texte: "à venir", classe: "text-stone-500 dark:text-stone-400" },
+    lettre_due: { texte: "lettre à envoyer", classe: "text-amber-700 dark:text-amber-400" },
+    suppression_due: { texte: "suppression due", classe: "text-red-700 dark:text-red-400" },
+    sans_date: { texte: "sans échéance", classe: "text-stone-400" },
+  };
+
+  // Saisir un chemin d'OU à la main expose à le taper de travers, et Google
+  // refuse alors chaque déplacement l'un après l'autre. La liste vient donc
+  // de l'instance, et propose la destination que la règle désigne.
+  async function chargerDestinations() {
+    try {
+      destinations = await googleApi.destinationsSortie({
+        pourOu: ouAVider.trim() || null,
+      });
+      const suggeree = destinations.destinations.find((d) => d.suggeree);
+      if (suggeree && !ouArchivage) ouArchivage = suggeree.chemin;
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
+    }
+  }
+
+  let destinationChoisie = $derived(
+    destinations?.destinations?.find((d) => d.chemin === ouArchivage) ?? null,
+  );
 
   async function listerOccupants() {
     const cible = (ouArchivage.trim() || planVidange?.ou_archivage || "").trim();
@@ -103,6 +130,7 @@
     vidangeEnCours = true;
     planVidange = null;
     try {
+      if (!destinations) await chargerDestinations();
       planVidange = await googleApi.planVidange({
         ou: ouAVider.trim(),
         ouArchivage: ouArchivage.trim() || null,
@@ -352,13 +380,23 @@
         </div>
         <div>
           <label class="libelle-champ" for="ou-archivage">Destination</label>
-          <input
-            id="ou-archivage"
-            class="champ w-80 font-mono"
-            placeholder="déduite du site si vide"
-            bind:value={ouArchivage}
-            onkeydown={(e) => e.key === "Enter" && previsualiserVidange()}
-          />
+          {#if destinations}
+            <select id="ou-archivage" class="champ w-96 font-mono text-xs" bind:value={ouArchivage}>
+              <option value="">— déduite de la branche —</option>
+              {#each destinations.destinations as d (d.chemin)}
+                <option value={d.chemin}>
+                  {d.chemin}{d.existe ? "" : "  (à créer)"}{d.nb_occupants ? `  · ${d.nb_occupants}` : ""}
+                </option>
+              {/each}
+            </select>
+          {:else}
+            <button
+              class="champ w-96 text-left text-xs text-stone-500 dark:text-stone-400"
+              onclick={chargerDestinations}
+            >
+              Charger les destinations depuis Google…
+            </button>
+          {/if}
         </div>
         <Bouton icon={Search} occupe={vidangeEnCours} onclick={previsualiserVidange}>
           Prévisualiser
@@ -381,6 +419,26 @@
           </Bouton>
         {/if}
       </div>
+
+      {#if destinationChoisie}
+        <p class="mt-2 text-xs text-stone-600 dark:text-stone-400">
+          {#if destinationChoisie.date_prevenance}
+            Lettre le <strong>{formaterIso(destinationChoisie.date_prevenance)}</strong>,
+            suppression le <strong>{formaterIso(destinationChoisie.date_suppression)}</strong>
+            — <span class={ETATS[destinationChoisie.etat]?.classe}>
+              {ETATS[destinationChoisie.etat]?.texte}
+            </span>
+          {:else}
+            Cette OU ne porte pas de date : l'échéance suivra la règle des 18 mois
+            depuis le départ réel.
+          {/if}
+          {#if !destinationChoisie.existe}
+            <span class="text-amber-700 dark:text-amber-400">
+              · absente de Google, elle sera créée au lancement
+            </span>
+          {/if}
+        </p>
+      {/if}
 
       {#if occupants}
         <div class="mt-3 rounded-lg border border-stone-200 p-3 text-sm dark:border-stone-700">

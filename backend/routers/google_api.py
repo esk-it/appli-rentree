@@ -11,6 +11,7 @@ suspendu et déplacé en OU d'archivage, jamais effacé.
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -618,6 +619,8 @@ class LancerVidangePayload(BaseModel):
     """Destination imposée. Sans elle, elle est déduite du site et de l'échéance."""
     suspendre: bool = False
     """L'usage est de déplacer sans suspendre : le compte reste consultable."""
+    creer_destination: bool = True
+    """Crée l'OU d'arrivée si Google ne la connaît pas encore."""
     confirmation: bool = False
 
 
@@ -644,6 +647,34 @@ def lancer_vidange(
     )
     if not r.mouvements:
         raise HTTPException(400, "Aucun compte à archiver dans cette OU.")
+
+    # Google refuse un déplacement vers une OU qu'il ne connaît pas, et le
+    # refuse compte par compte : sans ce contrôle, les 437 opérations
+    # échouent l'une après l'autre pour une seule cause, invisible.
+    try:
+        existantes = set(client.lister_ou())
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+
+    destinations = sorted({m.ou_visee for m in r.mouvements})
+    absentes = [d for d in destinations if d not in existantes]
+    if absentes and not payload.creer_destination:
+        raise HTTPException(
+            400,
+            "Destination absente de Google : "
+            + ", ".join(absentes)
+            + ". Crée-la dans la console, choisis-en une autre, ou relance "
+            "en laissant le programme la créer.",
+        )
+    for chemin in absentes:
+        try:
+            client.creer_ou(chemin)
+        except Exception as e:
+            raise HTTPException(
+                502,
+                f"Création de {chemin} impossible : {type(e).__name__}: {e}. "
+                "Rien n'a été déplacé.",
+            )
 
     from backend.services.jobs_google import creer_job, lancer_en_tache_de_fond
 
@@ -706,6 +737,111 @@ def lancer_vidange(
         au_succes=_reporter,
     )
     return _job_vers_out(job)
+
+
+class DestinationSortieOut(BaseModel):
+    chemin: str
+    nb_occupants: int
+    date_prevenance: str | None
+    date_suppression: str | None
+    etat: str
+    """`a_venir`, `lettre_due`, `suppression_due`, ou `sans_date`."""
+    existe: bool = True
+    suggeree: bool = False
+    """Celle que la règle du 31 décembre désigne pour la branche demandée."""
+
+
+class DestinationsSortieOut(BaseModel):
+    racine: str
+    destinations: list[DestinationSortieOut]
+    avertissements: list[str] = []
+
+
+@router.get("/sortie/destinations", response_model=DestinationsSortieOut)
+def destinations_sortie(
+    pour_ou: str | None = Query(
+        None, description="Branche à vider, pour suggérer sa destination"
+    ),
+    session: Session = Depends(db_session),
+) -> DestinationsSortieOut:
+    """Les OU de sortie existantes, avec leurs échéances et leur état.
+
+    Lecture seule. Sert la liste déroulante de l'écran : saisir un chemin
+    à la main expose à le taper de travers, et Google refuse alors chaque
+    déplacement l'un après l'autre sans que rien ne l'ait annoncé.
+    """
+    from backend.services.configuration import get_param
+    from backend.services.suivi import date_echeance
+    from backend.services.vidange_ou import (
+        DELAI_APRES_PREVENANCE_MOIS,
+        RACINE_SORTIE_DEFAUT,
+        annee_depuis_ou,
+        date_prevenance,
+        ou_sortie_pour,
+    )
+
+    racine = (
+        get_param(session, "google.ou_sortants") or RACINE_SORTIE_DEFAUT
+    ).rstrip("/")
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    try:
+        toutes = client.lister_ou()
+        comptes = client.lister_utilisateurs(prefixe_ou=racine)
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+
+    aujourd_hui = date.today()
+    chemins = sorted(o for o in toutes if o == racine or o.startswith(racine + "/"))
+
+    suggeree = None
+    avertissements: list[str] = []
+    if pour_ou:
+        annee = annee_depuis_ou(pour_ou)
+        if annee:
+            suggeree = ou_sortie_pour(annee, racine)
+            if suggeree not in chemins:
+                chemins.append(suggeree)
+                avertissements.append(
+                    f"{suggeree} n'existe pas encore dans Google. Elle sera "
+                    "créée au lancement — sans elle, chaque déplacement "
+                    "échouerait l'un après l'autre."
+                )
+
+    sorties = []
+    for chemin in sorted(set(chemins)):
+        prevenance = date_prevenance(chemin)
+        suppression = (
+            date_echeance(prevenance, mois=DELAI_APRES_PREVENANCE_MOIS)
+            if prevenance
+            else None
+        )
+        if suppression and suppression <= aujourd_hui:
+            etat = "suppression_due"
+        elif prevenance and prevenance <= aujourd_hui:
+            etat = "lettre_due"
+        elif prevenance:
+            etat = "a_venir"
+        else:
+            etat = "sans_date"
+        sorties.append(
+            DestinationSortieOut(
+                chemin=chemin,
+                nb_occupants=sum(1 for c in comptes if (c.get("ou") or "") == chemin),
+                date_prevenance=prevenance.isoformat() if prevenance else None,
+                date_suppression=suppression.isoformat() if suppression else None,
+                etat=etat,
+                existe=chemin in toutes,
+                suggeree=(chemin == suggeree),
+            )
+        )
+    return DestinationsSortieOut(
+        racine=racine, destinations=sorties, avertissements=avertissements
+    )
 
 
 class OccupantSortieOut(BaseModel):

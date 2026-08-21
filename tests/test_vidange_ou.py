@@ -25,6 +25,9 @@ def test_echeance_court_depuis_le_depart_pas_depuis_aujourdhui(session, site_fac
     """Un compte oublié trois ans ne mérite pas 18 mois de plus.
 
     Les compter depuis le traitement reviendrait à récompenser l'oubli.
+    La destination suit la règle du 31 décembre : parti au 31/08/2025, on
+    l'avertit le 31/12/2026 et on supprime quatre mois après — vingt mois
+    en tout, au-delà des dix-huit promis.
     """
     from backend.services.vidange_ou import planifier_vidange
 
@@ -36,8 +39,10 @@ def test_echeance_court_depuis_le_depart_pas_depuis_aujourdhui(session, site_fac
         aujourd_hui=date(2026, 8, 20),
     )
     assert r.date_depart == date(2025, 8, 31)
-    assert r.date_echeance == date(2027, 2, 28)
-    assert "28-02-2027" in r.ou_archivage
+    assert r.ou_archivage.endswith("Comptes à supprimer au 31-12-2026")
+    assert r.date_prevenance == date(2026, 12, 31)
+    assert r.date_echeance == date(2027, 4, 30)
+    assert (r.date_echeance - r.date_depart).days > 548, "au moins 18 mois"
 
 
 def test_un_eleve_encore_inscrit_est_epargne(
@@ -234,10 +239,12 @@ def test_compte_oublie_par_la_bascule_garde_sa_vraie_date(
     tardif = par_mail["leane.le.lay@lekreisker.fr"]
     normal = par_mail["parti@lekreisker.fr"]
 
-    assert tardif.date_echeance == date(2028, 2, 29), "18 mois après août 2026"
-    assert normal.date_echeance == date(2027, 2, 28), "18 mois après août 2025"
-    assert tardif.ou_visee != normal.ou_visee
-    assert "29-02-2028" in tardif.ou_visee
+    # Parti un an plus tard, il relève de la promotion suivante : même
+    # règle, mais appliquée à son année réelle.
+    assert tardif.ou_visee.endswith("31-12-2027")
+    assert normal.ou_visee.endswith("31-12-2026")
+    assert tardif.date_echeance == date(2028, 4, 30)
+    assert normal.date_echeance == date(2027, 4, 30)
 
 
 def test_par_defaut_on_deplace_sans_suspendre(session, site_factory):
@@ -408,3 +415,50 @@ def test_un_retardataire_reste_signale_sous_calendrier_impose(
     assert {m.date_echeance for m in r.mouvements} == {date(2028, 4, 30)}, (
         "sous calendrier imposé, tout le monde partage la même échéance"
     )
+
+
+def test_la_regle_du_31_decembre_tient_les_18_mois():
+    """Le seul engagement de l'établissement : dix-huit mois d'activité."""
+    from backend.services.suivi import date_echeance
+    from backend.services.vidange_ou import (
+        DELAI_APRES_PREVENANCE_MOIS,
+        date_prevenance,
+        ou_sortie_pour,
+    )
+
+    for annee in range(2023, 2031):
+        depart = date(annee, 8, 31)
+        lettre = date_prevenance(ou_sortie_pour(annee))
+        suppression = date_echeance(lettre, mois=DELAI_APRES_PREVENANCE_MOIS)
+
+        assert lettre == date(annee + 1, 12, 31)
+        assert (suppression - depart).days >= 548, (
+            f"{annee} : {(suppression - depart).days} jours, moins de 18 mois"
+        )
+        assert lettre > depart, "on ne prévient pas quelqu'un avant son départ"
+
+
+def test_deux_promotions_ne_partagent_pas_leur_destination():
+    """Une OU par promotion : c'est ce qui permet de traiter un lot d'un geste."""
+    from backend.services.vidange_ou import ou_sortie_pour
+
+    assert ou_sortie_pour(2025) != ou_sortie_pour(2026)
+    assert ou_sortie_pour(2025).endswith("31-12-2026")
+    assert ou_sortie_pour(2026).endswith("31-12-2027")
+
+
+def test_une_destination_imposee_prime_sur_la_regle(session, site_factory):
+    """Choisir est une décision ; la règle n'est qu'un défaut."""
+    from backend.services.vidange_ou import planifier_vidange
+
+    site_factory("NDK")
+    r = planifier_vidange(
+        session,
+        [_compte("a@lekreisker.fr", "/3. NDK/NDK2025/T_G1A")],
+        ou_source="/3. NDK/NDK2025",
+        ou_archivage="/7. Sortis/Comptes à supprimer au 30-06-2027",
+        aujourd_hui=date(2026, 8, 20),
+    )
+    assert r.ou_archivage.endswith("30-06-2027")
+    assert r.date_prevenance == date(2027, 6, 30)
+    assert r.date_echeance == date(2027, 10, 30), "le quantième est conservé"

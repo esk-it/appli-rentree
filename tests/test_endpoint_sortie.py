@@ -21,9 +21,21 @@ class _FauxClient:
 
     comptes: list[dict] = []
     envoyees: list = []
+    ou: list[str] = []
+    creees: list[str] = []
+    creation_impossible: bool = False
 
     def __init__(self, config):
         self.config = config
+
+    def lister_ou(self):
+        return list(_FauxClient.ou)
+
+    def creer_ou(self, chemin):
+        if _FauxClient.creation_impossible:
+            raise RuntimeError("Google refuse")
+        _FauxClient.creees.append(chemin)
+        _FauxClient.ou.append(chemin)
 
     def lister_utilisateurs(self, prefixe_ou=None):
         return [
@@ -42,6 +54,9 @@ def _compte(email, ou, nom="X", prenom="Y", suspendu=False):
     }
 
 
+CIBLE = "/7. Sortis/Comptes à supprimer au 31-12-2027"
+
+
 @pytest.fixture()
 def client(tmp_db_path, monkeypatch):
     from fastapi.testclient import TestClient
@@ -58,6 +73,9 @@ def client(tmp_db_path, monkeypatch):
 
     monkeypatch.setattr("backend.routers.google_api.ClientGoogle", _FauxClient)
     _FauxClient.envoyees = []
+    _FauxClient.creees = []
+    _FauxClient.creation_impossible = False
+    _FauxClient.ou = ["/3. NDK", "/3. NDK/NDK2025", "/7. Sortis", CIBLE]
     _FauxClient.comptes = [
         _compte("a@lekreisker.fr", "/3. NDK/NDK2025/T_G1A"),
         _compte("b@lekreisker.fr", "/3. NDK/NDK2025/BTS_2"),
@@ -65,9 +83,6 @@ def client(tmp_db_path, monkeypatch):
     ]
     with TestClient(app) as c:
         yield c
-
-
-CIBLE = "/7. Sortis/Comptes à supprimer au 31-12-2027"
 
 
 def test_le_plan_repond_sans_rien_envoyer(client):
@@ -197,3 +212,74 @@ def test_une_erreur_serveur_reste_lisible_par_le_navigateur(client, monkeypatch)
     assert r.headers.get("access-control-allow-origin"), (
         "sans cet en-tête, le navigateur refuse de lire la réponse"
     )
+
+
+def test_une_destination_absente_est_creee_avant_de_deplacer(client):
+    """Google refuse un déplacement vers une OU inconnue, compte par compte.
+
+    Sans ce contrôle, les 437 opérations échouaient l'une après l'autre
+    pour une seule cause, et rien ne la nommait.
+    """
+    neuve = "/7. Sortis/Comptes à supprimer au 31-12-2026"
+    r = client.post(
+        "/api/google/vidange-ou",
+        json={"ou": "/3. NDK/NDK2025", "ou_archivage": neuve, "confirmation": True},
+    )
+    assert r.status_code == 200, r.text
+    assert _FauxClient.creees == [neuve]
+
+    for _ in range(100):
+        if client.get(f"/api/google/jobs/{r.json()['id']}").json()["est_termine"]:
+            break
+    assert all(op.payload["orgUnitPath"] == neuve for op in _FauxClient.envoyees)
+
+
+def test_on_peut_refuser_la_creation_et_le_message_est_clair(client):
+    r = client.post(
+        "/api/google/vidange-ou",
+        json={
+            "ou": "/3. NDK/NDK2025",
+            "ou_archivage": "/7. Sortis/Comptes à supprimer au 31-12-2026",
+            "creer_destination": False, "confirmation": True,
+        },
+    )
+    assert r.status_code == 400
+    assert "absente de Google" in r.json()["detail"]
+    assert _FauxClient.envoyees == [], "rien ne part quand la destination manque"
+
+
+def test_une_creation_refusee_narrete_rien_a_moitie(client):
+    """Mieux vaut ne rien déplacer que déplacer vers un dossier incertain."""
+    _FauxClient.creation_impossible = True
+    r = client.post(
+        "/api/google/vidange-ou",
+        json={
+            "ou": "/3. NDK/NDK2025",
+            "ou_archivage": "/7. Sortis/Comptes à supprimer au 31-12-2026",
+            "confirmation": True,
+        },
+    )
+    assert r.status_code == 502
+    assert "Rien n'a été déplacé" in r.json()["detail"]
+    assert _FauxClient.envoyees == []
+
+
+def test_les_destinations_portent_leur_etat(client):
+    """La liste déroulante doit dire ce qui est dû et ce qui ne l'est pas."""
+    _FauxClient.ou = [
+        "/7. Sortis",
+        "/7. Sortis/Comptes à supprimer au 31-12-2027",
+        "/7. Sortis/Profs sortis",
+    ]
+    r = client.get("/api/google/sortie/destinations",
+                   params={"pour_ou": "/3. NDK/NDK2025"})
+    assert r.status_code == 200, r.text
+    d = r.json()
+
+    par_chemin = {x["chemin"]: x for x in d["destinations"]}
+    suggeree = "/7. Sortis/Comptes à supprimer au 31-12-2026"
+    assert par_chemin[suggeree]["suggeree"] is True, "règle du 31 décembre"
+    assert par_chemin[suggeree]["existe"] is False
+    assert par_chemin[suggeree]["date_suppression"] == "2027-04-30"
+    assert par_chemin["/7. Sortis/Profs sortis"]["etat"] == "sans_date"
+    assert any("n'existe pas encore" in a for a in d["avertissements"])
