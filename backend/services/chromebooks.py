@@ -23,6 +23,15 @@ c'est l'humain qui le corrige.
 donner une — les arrivants qui n'en ont pas. Et lesquelles sont libres :
 le parc de prêt, plus celles dont le porteur n'a plus de compte.
 
+## Un tableau et un annuaire ne s'écrivent jamais pareil
+
+Le tableau ne porte pas d'adresse : le lien vers Google se fait par le
+nom. Or un nom composé y perd souvent sa seconde part, un prénom composé
+son second terme, et une orthographe hésite. Le rapprochement passe donc
+par `rapprochement.py`, qui applique des règles successives et dit
+laquelle a conclu — un lien obtenu autrement que par l'égalité stricte
+reste affiché comme tel, à vérifier d'un coup d'œil.
+
 ## Ce que Google ne peut pas savoir
 
 Rendre une machine et en confier une autre sont des gestes **physiques**.
@@ -108,6 +117,12 @@ class LigneProf:
     appareils: list[Appareil] = field(default_factory=list)
     attribue: str | None = None
     """Série d'une machine confiée dans l'application, avant que Google le sache."""
+    methode: str = "exact"
+    """Comment l'adresse a été retrouvée : `exact`, `nom_compose`, …"""
+    approximatif: bool = False
+    """Vrai quand l'égalité stricte n'a pas suffi."""
+    homonymes: list[str] = field(default_factory=list)
+    """Adresses également plausibles, quand aucune ne peut être choisie."""
 
 
 @dataclass
@@ -124,6 +139,8 @@ class RapportFlotte:
     discordances: list[Discordance] = field(default_factory=list)
     sans_compte: list[LigneProf] = field(default_factory=list)
     """Enseignants du tableau qu'aucun compte Google ne porte."""
+    rapproches: list[LigneProf] = field(default_factory=list)
+    """Reliés à leur compte par une règle plus souple que l'égalité stricte."""
     etiquettes_a_mettre_a_jour: list[Appareil] = field(default_factory=list)
     """Confiées à quelqu'un dans l'application, mais l'étiquette dit autre chose."""
     recuperees: list[Appareil] = field(default_factory=list)
@@ -182,19 +199,14 @@ def analyser_flotte(
         )
 
     # Le tableau des enseignants ne porte pas d'adresse : elle vient des
-    # comptes, rapprochés par nom et prénom.
-    adresses_connues = set()
-    par_nom: dict[tuple[str, str], str] = {}
-    for c in comptes:
-        adresse = (c.get("email") or "").lower()
-        if not adresse:
-            continue
-        adresses_connues.add(adresse)
-        cle = (normaliser(c.get("nom")), normaliser(c.get("prenom")))
-        # Un homonyme rendrait l'attribution arbitraire : on ne garde que
-        # les rapprochements sans ambiguïté.
-        par_nom[cle] = "" if cle in par_nom else adresse
-    par_nom = {k: v for k, v in par_nom.items() if v}
+    # comptes, rapprochés par nom et prénom — et les deux ne s'écrivent
+    # jamais tout à fait pareil.
+    from backend.services.rapprochement import construire_index, rapprocher
+
+    adresses_connues = {
+        (c.get("email") or "").lower() for c in comptes if c.get("email")
+    }
+    index = construire_index(comptes)
 
     # Une machine confiée dans l'application appartient déjà à son nouveau
     # porteur, quoi qu'en dise l'étiquette : c'est le geste physique qui
@@ -213,11 +225,16 @@ def analyser_flotte(
             par_porteur.setdefault(ap.porteur, []).append(ap)
 
     for p in profs:
-        adresse = par_nom.get((normaliser(p.nom), normaliser(p.prenom)))
+        lien = rapprocher(p.nom, p.prenom, index)
+        adresse = lien.email
         ligne = LigneProf(
             nom=p.nom, prenom=p.prenom, discipline=p.discipline, code=p.code,
             email=adresse, appareils=par_porteur.get(adresse, []) if adresse else [],
+            methode=lien.methode, approximatif=lien.approximatif,
+            homonymes=lien.candidats or [],
         )
+        if adresse and lien.approximatif:
+            rapport.rapproches.append(ligne)
         ligne.attribue = next(
             (a.serie for a in ligne.appareils if a.attribue_a == adresse), None
         )
@@ -272,6 +289,19 @@ def analyser_flotte(
             f"{len(rapport.etiquettes_a_mettre_a_jour)} machine(s) ont été "
             "confiées dans l'application sans que l'étiquette Google ait suivi. "
             "Le suivi fait foi ici ; la console reste à mettre à jour."
+        )
+    if rapport.rapproches:
+        rapport.avertissements.append(
+            f"{len(rapport.rapproches)} enseignant(s) ont été reliés à leur compte "
+            "par une règle plus souple que l'égalité stricte — nom composé "
+            "tronqué, prénom abrégé, orthographe. Le rapprochement est appliqué "
+            "et affiché : un coup d'œil suffit à le démentir."
+        )
+    ambigus = [p for p in rapport.sans_compte if p.homonymes]
+    if ambigus:
+        rapport.avertissements.append(
+            f"{len(ambigus)} enseignant(s) correspondent à plusieurs comptes à la "
+            "fois : choisir reviendrait à tirer au sort."
         )
     if rapport.sans_compte:
         rapport.avertissements.append(

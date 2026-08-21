@@ -944,6 +944,9 @@ class ProfAvecAppareilsOut(BaseModel):
     email: str | None
     appareils: list[AppareilOut]
     attribue: str | None = None
+    methode: str = "exact"
+    approximatif: bool = False
+    homonymes: list[str] = []
 
 
 class DiscordanceOut(BaseModel):
@@ -961,6 +964,7 @@ class FlotteOut(BaseModel):
     disponibles: list[AppareilOut]
     discordances: list[DiscordanceOut]
     sans_compte: list[ProfAvecAppareilsOut]
+    rapproches: list[ProfAvecAppareilsOut]
     etiquettes_a_mettre_a_jour: list[AppareilOut]
     recuperees: list[AppareilOut]
     legende: list[dict]
@@ -982,7 +986,8 @@ def _prof_out(p) -> ProfAvecAppareilsOut:
     return ProfAvecAppareilsOut(
         nom=p.nom, prenom=p.prenom, discipline=p.discipline, code=p.code,
         email=p.email, appareils=[_appareil_out(a) for a in p.appareils],
-        attribue=p.attribue,
+        attribue=p.attribue, methode=p.methode,
+        approximatif=p.approximatif, homonymes=p.homonymes,
     )
 
 
@@ -1052,6 +1057,7 @@ async def analyser_chromebooks(
         a_attribuer=[_prof_out(p) for p in r.a_attribuer],
         disponibles=[_appareil_out(a) for a in r.disponibles],
         sans_compte=[_prof_out(p) for p in r.sans_compte],
+        rapproches=[_prof_out(p) for p in r.rapproches],
         etiquettes_a_mettre_a_jour=[
             _appareil_out(a) for a in r.etiquettes_a_mettre_a_jour
         ],

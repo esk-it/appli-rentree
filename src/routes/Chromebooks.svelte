@@ -66,7 +66,19 @@
     { id: "disponibles", label: "Libres", badge: flotte?.disponibles?.length ?? 0 },
     { id: "discordances", label: "À vérifier", badge: flotte?.discordances?.length ?? 0 },
     { id: "sans_compte", label: "Sans compte", badge: flotte?.sans_compte?.length ?? 0 },
+    { id: "rapproches", label: "Rapprochés", badge: flotte?.rapproches?.length ?? 0 },
   ]);
+
+  /** Comment le compte a été retrouvé, en français. */
+  const METHODES = {
+    exact: "nom identique",
+    nom_compose: "nom composé tronqué",
+    prenom_compose: "prénom composé réduit",
+    prenom_abrege: "prénom abrégé",
+    orthographe: "une lettre d'écart",
+    adresse: "retrouvé par l'adresse",
+    nom_et_prenom_composes: "nom et prénom composés",
+  };
 
   function exporter() {
     if (!flotte) return;
@@ -320,6 +332,38 @@
             </table>
           </div>
 
+        {:else if vue === "rapproches"}
+          <div class="px-4 py-3 text-xs text-stone-600 dark:text-stone-400">
+            Ces enseignants ont été reliés à leur compte par une règle plus
+            souple que l'égalité stricte : leur nom ne s'écrit pas pareil dans
+            ton tableau et dans Google. Le rapprochement est appliqué, mais il
+            s'affiche — un coup d'œil suffit à le démentir.
+          </div>
+          <div class="max-h-[28rem] overflow-auto">
+            <table class="tableau w-full text-sm">
+              <thead>
+                <tr>
+                  <th class="text-left">Dans ton tableau</th>
+                  <th class="text-left">Compte retrouvé</th>
+                  <th class="text-left">Par quelle règle</th>
+                  <th class="text-right">Machines</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each flotte.rapproches as p (p.nom + p.prenom)}
+                  <tr>
+                    <td class="whitespace-nowrap font-medium">{p.prenom} {p.nom}</td>
+                    <td class="whitespace-nowrap font-mono text-xs">{p.email}</td>
+                    <td class="whitespace-nowrap text-xs text-stone-600 dark:text-stone-400">
+                      {METHODES[p.methode] ?? p.methode}
+                    </td>
+                    <td class="text-right tabular-nums">{p.appareils.length || ""}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+
         {:else if vue === "sans_compte"}
           <div class="px-4 py-3 text-xs text-stone-600 dark:text-stone-400">
             Enseignants du tableau qu'aucun compte Google ne porte. Un arrivant
@@ -350,6 +394,10 @@
                         <span class="text-stone-500">sortant — compte sans doute déjà retiré</span>
                       {:else if p.code === "remplace"}
                         <span class="text-stone-500">remplacement — deux personnes sur la ligne</span>
+                      {:else if p.homonymes.length}
+                        <span class="text-amber-700 dark:text-amber-400">
+                          plusieurs comptes possibles : {p.homonymes.join(", ")}
+                        </span>
                       {:else}
                         <span class="text-amber-700 dark:text-amber-400">
                           en poste sans compte — à regarder
