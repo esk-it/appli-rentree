@@ -151,9 +151,13 @@ def test_compte_reste_dans_sa_classe_est_un_ecart():
     assert "encore dans /3. NDK" in s.detail_verification
 
 
-def test_compte_archive_mais_toujours_actif_est_un_ecart():
-    """Déplacé sans être suspendu : l'élève peut encore se connecter."""
-    from backend.services.sortants import ECART, ConstatGoogle, comparer_au_constat
+def test_un_sortant_range_et_toujours_actif_est_conforme():
+    """C'est l'état voulu : la quarantaine tient à l'OU, pas à la suspension.
+
+    La première version exigeait la suspension et signalait donc en écart
+    des comptes parfaitement conformes — quatre d'un coup sur l'instance.
+    """
+    from backend.services.sortants import CONFORME, ConstatGoogle, comparer_au_constat
 
     s = _sortant()
     comparer_au_constat(
@@ -161,11 +165,25 @@ def test_compte_archive_mais_toujours_actif_est_un_ecart():
         ConstatGoogle(existe=True, ou="/7. Sortis/Comptes à supprimer au 31-12-2027",
                       suspendu=False),
     )
-    assert s.verification == ECART
-    assert "toujours actif" in s.detail_verification
+    assert s.verification == CONFORME
+    assert s.detail_verification is None
+    assert s.suspendu_reellement is False, "l'information reste, sans être un grief"
 
 
-def test_les_deux_ecarts_sont_cumules():
+def test_un_sortant_suspendu_reste_conforme_lui_aussi():
+    """Suspendre n'est pas fautif — c'est simplement une décision à part."""
+    from backend.services.sortants import CONFORME, ConstatGoogle, comparer_au_constat
+
+    s = _sortant()
+    comparer_au_constat(
+        s,
+        ConstatGoogle(existe=True, ou="/7. Sortis/Comptes à supprimer au 31-12-2027",
+                      suspendu=True),
+    )
+    assert s.verification == CONFORME
+
+
+def test_le_seul_ecart_est_de_ne_pas_etre_range():
     from backend.services.sortants import ECART, ConstatGoogle, comparer_au_constat
 
     s = _sortant()
@@ -173,8 +191,7 @@ def test_les_deux_ecarts_sont_cumules():
         s, ConstatGoogle(existe=True, ou="/3. NDK/NDK2026/T_G1A", suspendu=False)
     )
     assert s.verification == ECART
-    assert "encore dans" in s.detail_verification
-    assert "toujours actif" in s.detail_verification
+    assert s.detail_verification == "encore dans /3. NDK/NDK2026/T_G1A"
 
 
 def test_compte_absent_de_google():
@@ -236,3 +253,53 @@ def test_api_verification_sans_sortant(client, session):
     r = client.post("/api/sortants/verifier")
     assert r.status_code == 400
     assert "Aucun sortant" in r.json()["detail"]
+
+
+def test_le_constat_survit_au_rafraichissement(
+    session, personne_factory
+):
+    """Une vérification de plusieurs minutes ne doit pas s'effacer d'un clic.
+
+    Le rapport des sortants est reconstruit à chaque appel : sans trace en
+    base, chaque ligne réaffichait « non vérifié » alors que le bandeau
+    annonçait des écarts.
+    """
+    from datetime import date
+
+    from backend.models import CompteCible
+    from backend.services.sortants import (
+        CONFORME,
+        ConstatGoogle,
+        comparer_au_constat,
+        lister_sortants,
+        memoriser_constat,
+    )
+
+    p = personne_factory(nom="LE LAY", prenom="Leane", login="llelay")
+    session.add(
+        CompteCible(
+            personne_id=p.id, cible="google", etat="quarantaine",
+            date_prevue_purge=date(2027, 4, 30),
+            identifiant_externe="leane.le.lay@lekreisker.fr",
+        )
+    )
+    session.commit()
+
+    avant = lister_sortants(session)
+    assert avant.sortants[0].verification == "non_verifie"
+
+    sortant = avant.sortants[0]
+    comparer_au_constat(
+        sortant,
+        ConstatGoogle(existe=True, ou="/7. Sortis/Comptes à supprimer au 31-12-2026",
+                      suspendu=False),
+    )
+    assert sortant.verification == CONFORME
+    memoriser_constat(session, sortant)
+    session.commit()
+
+    apres = lister_sortants(session)
+    assert apres.sortants[0].verification == CONFORME
+    assert apres.sortants[0].ou_reelle.endswith("31-12-2026")
+    assert apres.sortants[0].verifie_le == date.today()
+    assert apres.nb_conformes == 1

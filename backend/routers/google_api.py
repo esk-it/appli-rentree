@@ -521,6 +521,8 @@ class EparneOut(BaseModel):
     ou: str
     nom: str | None
     prenom: str | None
+    classe: str | None = None
+    """Classe de l'année préparée : là où la bascule le placera."""
 
 
 class VidangeOut(BaseModel):
@@ -593,7 +595,10 @@ def _vidange_vers_out(r) -> VidangeOut:
             for m in r.mouvements
         ],
         epargnes=[
-            EparneOut(email=c.email, ou=c.ou, nom=c.nom, prenom=c.prenom)
+            EparneOut(
+                email=c.email, ou=c.ou, nom=c.nom, prenom=c.prenom,
+                classe=c.derniere_classe,
+            )
             for c in r.epargnes
         ],
     )

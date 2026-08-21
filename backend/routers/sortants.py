@@ -85,7 +85,11 @@ def verifier(
     """
     from backend.services.google_api import ClientGoogle, charger_config
     from backend.services.jobs_google import creer_job, lancer_en_tache_de_fond
-    from backend.services.sortants import CONFORME, comparer_au_constat
+    from backend.services.sortants import (
+        CONFORME,
+        comparer_au_constat,
+        memoriser_constat,
+    )
 
     rapport = lister_sortants(session, site_id=site_id)
     a_verifier = [s for s in rapport.sortants if s.email]
@@ -121,8 +125,25 @@ def verifier(
     def verifier_un(lecture) -> None:
         constat = client.lire_utilisateur(lecture.email)
         comparer_au_constat(lecture.sortant, constat)
+        _garder(lecture.sortant)
         if lecture.sortant.verification != CONFORME:
             raise RuntimeError(lecture.sortant.detail_verification or "écart constaté")
+
+    def _garder(sortant) -> None:
+        """Écrit le constat depuis le fil du job, qui n'a pas la session HTTP.
+
+        Une session par compte : la vérification est lente de toute façon,
+        et une transaction longue tenue pendant plusieurs minutes bloquerait
+        l'écran qui interroge l'avancement.
+        """
+        from backend.database import _SessionLocal
+
+        session_job = _SessionLocal()
+        try:
+            memoriser_constat(session_job, sortant)
+            session_job.commit()
+        finally:
+            session_job.close()
 
     lancer_en_tache_de_fond(job, lectures, appliquer=verifier_un)
     return VerificationOut(job_id=job.id, nb_a_verifier=len(lectures))

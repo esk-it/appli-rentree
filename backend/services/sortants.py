@@ -64,6 +64,8 @@ class Sortant:
     ou_reelle: str | None = None
     suspendu_reellement: bool | None = None
     detail_verification: str | None = None
+    verifie_le: date | None = None
+    """Quand la dernière confrontation a eu lieu."""
 
     @property
     def echeance_depassee(self) -> bool:
@@ -139,6 +141,13 @@ def lister_sortants(
                 # comme attendue que pour les sorties de la campagne en cours.
                 ou_attendue=ou_par_site.get(personne.site_id, ou_defaut),
                 note=compte.note,
+                # Relu plutôt que recalculé : la vérification dure plusieurs
+                # minutes, et son résultat doit survivre au rafraîchissement
+                # de l'écran.
+                verification=compte.verification or NON_VERIFIE,
+                ou_reelle=compte.ou_constatee,
+                detail_verification=compte.detail_verification,
+                verifie_le=compte.verifie_le,
             )
         )
 
@@ -165,14 +174,42 @@ class ConstatGoogle:
     erreur: str | None = None
 
 
+def memoriser_constat(session, sortant: Sortant) -> None:
+    """Écrit sur le compte le résultat de sa dernière vérification.
+
+    Le rapport des sortants est reconstruit à chaque appel : sans cette
+    trace, une vérification de plusieurs minutes serait effacée par le
+    premier rafraîchissement de l'écran.
+    """
+    from backend.models import CompteCible
+
+    compte = (
+        session.query(CompteCible)
+        .filter_by(personne_id=sortant.personne_id, cible="google")
+        .one_or_none()
+    )
+    if compte is None:
+        return
+    compte.verification = sortant.verification
+    compte.ou_constatee = sortant.ou_reelle
+    compte.detail_verification = sortant.detail_verification
+    compte.verifie_le = date.today()
+
+
 def comparer_au_constat(sortant: Sortant, constat: ConstatGoogle) -> None:
     """Renseigne le résultat de vérification sur le sortant, en place.
 
-    Un compte sorti doit être **suspendu** et rangé dans une OU
-    d'archivage. La racine de l'OU suffit à juger : le sous-dossier porte
-    une année d'échéance qui varie d'une campagne à l'autre, exiger
-    l'égalité stricte signalerait à tort tous les sortants des années
-    précédentes.
+    Un compte sorti doit être rangé dans une OU d'archivage — et c'est
+    tout. Il **reste actif** : la quarantaine tient à sa sortie de l'arbre
+    des classes, pas à la privation d'accès, et son titulaire garde sa
+    messagerie jusqu'à la lettre de prévenance.
+
+    Exiger la suspension, comme le faisait la première version, signalait
+    en écart des comptes parfaitement conformes.
+
+    La racine de l'OU suffit à juger : le sous-dossier porte une année
+    d'échéance qui varie d'une campagne à l'autre, et l'égalité stricte
+    signalerait à tort tous les sortants des années précédentes.
     """
     if constat.erreur:
         sortant.verification = ECART
@@ -192,8 +229,6 @@ def comparer_au_constat(sortant: Sortant, constat: ConstatGoogle) -> None:
     problemes = []
     if not dans_archivage:
         problemes.append(f"encore dans {constat.ou}")
-    if constat.suspendu is False:
-        problemes.append("compte toujours actif")
 
     if problemes:
         sortant.verification = ECART

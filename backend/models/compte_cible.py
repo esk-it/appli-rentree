@@ -91,6 +91,15 @@ class CompteCible(Base):
 
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    # Résultat de la dernière confrontation à Google. Sans le garder, il ne
+    # survivrait pas au rafraîchissement de l'écran : le rapport des
+    # sortants est reconstruit à chaque appel, et la vérification, qui
+    # dure plusieurs minutes, serait à refaire pour rien.
+    verification: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ou_constatee: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    detail_verification: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    verifie_le: Mapped[date | None] = mapped_column(Date, nullable=True)
+
     personne: Mapped["Personne"] = relationship()
 
     __table_args__ = (

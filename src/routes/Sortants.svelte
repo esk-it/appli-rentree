@@ -538,13 +538,57 @@
             </p>
           {/each}
 
+          <!-- La question qu'on se pose vraiment : puis-je renommer ? -->
+          {#if planVidange.nb_a_archiver === 0}
+            <div class="mt-3 rounded-lg border border-emerald-300 bg-emerald-50/60 p-3 text-sm dark:border-emerald-800 dark:bg-emerald-900/20">
+              {#if planVidange.nb_epargnes === 0}
+                <p class="font-medium text-emerald-900 dark:text-emerald-200">
+                  Cette branche est vide. Elle peut être renommée.
+                </p>
+              {:else}
+                <p class="font-medium text-emerald-900 dark:text-emerald-200">
+                  Plus rien à déplacer : il ne reste que
+                  {planVidange.nb_epargnes} élève(s) encore inscrit(s).
+                </p>
+                <p class="mt-1 text-xs text-emerald-800 dark:text-emerald-300">
+                  Tu peux renommer la branche telle quelle. Renommer emporte son
+                  contenu : ces élèves se retrouveront dans l'arbre de la rentrée,
+                  à la racine de leur ancienne classe, et la
+                  <strong>bascule des OU</strong> les placera ensuite dans la
+                  bonne. Les déplacer maintenant serait un détour inutile.
+                </p>
+              {/if}
+            </div>
+          {/if}
+
           {#if planVidange.epargnes.length}
-            <p class="mt-2 text-xs font-medium">Laissés en place :</p>
-            <ul class="text-xs text-stone-600 dark:text-stone-400">
-              {#each planVidange.epargnes.slice(0, 10) as e (e.email)}
-                <li>{e.prenom ?? ""} {e.nom ?? ""} — <span class="font-mono">{e.email}</span></li>
-              {/each}
-            </ul>
+            <p class="mt-3 text-xs font-medium">
+              Encore dans la branche — laissés en place :
+            </p>
+            <div class="mt-1 overflow-auto">
+              <table class="tableau w-full text-xs">
+                <thead>
+                  <tr>
+                    <th class="text-left">Élève</th>
+                    <th class="text-left">Adresse</th>
+                    <th class="text-left">Où il est</th>
+                    <th class="text-left">Sa classe cette année</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each planVidange.epargnes as e (e.email)}
+                    <tr>
+                      <td class="whitespace-nowrap">{e.prenom ?? ""} {e.nom ?? ""}</td>
+                      <td class="whitespace-nowrap font-mono">{e.email}</td>
+                      <td class="whitespace-nowrap font-mono text-stone-500 dark:text-stone-400">
+                        {e.ou}
+                      </td>
+                      <td class="whitespace-nowrap">{e.classe ?? "—"}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
           {/if}
 
           <div class="mt-3 max-h-64 overflow-auto">
