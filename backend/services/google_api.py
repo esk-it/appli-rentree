@@ -55,6 +55,19 @@ SCOPES = [
     "https://www.googleapis.com/auth/admin.directory.orgunit",
     "https://www.googleapis.com/auth/admin.directory.group",
 ]
+"""Le socle. Sans l'un d'eux, le mode API ne sert à rien."""
+
+SCOPE_APPAREILS = "https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly"
+
+SCOPES_OPTIONNELS = [SCOPE_APPAREILS]
+"""Droits qu'un établissement peut ne pas avoir accordés.
+
+Les réclamer sans qu'ils figurent dans la délégation fait échouer la
+demande de jeton — pas la seule requête concernée, mais **toutes** :
+Google refuse d'émettre un jeton pour un scope non autorisé. Le client
+tente donc le socle plus les options, et retombe sur le socle seul si le
+domaine n'en veut pas, en notant lesquels manquent.
+"""
 
 API_BASE = "https://admin.googleapis.com/admin/directory/v1"
 
@@ -509,13 +522,35 @@ class ClientGoogle:
         from google.oauth2 import service_account  # type: ignore[import-not-found]
         from googleapiclient.discovery import build  # type: ignore[import-not-found]
 
-        credentials = service_account.Credentials.from_service_account_file(
-            config.chemin_credentials, scopes=SCOPES
-        )
-        # Délégation à l'échelle du domaine : le compte de service agit au
-        # nom d'un administrateur réel.
-        deleguees = credentials.with_subject(config.admin_impersonation)
-        self._service = build("admin", "directory_v1", credentials=deleguees)
+        def deleguer(scopes):
+            """Jeton délégué pour cette liste de scopes, ou une exception."""
+            brutes = service_account.Credentials.from_service_account_file(
+                config.chemin_credentials, scopes=scopes
+            )
+            # Délégation à l'échelle du domaine : le compte de service agit
+            # au nom d'un administrateur réel.
+            deleguees = brutes.with_subject(config.admin_impersonation)
+            # Forcer l'obtention du jeton ici : sans cela, un scope refusé
+            # ne se manifesterait qu'à la première requête, et le repli
+            # arriverait trop tard.
+            from google.auth.transport.requests import Request  # type: ignore
+
+            deleguees.refresh(Request())
+            return deleguees
+
+        self.scopes_absents: list[str] = []
+        try:
+            credentials = deleguer(SCOPES + SCOPES_OPTIONNELS)
+        except Exception:
+            credentials = deleguer(SCOPES)
+            self.scopes_absents = list(SCOPES_OPTIONNELS)
+
+        self._service = build("admin", "directory_v1", credentials=credentials)
+
+    @property
+    def appareils_disponibles(self) -> bool:
+        """Faux tant que le droit de lecture des Chromebooks n'est pas accordé."""
+        return SCOPE_APPAREILS not in self.scopes_absents
 
     def tester_connexion(self) -> dict[str, Any]:
         """Vérifie que les credentials fonctionnent — lecture seule.
@@ -660,6 +695,49 @@ class ClientGoogle:
             if not jeton:
                 break
         return membres
+
+    def lister_appareils(self) -> list[dict]:
+        """Tous les Chromebooks du domaine. Lecture seule.
+
+        `projection="FULL"` pour obtenir les annotations et les derniers
+        utilisateurs : c'est là que l'établissement range l'information
+        qui n'existe nulle part ailleurs.
+        """
+        appareils: list[dict] = []
+        jeton = None
+        while True:
+            rep = reessayer(
+                lambda: self._service.chromeosdevices()
+                .list(
+                    customerId="my_customer",
+                    maxResults=200,
+                    projection="FULL",
+                    pageToken=jeton,
+                )
+                .execute()
+            )
+            for a in rep.get("chromeosdevices", []):
+                appareils.append(
+                    {
+                        "serie": a.get("serialNumber") or "",
+                        "modele": a.get("model") or "",
+                        "ou": a.get("orgUnitPath") or "",
+                        "statut": a.get("status") or "",
+                        "etiquette": (a.get("annotatedAssetId") or "").strip(),
+                        "utilisateur_annote": (a.get("annotatedUser") or "").strip(),
+                        "emplacement": (a.get("annotatedLocation") or "").strip(),
+                        "derniers_utilisateurs": [
+                            (u.get("email") or "").lower()
+                            for u in (a.get("recentUsers") or [])
+                            if u.get("email")
+                        ],
+                        "derniere_synchro": a.get("lastSync"),
+                    }
+                )
+            jeton = rep.get("nextPageToken")
+            if not jeton:
+                break
+        return appareils
 
     def creer_groupe(self, adresse: str, nom: str, description: str = "") -> None:
         """Crée un groupe. Échoue si l'adresse est déjà prise.
