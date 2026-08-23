@@ -410,3 +410,45 @@ def test_un_revenu_deja_reequipe_disparait_de_la_liste():
         },
     )
     assert r.a_attribuer == []
+
+
+def test_chaque_appareil_sait_ce_quon_attend_de_lui():
+    """La vue du parc colore l'action attendue, pas la santé technique."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("adele.lemordant@lekreisker.fr", serie="ATTENDU"),
+         _appareil("Prof_08", serie="LIBRE"),
+         _appareil("qui.reste@lekreisker.fr", serie="TRANQUILLE")],
+        [_Prof("LEMORDANT", "Adèle", "Anglais", "sortant"),
+         _Prof("RESTE", "Qui", "Maths", "en_poste")],
+        [_compte("adele.lemordant@lekreisker.fr", "LEMORDANT", "Adèle"),
+         _compte("qui.reste@lekreisker.fr", "RESTE", "Qui")],
+    )
+    par_serie = {a.serie: a for a in r.appareils}
+
+    assert par_serie["ATTENDU"].a_recuperer is True
+    assert par_serie["LIBRE"].libre is True
+    assert par_serie["TRANQUILLE"].a_recuperer is False
+    assert par_serie["TRANQUILLE"].libre is False, "rien à signaler"
+
+
+def test_la_synthese_du_parc_compte_ce_qui_est_la():
+    """Cinq cents appareils vus seulement à travers quatre listes d'actions
+    restent invisibles le reste de l'année."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_avec_synchro("a@x.fr", "A", "2026-08-01T10:00:00.000Z"),
+         _avec_synchro("b@x.fr", "B", "2024-01-01T10:00:00.000Z"),
+         _appareil("c@x.fr", serie="C", statut="DEPROVISIONED")],
+        [], [],
+    )
+    p = r.parc
+
+    assert p.total == 3
+    assert p.actifs == 2
+    assert p.desactives == 1
+    assert p.dormants == 1, "B n'a pas synchronisé depuis plus d'un an"
+    assert p.par_modele[0] == ("Acer Spin 511", 3)
+    assert dict(p.par_ou)["/1. Chromebooks/1. Personnel éducatif"] == 3

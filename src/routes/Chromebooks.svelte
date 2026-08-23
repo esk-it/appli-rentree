@@ -7,6 +7,7 @@
   import PackageOpen from "@lucide/svelte/icons/package-open";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Download from "@lucide/svelte/icons/download";
+  import Chromebook from "$lib/components/Chromebook.svelte";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
@@ -22,6 +23,94 @@
   let enCours = $state(/** @type {string|null} */ (null));
   let attribution = $state(/** @type {any} */ (null));
   let recherche = $state("");
+  let filtreOu = $state("");
+  let filtreModele = $state("");
+  let filtreEtat = $state("");
+
+  /** Ce qu'on voit du parc une fois les filtres posés. */
+  let parcFiltre = $derived.by(() => {
+    if (!flotte) return [];
+    return flotte.tous.filter((a) => {
+      if (filtreOu && a.ou !== filtreOu) return false;
+      if (filtreModele && a.modele !== filtreModele) return false;
+      if (filtreEtat === "dormant" && !(a.dort && a.statut === "ACTIVE")) return false;
+      if (filtreEtat === "desactive" && a.statut === "ACTIVE") return false;
+      if (filtreEtat === "service" && (a.dort || a.statut !== "ACTIVE")) return false;
+      return true;
+    });
+  });
+
+  /**
+   * Ce qu'il y a à faire d'un appareil, en un mot.
+   *
+   * C'est l'action attendue qui colore la ligne, non la santé technique :
+   * regarder un parc, c'est chercher ce qui réclame un geste. Une machine
+   * en service chez quelqu'un qui reste n'a rien à signaler, et c'est très
+   * bien ainsi — elle reste neutre.
+   */
+  function etatDe(a) {
+    if (a.recupere_le) return "rendu";
+    if (a.statut !== "ACTIVE") return "hs";
+    if (a.a_recuperer) return "attendu";
+    // `libre` vient du service, qui sait que le parc de prêt se limite aux
+    // machines du personnel. Une machine élève porte un code d'emplacement
+    // et non une adresse : sans porteur, mais pas disponible pour autant.
+    if (a.libre) return "libre";
+    if (a.dort) return "dormant";
+    return "actif";
+  }
+
+  const ETATS = {
+    attendu: {
+      texte: "à récupérer",
+      ligne: "bg-red-50/70 dark:bg-red-900/15",
+      pastille: "bg-red-500",
+      mot: "text-red-700 dark:text-red-400",
+      dessin: "hs",
+    },
+    libre: {
+      texte: "libre",
+      ligne: "bg-emerald-50/70 dark:bg-emerald-900/15",
+      pastille: "bg-emerald-500",
+      mot: "text-emerald-700 dark:text-emerald-400",
+      dessin: "libre",
+    },
+    rendu: {
+      texte: "rendue",
+      ligne: "bg-emerald-50/40 dark:bg-emerald-900/10",
+      pastille: "bg-emerald-400",
+      mot: "text-emerald-700 dark:text-emerald-400",
+      dessin: "rendu",
+    },
+    dormant: {
+      texte: "en sommeil",
+      ligne: "",
+      pastille: "bg-amber-400",
+      mot: "text-amber-700 dark:text-amber-400",
+      dessin: "dormant",
+    },
+    hs: {
+      texte: "désactivée",
+      ligne: "opacity-60",
+      pastille: "bg-stone-300 dark:bg-stone-600",
+      mot: "text-stone-500 dark:text-stone-400",
+      dessin: "hs",
+    },
+    actif: {
+      texte: "en service",
+      ligne: "",
+      pastille: "bg-stone-300 dark:bg-stone-600",
+      mot: "text-stone-500 dark:text-stone-400",
+      dessin: "actif",
+    },
+  };
+
+  let ousDispo = $derived(
+    [...new Set((flotte?.tous ?? []).map((a) => a.ou).filter(Boolean))].sort(),
+  );
+  let modelesDispo = $derived(
+    [...new Set((flotte?.tous ?? []).map((a) => a.modele).filter(Boolean))].sort(),
+  );
 
   /**
    * Rendre un Chromebook, c'est en avoir un dans les mains et lire le
@@ -89,6 +178,7 @@
     { id: "sans_compte", label: "Sans compte", badge: flotte?.sans_compte?.length ?? 0 },
     { id: "rapproches", label: "Rapprochés", badge: flotte?.rapproches?.length ?? 0 },
     { id: "recherche", label: "Retrouver une machine", badge: 0 },
+    { id: "parc", label: "Le parc", badge: flotte?.parc?.total ?? 0 },
   ]);
 
   /** Comment le compte a été retrouvé, en français. */
@@ -207,7 +297,6 @@
 
       {#if flotte}
         <div class="flex flex-wrap gap-x-6 gap-y-1 border-t border-stone-200 pt-3 text-sm dark:border-stone-700">
-          <span><strong class="tabular-nums">{flotte.nb_appareils}</strong> appareils</span>
           <span><strong class="tabular-nums">{flotte.nb_profs}</strong> enseignants</span>
           {#if flotte.tableau_importe_le}
             <span class="text-stone-500 dark:text-stone-400">
@@ -225,6 +314,71 @@
         {/each}
       {/if}
     </div>
+
+    {#if flotte?.parc}
+      <!-- Ce que le parc **est**, avant ce qu'il y a à y faire. Cinq cents
+           appareils qu'on ne voit qu'à travers quatre listes d'actions
+           restent invisibles le reste de l'année. -->
+      <div class="card flex flex-wrap items-center gap-x-8 gap-y-4 p-4">
+        <div class="flex items-center gap-3">
+          <Chromebook taille={44} etat="actif" />
+          <div>
+            <p class="text-2xl font-semibold tabular-nums leading-none text-stone-900 dark:text-stone-100">
+              {flotte.parc.total}
+            </p>
+            <p class="text-xs text-stone-500 dark:text-stone-400">appareils</p>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-6">
+          <div>
+            <p class="text-lg font-semibold tabular-nums leading-none text-emerald-700 dark:text-emerald-400">
+              {flotte.parc.actifs - flotte.parc.dormants}
+            </p>
+            <p class="text-xs text-stone-500 dark:text-stone-400">en service</p>
+          </div>
+          <button
+            class="text-left transition hover:opacity-80"
+            title="Voir les appareils en sommeil"
+            onclick={() => {
+              vue = "parc";
+              filtreEtat = "dormant";
+            }}
+          >
+            <p class="text-lg font-semibold tabular-nums leading-none text-amber-700 dark:text-amber-400">
+              {flotte.parc.dormants}
+            </p>
+            <p class="text-xs text-stone-500 underline-offset-2 hover:underline dark:text-stone-400">
+              en sommeil
+            </p>
+          </button>
+          <div>
+            <p class="text-lg font-semibold tabular-nums leading-none text-stone-400 dark:text-stone-500">
+              {flotte.parc.desactives}
+            </p>
+            <p class="text-xs text-stone-500 dark:text-stone-400">désactivés</p>
+          </div>
+        </div>
+
+        <!-- Répartition par modèle : une barre proportionnelle en dit plus
+             qu'une liste de nombres, et tient sur une ligne. -->
+        <div class="min-w-56 flex-1">
+          <div class="flex h-2 overflow-hidden rounded-full bg-stone-100 dark:bg-stone-700">
+            {#each flotte.parc.par_modele.slice(0, 6) as [modele, n], i (modele)}
+              <div
+                class="h-full {['bg-emerald-500/80','bg-sky-500/70','bg-indigo-400/70','bg-amber-400/70','bg-stone-400/70','bg-stone-300/70'][i]}"
+                style="width: {(n / flotte.parc.total) * 100}%"
+                title="{modele} — {n}"
+              ></div>
+            {/each}
+          </div>
+          <p class="mt-1.5 truncate text-xs text-stone-500 dark:text-stone-400">
+            {flotte.parc.par_modele.length} modèle(s) ·
+            {flotte.parc.par_modele[0]?.[0]} en tête ({flotte.parc.par_modele[0]?.[1]})
+          </p>
+        </div>
+      </div>
+    {/if}
 
     {#if flotte}
       <div class="card p-3">
@@ -380,6 +534,91 @@
                 {/each}
               </tbody>
             </table>
+          </div>
+
+        {:else if vue === "parc"}
+          <div class="flex flex-wrap items-center gap-2 px-4 py-3">
+            <select class="champ text-xs" bind:value={filtreEtat} aria-label="Filtrer par état">
+              <option value="">Tous les états</option>
+              <option value="service">En service</option>
+              <option value="dormant">En sommeil</option>
+              <option value="desactive">Désactivées</option>
+            </select>
+            <select class="champ max-w-64 text-xs" bind:value={filtreOu} aria-label="Filtrer par emplacement">
+              <option value="">Tous les emplacements</option>
+              {#each ousDispo as o (o)}<option value={o}>{o}</option>{/each}
+            </select>
+            <select class="champ max-w-64 text-xs" bind:value={filtreModele} aria-label="Filtrer par modèle">
+              <option value="">Tous les modèles</option>
+              {#each modelesDispo as m (m)}<option value={m}>{m}</option>{/each}
+            </select>
+            {#if filtreEtat || filtreOu || filtreModele}
+              <button
+                class="rounded-md px-2 py-1 text-xs text-stone-500 transition hover:bg-stone-100
+                       hover:text-stone-800 dark:hover:bg-stone-700 dark:hover:text-stone-200"
+                onclick={() => { filtreEtat = ""; filtreOu = ""; filtreModele = ""; }}
+              >
+                Tout afficher
+              </button>
+            {/if}
+            <span class="ml-auto text-xs tabular-nums text-stone-500 dark:text-stone-400">
+              {parcFiltre.length} / {flotte.parc.total}
+            </span>
+          </div>
+
+          <!-- La légende dit le code couleur une fois pour toutes, plutôt
+               que de le faire deviner ligne par ligne. -->
+          <div class="flex flex-wrap gap-x-5 gap-y-1 border-y border-stone-100 px-4 py-2 text-xs dark:border-stone-700/60">
+            {#each ["attendu", "libre", "dormant", "actif", "hs"] as cle (cle)}
+              <span class="flex items-center gap-1.5 text-stone-500 dark:text-stone-400">
+                <span class="h-2 w-2 rounded-full {ETATS[cle].pastille}"></span>
+                {ETATS[cle].texte}
+              </span>
+            {/each}
+          </div>
+
+          <div class="max-h-[30rem] overflow-auto">
+            <table class="tableau w-full text-sm">
+              <thead>
+                <tr>
+                  <th class="text-left"></th>
+                  <th class="text-left">Étiquette</th>
+                  <th class="text-left">Modèle</th>
+                  <th class="text-left">N° de série</th>
+                  <th class="text-left">Emplacement</th>
+                  <th class="text-left">Dernière synchro</th>
+                  <th class="text-left">État</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each parcFiltre.slice(0, 400) as a (a.serie)}
+                  {@const e = ETATS[etatDe(a)]}
+                  <tr class={e.ligne}>
+                    <td class="py-1 pl-3 pr-0">
+                      <Chromebook taille={30} etat={e.dessin} />
+                    </td>
+                    <td class="whitespace-nowrap font-mono text-xs">{a.etiquette || "—"}</td>
+                    <td class="whitespace-nowrap text-xs text-stone-600 dark:text-stone-400">
+                      {a.modele}
+                    </td>
+                    <td class="whitespace-nowrap font-mono text-xs">{a.serie}</td>
+                    <td class="whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">
+                      {a.ou.replace("/1. Chromebooks/", "")}
+                    </td>
+                    <td class="whitespace-nowrap text-xs text-stone-500 dark:text-stone-400">
+                      {jour(a.derniere_synchro)}
+                    </td>
+                    <td class="whitespace-nowrap text-xs {e.mot}">{e.texte}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+            {#if parcFiltre.length > 400}
+              <p class="px-4 py-3 text-xs text-stone-500 dark:text-stone-400">
+                400 premiers appareils affichés — affine les filtres pour voir
+                les {parcFiltre.length - 400} autres.
+              </p>
+            {/if}
           </div>
 
         {:else if vue === "recherche"}

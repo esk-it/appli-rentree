@@ -37,6 +37,14 @@ on en a besoin. D'où `chercher_appareil`, qui accepte un numéro de série,
 une étiquette, ou une adresse, et rend ce que Google sait de l'appareil,
 quel qu'en soit le porteur déclaré.
 
+## Le parc pour lui-même
+
+Les quatre listes d'action — à réclamer, à équiper, libres, à vérifier —
+répondent à la rentrée. Elles ne disent rien du parc : combien de
+machines, de quels modèles, où, et combien ne donnent plus signe de vie.
+Cinq cents appareils qu'on ne peut regarder qu'à travers ce qu'il y a à en
+faire restent invisibles le reste de l'année.
+
 ## Ce qu'il en tire
 
 À qui réclamer une machine — les partants qui en détiennent une. À qui en
@@ -125,6 +133,10 @@ class Appareil:
     """Date de restitution notée dans l'application."""
     recupere_de: str | None = None
     """Adresse de qui l'a rendue — c'est elle qui trahit un retour."""
+    a_recuperer: bool = False
+    """Son porteur quitte l'établissement : la machine est attendue."""
+    libre: bool = False
+    """Parc de prêt, ou étiquetée au nom d'un compte qui n'existe plus."""
     attribue_a: str | None = None
     """Adresse à qui elle a été confiée, avant mise à jour de l'étiquette."""
 
@@ -182,6 +194,19 @@ class LigneProf:
 
 
 @dataclass
+class SyntheseParc:
+    """Ce que le parc est, indépendamment de ce qu'il y a à y faire."""
+
+    total: int = 0
+    actifs: int = 0
+    desactives: int = 0
+    dormants: int = 0
+    jamais_vus: int = 0
+    par_modele: list[tuple[str, int]] = field(default_factory=list)
+    par_ou: list[tuple[str, int]] = field(default_factory=list)
+
+
+@dataclass
 class RapportFlotte:
     appareils: list[Appareil] = field(default_factory=list)
     profs: list[LigneProf] = field(default_factory=list)
@@ -200,6 +225,7 @@ class RapportFlotte:
     etiquettes_a_mettre_a_jour: list[Appareil] = field(default_factory=list)
     """Confiées à quelqu'un dans l'application, mais l'étiquette dit autre chose."""
     recuperees: list[Appareil] = field(default_factory=list)
+    parc: SyntheseParc = field(default_factory=SyntheseParc)
     dormantes: list[Appareil] = field(default_factory=list)
     """Étiquetées au nom de quelqu'un, mais sans signe de vie depuis un an."""
     avertissements: list[str] = field(default_factory=list)
@@ -362,6 +388,30 @@ def analyser_flotte(
             "les connexions démentent. Deux machines échangées par erreur se "
             "voient ici — le programme ne tranche pas, il montre."
         )
+    # Marquer les appareils selon ce qu'il y a à en faire : c'est cela que
+    # la vue du parc colore, et non l'état technique de la machine.
+    attendus = {a.serie for p in rapport.a_recuperer for a in p.appareils}
+    libres = {a.serie for a in rapport.disponibles}
+    for a in rapport.appareils:
+        a.a_recuperer = a.serie in attendus
+        a.libre = a.serie in libres
+
+    from collections import Counter
+
+    rapport.parc = SyntheseParc(
+        total=len(rapport.appareils),
+        actifs=sum(1 for a in rapport.appareils if a.est_actif),
+        desactives=sum(1 for a in rapport.appareils if not a.est_actif),
+        dormants=sum(1 for a in rapport.appareils if a.est_actif and a.dort),
+        jamais_vus=sum(
+            1 for a in rapport.appareils if a.est_actif and not a.derniere_synchro
+        ),
+        par_modele=Counter(
+            a.modele or "modèle inconnu" for a in rapport.appareils
+        ).most_common(),
+        par_ou=Counter(a.ou or "sans OU" for a in rapport.appareils).most_common(),
+    )
+
     rapport.dormantes = [
         a for a in rapport.appareils
         if a.porteur and a.dort and a.est_actif and not a.recupere_le

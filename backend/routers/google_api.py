@@ -931,6 +931,8 @@ class AppareilOut(BaseModel):
     recupere_le: str | None = None
     attribue_a: str | None = None
     dort: bool = False
+    a_recuperer: bool = False
+    libre: bool = False
     serie: str
     modele: str
     ou: str
@@ -962,7 +964,18 @@ class DiscordanceOut(BaseModel):
     constates: list[str]
 
 
+class ParcOut(BaseModel):
+    total: int
+    actifs: int
+    desactives: int
+    dormants: int
+    jamais_vus: int
+    par_modele: list[tuple[str, int]]
+    par_ou: list[tuple[str, int]]
+
+
 class FlotteOut(BaseModel):
+    parc: ParcOut | None = None
     nb_appareils: int
     nb_profs: int
     nb_a_recuperer: int
@@ -992,6 +1005,7 @@ def _appareil_out(a) -> AppareilOut:
         derniers_utilisateurs=a.derniers_utilisateurs,
         derniere_synchro=a.derniere_synchro,
         recupere_le=a.recupere_le, attribue_a=a.attribue_a, dort=a.dort,
+        a_recuperer=a.a_recuperer, libre=a.libre,
     )
 
 
@@ -1130,10 +1144,10 @@ def _croiser(session, profs, legende, importe_le) -> FlotteOut:
         ],
         recuperees=[_appareil_out(a) for a in r.recuperees],
         dormantes=[_appareil_out(a) for a in r.dormantes],
-        tous=[
-            _appareil_out(a) for a in r.appareils
-            if a.ou.startswith("/1. Chromebooks/1. Personnel")
-        ],
+        # Tout le parc, et non les seuls appareils du personnel : la vue
+        # « Parc » sert justement à voir ce que les listes d'action cachent.
+        tous=[_appareil_out(a) for a in r.appareils],
+        parc=ParcOut(**vars(r.parc)),
         discordances=[
             DiscordanceOut(
                 appareil=_appareil_out(d.appareil),
