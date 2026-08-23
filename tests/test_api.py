@@ -238,3 +238,71 @@ def test_patch_email_refuse_une_adresse_malformee(
 def test_patch_email_personne_inconnue(client):
     r = client.patch("/api/personnes/999999/email", json={"email": "a@b.fr"})
     assert r.status_code == 404
+
+
+def test_fiche_rend_le_parcours_multi_annees(client, session, site_factory,
+                                             annee_factory, personne_factory):
+    """L'écran n'affichait que la classe de l'année préparée.
+
+    Savoir d'où vient un élève — quelle classe l'an dernier — est ce qui
+    permet de juger un cas douteux sans ouvrir Charlemagne à côté.
+    """
+    from backend.models import CompteCible, Snapshot
+
+    site = site_factory("NDK")
+    a1 = annee_factory("2025-2026")
+    a2 = annee_factory("2026-2027")
+    p = personne_factory(nom="ABIVEN", prenom="Maël", login="mabiven1",
+                         site_id=site.id)
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=a1.id,
+                         nom="ABIVEN", prenom="Maël", classe="1_G1", regime="D"))
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=a2.id,
+                         nom="ABIVEN", prenom="Maël", classe="T_G1A", regime="D"))
+    session.add(CompteCible(personne_id=p.id, cible="google", etat="actif",
+                            ou_appliquee="/3. NDK/NDK2026/1_G1"))
+    session.commit()
+
+    d = client.get(f"/api/personnes/{p.id}/fiche").json()
+
+    assert d["personne"]["nom"] == "ABIVEN"
+    assert [(a["annee"], a["classe"]) for a in d["parcours"]] == [
+        ("2026-2027", "T_G1A"),
+        ("2025-2026", "1_G1"),
+    ], "de la plus récente à la plus ancienne"
+    assert d["parcours"][0]["regime"] == "D"
+    assert d["comptes"][0]["ou_appliquee"] == "/3. NDK/NDK2026/1_G1"
+
+
+def test_fiche_dune_personne_sans_annee(client, session, personne_factory):
+    """Un adulte n'a pas de snapshot : la fiche le dit plutôt que d'échouer."""
+    p = personne_factory(nom="DUPONT", prenom="Jean", login="jdupont")
+    session.commit()
+
+    d = client.get(f"/api/personnes/{p.id}/fiche").json()
+    assert d["parcours"] == []
+    assert d["comptes"] == []
+
+
+def test_fiche_ne_garde_quun_snapshot_par_annee(client, session, annee_factory,
+                                                personne_factory):
+    """Un export rejoué crée un second snapshot : on garde le plus récent."""
+    from datetime import datetime, timedelta
+
+    from backend.models import Snapshot
+
+    annee = annee_factory("2026-2027")
+    p = personne_factory(nom="X", prenom="Y", login="xy")
+    ancien = datetime.utcnow() - timedelta(days=2)
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=annee.id,
+                         nom="X", prenom="Y", classe="ANCIENNE",
+                         date_ingestion=ancien))
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=annee.id,
+                         nom="X", prenom="Y", classe="RECENTE"))
+    session.commit()
+
+    d = client.get(f"/api/personnes/{p.id}/fiche").json()
+    assert [a["classe"] for a in d["parcours"]] == ["RECENTE"]
+
+
+def test_fiche_personne_inexistante(client):
+    assert client.get("/api/personnes/999999/fiche").status_code == 404

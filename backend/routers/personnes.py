@@ -189,3 +189,90 @@ def definir_email_constate(
     session.commit()
     sites_par_id = {s.id: s for s in session.query(Site).all()}
     return _serialiser(p, sites_par_id)
+
+class AnneeVecueOut(BaseModel):
+    annee: str
+    classe: str | None
+    niveau: str | None
+    regime: str | None
+    date_ingestion: str | None
+
+
+class CompteOut(BaseModel):
+    cible: str
+    etat: str
+    ou_appliquee: str | None
+    ou_constatee: str | None
+    date_prevue_purge: str | None
+    verification: str | None
+    note: str | None
+
+
+class FicheOut(BaseModel):
+    personne: PersonneOut
+    parcours: list[AnneeVecueOut]
+    """Une ligne par année vécue, de la plus récente à la plus ancienne."""
+    comptes: list[CompteOut]
+
+
+@router.get("/{personne_id}/fiche", response_model=FicheOut)
+def fiche(personne_id: int, session: Session = Depends(db_session)) -> FicheOut:
+    """Tout ce que le référentiel sait d'une personne, en un appel.
+
+    L'écran affichait la classe de l'année préparée et rien d'autre, alors
+    que la base garde chaque année vécue. Savoir d'où vient un élève —
+    quelle classe l'an dernier, quel régime — est ce qui permet de juger un
+    cas douteux sans ouvrir Charlemagne à côté.
+    """
+    from backend.models import AnneeScolaire, CompteCible, Snapshot
+
+    personne = session.query(Personne).filter_by(id=personne_id).one_or_none()
+    if personne is None:
+        raise HTTPException(404, f"Personne {personne_id} introuvable")
+
+    lignes = (
+        session.query(Snapshot, AnneeScolaire)
+        .join(AnneeScolaire, Snapshot.annee_scolaire_id == AnneeScolaire.id)
+        .filter(Snapshot.personne_id == personne_id)
+        .all()
+    )
+    # Un même élève peut avoir plusieurs snapshots pour une année, si
+    # l'export a été rejoué : on garde le plus récent de chacune.
+    par_annee: dict[str, tuple] = {}
+    for sn, an in lignes:
+        garde = par_annee.get(an.libelle)
+        if garde is None or sn.date_ingestion > garde[0].date_ingestion:
+            par_annee[an.libelle] = (sn, an)
+
+    parcours = [
+        AnneeVecueOut(
+            annee=libelle,
+            classe=sn.classe,
+            niveau=sn.niveau,
+            regime=getattr(sn, "regime", None),
+            date_ingestion=sn.date_ingestion.isoformat() if sn.date_ingestion else None,
+        )
+        for libelle, (sn, _) in sorted(par_annee.items(), reverse=True)
+    ]
+
+    comptes = [
+        CompteOut(
+            cible=c.cible,
+            etat=c.etat,
+            ou_appliquee=c.ou_appliquee,
+            ou_constatee=getattr(c, "ou_constatee", None),
+            date_prevue_purge=(
+                c.date_prevue_purge.isoformat() if c.date_prevue_purge else None
+            ),
+            verification=getattr(c, "verification", None),
+            note=c.note,
+        )
+        for c in session.query(CompteCible).filter_by(personne_id=personne_id).all()
+    ]
+
+    sites_par_id = {s_.id: s_ for s_ in session.query(Site).all()}
+    return FicheOut(
+        personne=_serialiser(personne, sites_par_id),
+        parcours=parcours,
+        comptes=comptes,
+    )

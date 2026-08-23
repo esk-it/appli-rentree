@@ -58,6 +58,10 @@ export async function health() {
 // Personnes — référentiel d'identité
 // ---------------------------------------------------------------------------
 export const personnes = {
+  /** Tout ce que le référentiel sait d'une personne : parcours et comptes. */
+  async fiche(id) {
+    return jsonOrThrow(await fetch(`${BASE}/personnes/${id}/fiche`));
+  },
   async lister({ type = null, site = null } = {}) {
     const p = new URLSearchParams();
     if (type) p.set("type", type);
