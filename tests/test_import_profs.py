@@ -172,3 +172,83 @@ def test_fichier_absent(tmp_path):
 
     with pytest.raises(ValueError, match="introuvable"):
         lire_fichier_profs(tmp_path / "nexiste-pas.xlsx")
+
+
+def test_le_tableau_lu_est_conserve(session, tmp_path, annee_factory):
+    """Un import charge des données ; il ne les emprunte pas le temps d'un écran."""
+    from backend.services.import_profs import (
+        enregistrer,
+        lire_enregistres,
+        lire_fichier_profs,
+    )
+
+    annee = annee_factory("2026-2027")
+    f = _classeur(tmp_path, [
+        ("M.", "ALDRIN", "Thierry", "Technologie", JAUNE),
+        ("Mme", "CAREME", "Mégane", "Maths", BLEU),
+    ], LEGENDE)
+
+    n = enregistrer(session, lire_fichier_profs(f), annee_id=annee.id)
+    assert n == 2
+
+    relus = lire_enregistres(session, annee_id=annee.id)
+    assert [(p.nom, p.code) for p in relus] == [
+        ("ALDRIN", "sortant"), ("CAREME", "arrivant"),
+    ]
+
+
+def test_un_reimport_remplace_lannee_concernee(session, tmp_path, annee_factory):
+    """Un enseignant retiré du classeur ne doit pas y survivre indéfiniment."""
+    from backend.services.import_profs import (
+        enregistrer,
+        lire_enregistres,
+        lire_fichier_profs,
+    )
+
+    annee = annee_factory("2026-2027")
+    enregistrer(session, lire_fichier_profs(_classeur(tmp_path, [
+        ("M.", "PARTI", "Jean", "Maths", None),
+        ("Mme", "RESTE", "Anne", "SVT", None),
+    ], LEGENDE, nom="v1.xlsx")), annee_id=annee.id)
+
+    enregistrer(session, lire_fichier_profs(_classeur(tmp_path, [
+        ("Mme", "RESTE", "Anne", "SVT", None),
+    ], LEGENDE, nom="v2.xlsx")), annee_id=annee.id)
+
+    assert [p.nom for p in lire_enregistres(session, annee_id=annee.id)] == ["RESTE"]
+
+
+def test_deux_annees_coexistent(session, tmp_path, annee_factory):
+    """Le tableau d'une rentrée s'ajoute, il ne remplace pas le précédent."""
+    from backend.services.import_profs import (
+        enregistrer,
+        lire_enregistres,
+        lire_fichier_profs,
+    )
+
+    a1 = annee_factory("2025-2026")
+    a2 = annee_factory("2026-2027")
+    enregistrer(session, lire_fichier_profs(_classeur(tmp_path, [
+        ("M.", "ANCIEN", "Paul", "Maths", None)], LEGENDE, nom="a.xlsx")),
+        annee_id=a1.id)
+    enregistrer(session, lire_fichier_profs(_classeur(tmp_path, [
+        ("Mme", "NOUVELLE", "Zoé", "SVT", None)], LEGENDE, nom="b.xlsx")),
+        annee_id=a2.id)
+
+    assert [p.nom for p in lire_enregistres(session, annee_id=a1.id)] == ["ANCIEN"]
+    assert [p.nom for p in lire_enregistres(session, annee_id=a2.id)] == ["NOUVELLE"]
+
+
+def test_la_date_dimport_est_connue(session, tmp_path, annee_factory):
+    from backend.services.import_profs import (
+        date_import,
+        enregistrer,
+        lire_fichier_profs,
+    )
+
+    annee = annee_factory("2026-2027")
+    assert date_import(session, annee_id=annee.id) is None
+
+    enregistrer(session, lire_fichier_profs(_classeur(tmp_path, [
+        ("M.", "X", "Un", "Maths", None)], LEGENDE)), annee_id=annee.id)
+    assert date_import(session, annee_id=annee.id) is not None

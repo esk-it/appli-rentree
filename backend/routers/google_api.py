@@ -980,6 +980,9 @@ class FlotteOut(BaseModel):
     legende: list[dict]
     nb_par_code: dict[str, int]
     avertissements: list[str]
+    tableau_importe_le: str | None = None
+    """Quand le tableau des professeurs a été chargé. `None` s'il ne l'a
+    jamais été — l'écran sait alors qu'il doit le réclamer."""
 
 
 def _appareil_out(a) -> AppareilOut:
@@ -1001,22 +1004,87 @@ def _prof_out(p) -> ProfAvecAppareilsOut:
     )
 
 
+def _annee_courante(session) -> int:
+    """L'année scolaire la plus récente — celle qu'on prépare."""
+    from backend.models import AnneeScolaire
+
+    annee = (
+        session.query(AnneeScolaire).order_by(AnneeScolaire.libelle.desc()).first()
+    )
+    if annee is None:
+        raise HTTPException(
+            400,
+            "Aucune année scolaire n'est chargée : ingère d'abord un export "
+            "Charlemagne.",
+        )
+    return annee.id
+
+
+@router.get("/chromebooks", response_model=FlotteOut)
+def flotte_enregistree(session: Session = Depends(db_session)) -> FlotteOut:
+    """La flotte croisée au tableau **déjà conservé**, sans rien redemander.
+
+    Un import charge des données ; il ne les emprunte pas le temps d'un
+    affichage. Tant qu'un tableau a été chargé pour l'année en cours,
+    l'écran s'ouvre sans réclamer le classeur.
+    """
+    from backend.services.import_profs import date_import, lire_enregistres
+
+    annee_id = _annee_courante(session)
+    profs = lire_enregistres(session, annee_id=annee_id)
+    if not profs:
+        raise HTTPException(
+            404,
+            "Aucun tableau des professeurs n'a été chargé pour cette année. "
+            "Dépose le classeur une fois : il sera conservé ensuite.",
+        )
+    return _croiser(session, profs, [], date_import(session, annee_id=annee_id))
+
+
 @router.post("/chromebooks", response_model=FlotteOut)
 async def analyser_chromebooks(
     fichier: UploadFile = File(..., description="Tableau des professeurs (.xlsx)"),
     session: Session = Depends(db_session),
 ) -> FlotteOut:
-    """Croise la flotte, le tableau des enseignants et les comptes Google.
+    """Charge le tableau des enseignants, le conserve, et croise la flotte.
 
-    Lecture seule de bout en bout : le droit demandé à Google ne permet pas
-    d'écrire, et réattribuer une machine reste un geste physique. Le
-    classeur n'est pas conservé — il est lu puis effacé.
+    Aucune écriture dans Google : le droit demandé est en lecture seule, et
+    réattribuer une machine reste un geste physique. Le classeur, lui, est
+    lu puis effacé — ce sont les lignes qu'il contient qui sont gardées.
     """
     from pathlib import Path
     from tempfile import NamedTemporaryFile
 
+    from backend.services.import_profs import (
+        date_import,
+        enregistrer,
+        lire_fichier_profs,
+    )
+
+    # La connexion à Google est vérifiée par `_croiser`, plus bas : la
+    # construire ici aussi demanderait un second jeton pour rien.
+    contenu = await fichier.read()
+    with NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
+        tmp.write(contenu)
+        chemin = Path(tmp.name)
+    try:
+        rapport_profs = lire_fichier_profs(chemin)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    finally:
+        chemin.unlink(missing_ok=True)
+
+    annee_id = _annee_courante(session)
+    enregistrer(session, rapport_profs, annee_id=annee_id)
+    return _croiser(
+        session, rapport_profs.profs, rapport_profs.legende,
+        date_import(session, annee_id=annee_id),
+    )
+
+
+def _croiser(session, profs, legende, importe_le) -> FlotteOut:
+    """Confronte le tableau des enseignants à la flotte et aux comptes."""
     from backend.services.chromebooks import analyser_flotte
-    from backend.services.import_profs import lire_fichier_profs
 
     config = charger_config(session)
     try:
@@ -1031,18 +1099,6 @@ async def analyser_chromebooks(
             "admin.directory.device.chromeos.readonly à la délégation, dans "
             "la console d'administration.",
         )
-
-    contenu = await fichier.read()
-    with NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-        tmp.write(contenu)
-        chemin = Path(tmp.name)
-    try:
-        rapport_profs = lire_fichier_profs(chemin)
-    except ValueError as e:
-        raise HTTPException(400, str(e)) from None
-    finally:
-        chemin.unlink(missing_ok=True)
-
     try:
         appareils = client.lister_appareils()
         comptes = client.lister_utilisateurs()
@@ -1059,7 +1115,7 @@ async def analyser_chromebooks(
         }
         for x in session.query(SuiviChromebook).all()
     }
-    r = analyser_flotte(appareils, rapport_profs.profs, comptes, suivi=suivi)
+    r = analyser_flotte(appareils, profs, comptes, suivi=suivi)
     return FlotteOut(
         nb_appareils=len(r.appareils),
         nb_profs=len(r.profs),
@@ -1086,9 +1142,13 @@ async def analyser_chromebooks(
             )
             for d in r.discordances
         ],
-        legende=[vars(e) for e in rapport_profs.legende],
-        nb_par_code=rapport_profs.nb_par_code,
-        avertissements=rapport_profs.avertissements + r.avertissements,
+        legende=[vars(e) for e in legende],
+        nb_par_code={
+            code: sum(1 for p in profs if p.code == code)
+            for code in sorted({p.code for p in profs})
+        },
+        avertissements=r.avertissements,
+        tableau_importe_le=importe_le.isoformat() if importe_le else None,
     )
 
 

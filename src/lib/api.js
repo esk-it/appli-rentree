@@ -458,6 +458,10 @@ export const googleApi = {
       }),
     );
   },
+  /** La flotte croisée au tableau déjà conservé — sans redemander le fichier. */
+  async flotteEnregistree() {
+    return jsonOrThrow(await fetch(`${BASE}/google/chromebooks`));
+  },
   /** Croise la flotte Chromebook, le tableau des profs et les comptes. */
   async analyserChromebooks({ fichier }) {
     const corps = new FormData();

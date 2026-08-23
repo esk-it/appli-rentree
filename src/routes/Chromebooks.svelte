@@ -148,6 +148,14 @@
       statutApi = await googleApi.statut();
     } catch {
       statutApi = null;
+      return;
+    }
+    // Le tableau des professeurs a été conservé lors du dernier import :
+    // l'écran s'ouvre garni, sans réclamer à nouveau le classeur.
+    try {
+      flotte = await googleApi.flotteEnregistree();
+    } catch {
+      flotte = null;
     }
   });
 </script>
@@ -181,7 +189,7 @@
       <div class="flex flex-wrap items-center gap-3">
         <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
           <Upload class="h-4 w-4" />
-          {fichier?.name ?? "Choisir le tableau des professeurs (.xlsx)"}
+          {fichier?.name ?? (flotte ? "Charger un tableau à jour (.xlsx)" : "Choisir le tableau des professeurs (.xlsx)")}
           <input
             type="file"
             accept=".xlsx"
@@ -190,7 +198,7 @@
           />
         </label>
         <Bouton variante="primary" occupe={chargement} disabled={!fichier} onclick={analyser}>
-          Analyser la flotte
+          {flotte ? "Remplacer le tableau" : "Analyser la flotte"}
         </Bouton>
         {#if flotte}
           <Bouton icon={Download} classe="ml-auto" onclick={exporter}>Export Excel</Bouton>
@@ -201,6 +209,11 @@
         <div class="flex flex-wrap gap-x-6 gap-y-1 border-t border-stone-200 pt-3 text-sm dark:border-stone-700">
           <span><strong class="tabular-nums">{flotte.nb_appareils}</strong> appareils</span>
           <span><strong class="tabular-nums">{flotte.nb_profs}</strong> enseignants</span>
+          {#if flotte.tableau_importe_le}
+            <span class="text-stone-500 dark:text-stone-400">
+              tableau chargé le {jour(flotte.tableau_importe_le)}
+            </span>
+          {/if}
           {#each Object.entries(flotte.nb_par_code) as [code, n]}
             <span class="text-stone-500 dark:text-stone-400">{code} : {n}</span>
           {/each}

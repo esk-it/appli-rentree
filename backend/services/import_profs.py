@@ -27,6 +27,13 @@ Une ligne qui porte **deux personnes** — « CLOITRE / FUMAT », prénoms
 mais il ne l'affirme pas : la ligne est lue telle quelle et signalée, à
 charge d'un humain de la démêler s'il faut créer deux comptes.
 
+## L'import garde ce qu'il lit
+
+Lire un classeur et le jeter aussitôt oblige à le redemander à chaque
+consultation. `enregistrer` conserve donc le résultat, rattaché à une
+année scolaire : le tableau de la rentrée suivante s'ajoute au lieu de
+remplacer, et un réimport ne défait que l'année qu'il concerne.
+
 ## Sur la fragilité de la couleur
 
 Elle est réelle : recolorer une cellule par mégarde change un statut sans
@@ -304,3 +311,66 @@ def lire_fichier_profs(chemin: str | Path) -> RapportProfs:
     if not rapport.profs:
         rapport.avertissements.append("Aucun enseignant lu dans ce classeur.")
     return rapport
+
+
+def enregistrer(session, rapport: RapportProfs, *, annee_id: int) -> int:
+    """Conserve le tableau lu, pour l'année donnée. Retourne le nombre de lignes.
+
+    L'année est remplacée en entier : un classeur corrigé doit effacer sa
+    version précédente, sinon un enseignant retiré du tableau y survivrait
+    indéfiniment.
+    """
+    from backend.models import MouvementProf
+
+    session.query(MouvementProf).filter_by(annee_scolaire_id=annee_id).delete()
+    vus: set[tuple[str, str]] = set()
+    for p in rapport.profs:
+        cle = (p.nom, p.prenom)
+        if cle in vus:
+            # Deux lignes identiques : la contrainte d'unicité les refuserait,
+            # et elles seraient de toute façon indiscernables ensuite.
+            continue
+        vus.add(cle)
+        session.add(
+            MouvementProf(
+                annee_scolaire_id=annee_id,
+                nom=p.nom, prenom=p.prenom, civilite=p.civilite,
+                discipline=p.discipline, code=p.code, libelle=p.libelle,
+                couleur=p.couleur, ligne=p.ligne,
+            )
+        )
+    session.commit()
+    return len(vus)
+
+
+def lire_enregistres(session, *, annee_id: int) -> list[Prof]:
+    """Le tableau conservé pour cette année, sous la même forme que la lecture."""
+    from backend.models import MouvementProf
+
+    lignes = (
+        session.query(MouvementProf)
+        .filter_by(annee_scolaire_id=annee_id)
+        .order_by(MouvementProf.nom, MouvementProf.prenom)
+        .all()
+    )
+    return [
+        Prof(
+            nom=x.nom, prenom=x.prenom, discipline=x.discipline or "",
+            civilite=x.civilite or "", ligne=x.ligne or 0, couleur=x.couleur,
+            code=x.code, libelle=x.libelle or "",
+        )
+        for x in lignes
+    ]
+
+
+def date_import(session, *, annee_id: int):
+    """Quand ce tableau a été chargé, ou `None` s'il ne l'a jamais été."""
+    from backend.models import MouvementProf
+
+    ligne = (
+        session.query(MouvementProf)
+        .filter_by(annee_scolaire_id=annee_id)
+        .order_by(MouvementProf.date_import.desc())
+        .first()
+    )
+    return ligne.date_import if ligne else None
