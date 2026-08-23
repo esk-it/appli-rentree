@@ -42,10 +42,11 @@
   import Exports from "./routes/Exports.svelte";
   import Suivi from "./routes/Suivi.svelte";
   import Statistiques from "./routes/Statistiques.svelte";
-  import { arbitrages } from "$lib/api.js";
+  import { annees as anneesApi, arbitrages, statistiques } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
   import Aide from "./routes/Aide.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
+  import FriseRentree from "$lib/components/FriseRentree.svelte";
   import ToasterContainer from "$lib/components/ToasterContainer.svelte";
   import { notify } from "$lib/toasts.js";
   import { theme, basculerTheme } from "$lib/theme.js";
@@ -140,6 +141,47 @@
   // Une intention formulée dans un écran et honorée dans un autre : la
   // Conformité constate le décalage d'année, la Table le corrige.
   let rotationDemandee = $state(/** @type {any} */ (null));
+
+  /**
+   * Ce que le référentiel permet de conclure sur les étapes de préparation.
+   *
+   * Les étapes de bascule n'y figurent pas : elles se constatent dans
+   * Google, pas ici, et une case qui ne se coche jamais serait fausse
+   * autant que décourageante.
+   */
+  let etapesFaites = $state(/** @type {Record<string, boolean>} */ ({}));
+
+  async function relireAvancement() {
+    try {
+      const [ref, anomalies, annees] = await Promise.all([
+        statistiques.referentiel(),
+        statistiques.anomalies(),
+        anneesApi.lister(),
+      ]);
+      const horsTable = (anomalies?.anomalies ?? []).some(
+        (a) => a.type === "classe_hors_table",
+      );
+      etapesFaites = {
+        sites: (ref?.nb_sites ?? 0) > 0,
+        table: (ref?.nb_classes_table ?? 0) > 0 && !horsTable,
+        amorcage: (ref?.nb_personnes_total ?? 0) > 0,
+        ingestion: annees.length > 0,
+        arbitrage:
+          annees.length > 0 && (ref?.nb_arbitrages_en_attente ?? 0) === 0,
+      };
+    } catch {
+      // Le backend n'est pas encore prêt : la frise reste neutre plutôt
+      // que d'annoncer des étapes non faites qui le sont peut-être.
+      etapesFaites = {};
+    }
+  }
+
+  // Relu à chaque changement d'écran : une étape peut venir d'être franchie
+  // dans celui qu'on quitte, et l'appel est local.
+  $effect(() => {
+    page;
+    relireAvancement();
+  });
 
   // Compteur d'arbitrages en attente — sert de badge dans la sidebar
   let nbArbitragesEnAttente = $state(0);
@@ -445,6 +487,11 @@
 
   <!-- Zone principale -->
   <main class="flex-1 overflow-auto bg-stone-50 dark:bg-stone-900">
+    <!-- La frise reste hors du bloc `{#key}` : la rejouer à chaque
+         navigation la ferait clignoter, alors qu'elle est justement le
+         repère fixe pendant qu'on avance. -->
+    <FriseRentree {page} faites={etapesFaites} onNaviguer={(p) => (page = p)} />
+
     <!-- `{#key}` reconstruit le bloc à chaque navigation, ce qui relance
          l'animation d'apparition — sinon Svelte réutilise le nœud et rien
          ne bouge visuellement. -->
