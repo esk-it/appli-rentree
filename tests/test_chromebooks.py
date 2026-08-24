@@ -979,3 +979,50 @@ def test_la_flotte_se_lit_meme_sans_aucun_porteur():
     )
     assert len(r.appareils) == 2
     assert all(a.autres_machines_actives == 0 for a in r.appareils)
+
+
+def test_une_machine_du_personnel_sans_porteur_est_presentee_pour_arbitrage():
+    """Ramener un appareil dans l'OU du personnel le rend au parc.
+
+    Mais son étiquette peut encore porter un code de salle : rien ne dit
+    alors si quelqu'un la tient. La déclarer libre serait deviner ; la
+    taire la faisait disparaître de toutes les listes.
+    """
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [{
+            "serie": "S1", "modele": "Acer", "ou": "/1. Chromebooks/1. Personnel",
+            "statut": "ACTIVE", "etiquette": "K-B5-13-08",
+            "derniers_utilisateurs": [], "emplacement": "",
+            "derniere_synchro": "2026-08-20T09:00:00.000Z",
+        }],
+        [], [],
+    )
+    assert [a.serie for a in r.a_arbitrer] == ["S1"]
+    assert r.disponibles == [], "elle n'est pas déclarée libre d'office"
+    assert "ne désigne personne" in r.appareils[0].motif_indisponible
+
+
+def test_aucune_machine_ne_reste_sans_explication():
+    """Une machine qui n'est ni tenue, ni libre, doit dire pourquoi."""
+    from backend.services.chromebooks import analyser_flotte
+
+    brut = [
+        {"serie": "A", "modele": "Acer", "ou": "/1. Chromebooks/1. Personnel",
+         "statut": "ACTIVE", "etiquette": "DDFPT", "derniers_utilisateurs": [],
+         "emplacement": "", "derniere_synchro": "2026-08-20T09:00:00.000Z"},
+        {"serie": "B", "modele": "Acer", "ou": "/1. Chromebooks/2. Eleves",
+         "statut": "ACTIVE", "etiquette": "K-B5-13-09", "derniers_utilisateurs": [],
+         "emplacement": "", "derniere_synchro": "2026-08-20T09:00:00.000Z"},
+        {"serie": "C", "modele": "Acer", "ou": "/1. Chromebooks/1. Personnel",
+         "statut": "DEPROVISIONED", "etiquette": "Stagiaire 8",
+         "derniers_utilisateurs": [], "emplacement": "",
+         "derniere_synchro": "2021-04-02T10:14:21.414Z"},
+    ]
+    r = analyser_flotte(brut, [], [])
+    muettes = [
+        a.serie for a in r.appareils
+        if not a.libre and not a.attribue_a and not a.motif_indisponible
+    ]
+    assert muettes == []

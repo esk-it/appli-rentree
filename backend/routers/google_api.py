@@ -11,7 +11,7 @@ suspendu et déplacé en OU d'archivage, jamais effacé.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -1023,6 +1023,10 @@ class FlotteOut(BaseModel):
     tableau_importe_le: str | None = None
     """Quand le tableau des professeurs a été chargé. `None` s'il ne l'a
     jamais été — l'écran sait alors qu'il doit le réclamer."""
+    a_arbitrer: list[AppareilOut] = []
+    lu_le: str | None = None
+    """Instant de la lecture chez Google. Un écran ouvert le matin montre
+    l'état du matin ; sans cette date, rien ne le dit."""
 
 
 def _appareil_out(a) -> AppareilOut:
@@ -1166,6 +1170,7 @@ def _croiser(session, profs, legende, importe_le) -> FlotteOut:
         for x in session.query(SuiviChromebook).all()
     }
     r = analyser_flotte(appareils, profs, comptes, suivi=suivi)
+    lu_le = datetime.now().isoformat(timespec="seconds")
     return FlotteOut(
         nb_appareils=len(r.appareils),
         nb_profs=len(r.profs),
@@ -1209,6 +1214,8 @@ def _croiser(session, profs, legende, importe_le) -> FlotteOut:
         },
         avertissements=r.avertissements,
         tableau_importe_le=importe_le.isoformat() if importe_le else None,
+        a_arbitrer=[_appareil_out(a) for a in r.a_arbitrer],
+        lu_le=lu_le,
     )
 
 

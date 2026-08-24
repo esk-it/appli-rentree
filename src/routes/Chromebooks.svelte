@@ -9,6 +9,7 @@
   import Download from "@lucide/svelte/icons/download";
   import Loader from "@lucide/svelte/icons/loader-2";
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Chromebook from "$lib/components/Chromebook.svelte";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
@@ -144,7 +145,10 @@
     try {
       await googleApi.noterSuiviAppareil(params);
       notify.succes(message);
-      await analyser();
+      // `analyser` exige un classeur ; il n'y en a pas quand l'écran s'est
+      // ouvert sur le tableau conservé. Les listes restaient alors figées
+      // après chaque geste, sans le dire.
+      await relire();
     } catch (e) {
       notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
     } finally {
@@ -202,6 +206,25 @@
   let apiUtilisable = $derived(
     statutApi?.bibliotheques_disponibles && statutApi?.configuration_complete,
   );
+
+  /**
+   * Relit le parc chez Google, sans redemander le classeur.
+   *
+   * L'écran ne lisait Google qu'à son ouverture. Déplacer une machine d'une
+   * OU à l'autre dans la console — le geste qui rend un appareil au parc du
+   * personnel — restait donc invisible jusqu'à ce qu'on quitte l'écran et
+   * qu'on y revienne, ce que rien n'indiquait.
+   */
+  async function relire() {
+    chargement = true;
+    try {
+      flotte = await googleApi.flotteEnregistree();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 12000 });
+    } finally {
+      chargement = false;
+    }
+  }
 
   async function analyser() {
     if (!fichier) return;
@@ -347,7 +370,16 @@
           {flotte ? "Remplacer le tableau" : "Analyser la flotte"}
         </Bouton>
         {#if flotte}
-          <Bouton icon={Download} classe="ml-auto" onclick={exporter}>Export Excel</Bouton>
+          <Bouton
+            icon={RefreshCw}
+            classe="ml-auto"
+            occupe={chargement}
+            onclick={relire}
+            title="Relire le parc et les comptes chez Google"
+          >
+            Relire Google
+          </Bouton>
+          <Bouton icon={Download} onclick={exporter}>Export Excel</Bouton>
         {/if}
       </div>
 
@@ -357,6 +389,11 @@
           {#if flotte.tableau_importe_le}
             <span class="text-stone-500 dark:text-stone-400">
               tableau chargé le {jour(flotte.tableau_importe_le)}
+            </span>
+          {/if}
+          {#if flotte.lu_le}
+            <span class="text-stone-500 dark:text-stone-400">
+              parc lu à {flotte.lu_le.slice(11, 16)}
             </span>
           {/if}
           {#each Object.entries(flotte.nb_par_code) as [code, n]}
@@ -573,6 +610,43 @@
             <PackageOpen class="mr-1 inline h-3.5 w-3.5" />
             Parc de prêt, et machines étiquetées au nom de comptes qui n'existent plus.
           </div>
+
+          <!-- Une machine ramenée dans l'OU du personnel avec une étiquette
+               qui ne nomme personne n'entre dans aucune liste. La déclarer
+               libre d'office serait deviner ; c'est donc proposé, pas décidé. -->
+          {#if flotte.a_arbitrer?.length}
+            <div class="mx-4 mb-3 rounded-lg border border-amber-200 bg-amber-50/60 p-3
+                        dark:border-amber-900/50 dark:bg-amber-900/15">
+              <p class="text-xs text-amber-900 dark:text-amber-200">
+                <TriangleAlert class="mr-1 inline h-3.5 w-3.5" />
+                {flotte.a_arbitrer.length} machine(s) du parc du personnel portent une
+                étiquette qui ne désigne personne — un code de salle, une fonction.
+                Le programme ne devine pas si elles sont tenues ou disponibles.
+              </p>
+              <ul class="mt-2 space-y-1.5">
+                {#each flotte.a_arbitrer as a (a.serie)}
+                  <li class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                    <span class="font-mono font-medium text-stone-800 dark:text-stone-200">
+                      {a.etiquette || "(sans étiquette)"}
+                    </span>
+                    <span class="font-mono text-stone-500 dark:text-stone-400">{a.serie}</span>
+                    <span class="text-stone-500 dark:text-stone-400">{a.modele}</span>
+                    <span class="text-stone-400 dark:text-stone-500">{a.ou}</span>
+                    <Bouton
+                      taille="sm"
+                      classe="ml-auto"
+                      occupe={enCours === a.serie}
+                      onclick={() =>
+                        noter({ serie: a.serie, recupere: true },
+                              a.serie + " rejoint les machines libres")}
+                    >
+                      Elle est libre
+                    </Bouton>
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
           <div class="max-h-[28rem] overflow-auto">
             <table class="tableau w-full text-sm">
               <thead>

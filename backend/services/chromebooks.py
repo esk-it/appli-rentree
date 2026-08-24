@@ -364,6 +364,15 @@ class RapportFlotte:
     """Les gestes notés, du plus récent au plus ancien."""
     dormantes: list[Appareil] = field(default_factory=list)
     """Étiquetées au nom de quelqu'un, mais sans signe de vie depuis un an."""
+    a_arbitrer: list[Appareil] = field(default_factory=list)
+    """Dans le parc du personnel, en service, mais leur étiquette ne
+    désigne personne : ni une adresse, ni un des rôles connus.
+
+    Déplacer un appareil dans l'OU du personnel, c'est dire qu'il revient au
+    parc. Mais son étiquette peut encore porter un code de salle, ou une
+    fonction — `DDFPT` — que rien ne permet de reconnaître. Les déclarer
+    libres d'office serait deviner ; les taire les faisait disparaître. Ils
+    sont donc montrés, avec le geste qui tranche."""
     avertissements: list[str] = field(default_factory=list)
 
     @property
@@ -552,6 +561,15 @@ def analyser_flotte(
                 "rendue, mais son étiquette désigne encore quelqu'un : "
                 "corrige-la dans la console pour qu'elle redevienne disponible"
             )
+        elif not a.porteur:
+            # Le dernier cas possible, et le seul qui restait sans mot :
+            # dans le bon parc, en service, mais nommant personne.
+            a.motif_indisponible = (
+                f"son étiquette « {a.etiquette or '(vide)'} » ne désigne "
+                "personne : le programme ne peut pas savoir si elle est "
+                "tenue ou disponible"
+            )
+            rapport.a_arbitrer.append(a)
 
     # Ce que chaque source dit de l'appareil, sans arbitrer entre elles.
     from collections import Counter as _Compteur
