@@ -832,3 +832,73 @@ def test_un_enseignant_connu_du_tableau_ne_declenche_pas_la_regle_du_compte():
           "ou": "/5. Professeurs", "suspendu": False}],
     )
     assert not any("ne figure pas au tableau" in p for p in r.appareils[0].lecture)
+
+
+def _compte_ou(email, nom, prenom, ou="/5. Professeurs", suspendu=False, vu=None):
+    return {"email": email, "nom": nom, "prenom": prenom, "ou": ou,
+            "suspendu": suspendu, "derniere_connexion": vu}
+
+
+def test_un_retour_que_rien_nexplique_est_nomme_comme_tel():
+    """Le cas réel : Nicole LANCONNEUR, en poste, compte actif, une machine.
+
+    Tous les signaux contredisent un retour. Une phrase prudente
+    n'aiderait personne ; nommer l'absence d'explication, si.
+    """
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_avec_synchro("nicole.lanconneur@lekreisker.fr", "A",
+                       "2026-07-03T10:00:00.000Z")],
+        [_Prof("LANCONNEUR", "Nicole", "Histoire-Géographie", "en_poste")],
+        [_compte_ou("nicole.lanconneur@lekreisker.fr", "LANCONNEUR", "Nicole",
+                    vu="2026-08-18T09:00:00.000Z")],
+        suivi={"A": {"recupere_le": "2026-08-24",
+                     "recupere_de": "nicole.lanconneur@lekreisker.fr",
+                     "attribue_a": None, "attribue_le": None}},
+    )
+    lecture = " ".join(r.appareils[0].lecture)
+
+    assert "Rien n'explique ce retour" in lecture
+    assert "2026-08-18" in lecture, "la dernière connexion étaye le constat"
+    assert "2026-07-03" in lecture, "et la dernière utilisation de la machine"
+    assert "Demande-lui" in lecture
+
+
+def test_un_porteur_qui_en_a_une_autre_change_la_conclusion():
+    """Deux machines, dont celle qu'on rend : c'est un ancien appareil."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_avec_synchro("nicole.lanconneur@lekreisker.fr", "ANCIENNE",
+                       "2026-07-03T10:00:00.000Z"),
+         _avec_synchro("nicole.lanconneur@lekreisker.fr", "COURANTE",
+                       "2026-08-20T10:00:00.000Z")],
+        [_Prof("LANCONNEUR", "Nicole", "Histoire-Géographie", "en_poste")],
+        [_compte_ou("nicole.lanconneur@lekreisker.fr", "LANCONNEUR", "Nicole")],
+        suivi={"ANCIENNE": {"recupere_le": "2026-08-24",
+                            "recupere_de": "nicole.lanconneur@lekreisker.fr",
+                            "attribue_a": None, "attribue_le": None}},
+    )
+    ancienne = next(a for a in r.appareils if a.serie == "ANCIENNE")
+
+    assert ancienne.autres_machines_actives == 1
+    lecture = " ".join(ancienne.lecture)
+    assert "ancien appareil" in lecture
+    assert "ne manque donc à personne" in lecture
+    assert "Rien n'explique" not in lecture
+
+
+def test_une_machine_endormie_reprise_a_quelquun_de_present():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_avec_synchro("x@lekreisker.fr", "A", "2023-01-01T10:00:00.000Z")],
+        [_Prof("X", "Paul", "Maths", "en_poste")],
+        [_compte_ou("x@lekreisker.fr", "X", "Paul")],
+        suivi={"A": {"recupere_le": "2026-08-24", "recupere_de": "x@lekreisker.fr",
+                     "attribue_a": None, "attribue_le": None}},
+    )
+    lecture = " ".join(r.appareils[0].lecture)
+    assert "ne donne plus signe de vie" in lecture
+    assert "Rien n'explique" not in lecture

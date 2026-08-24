@@ -112,6 +112,18 @@ l'année, le compte pour l'existence, la suspension, l'emplacement et la
 dernière connexion. Un compte absent, suspendu, ou rangé dans une branche
 de sortie explique à lui seul qu'une machine soit revenue.
 
+## Quand rien n'explique un retour
+
+Une machine posée sur le bureau appelle une explication, et le programme
+en trouve souvent une : le porteur est parti, son compte a disparu,
+l'appareil est désactivé, il en avait un autre. Mais il arrive que tous
+les signaux disent le contraire — la personne est en poste, son compte est
+actif, c'est sa seule machine et elle a servi la semaine dernière.
+
+Le dire vaut mieux que de rester vague. L'absence d'explication est
+elle-même un constat : la raison est hors de ce que l'application voit, et
+la seule suite utile est d'aller la demander. La note recueille la réponse.
+
 ## Lire, et pas seulement montrer
 
 Aligner des champs ne suffit pas. « Étiquette julien.martial, connexions
@@ -548,6 +560,14 @@ def analyser_flotte(
         if not a.porteur:
             continue
         a.homonymes_etiquette = porte_par[a.porteur] - 1
+        a.autres_machines_actives = sum(
+            1
+            for autre in rapport.appareils
+            if autre.porteur == a.porteur
+            and autre.serie != a.serie
+            and autre.est_actif
+            and not autre.dort
+        )
         code = mouvement_par_adresse.get(a.porteur)
         if code is not None:
             a.porteur_code = code
@@ -801,12 +821,38 @@ def _lire(a: Appareil, mouvements: dict[str, str]) -> list[str]:
                 )
             )
 
-    # Repris alors que son porteur est toujours là.
+    # Repris alors que son porteur est toujours là. Trois situations
+    # distinctes, qui n'appellent pas la même conclusion.
     if a.recupere_le and a.porteur_en_poste and a.porteur_code != "sortant":
-        phrases.append(
-            "Tu l'as reprise alors que la personne étiquetée est toujours au "
-            "tableau : vérifie qu'elle n'en a pas besoin, ou qu'il ne s'agit "
-            "pas d'un ancien appareil dont l'étiquette a survécu."
-        )
+        if a.autres_machines_actives:
+            phrases.append(
+                f"La personne étiquetée est toujours au tableau, et elle a "
+                f"{a.autres_machines_actives} autre(s) machine(s) en service : "
+                "celle-ci est vraisemblablement un ancien appareil dont "
+                "l'étiquette a survécu. Elle ne manque donc à personne."
+            )
+        elif a.est_actif and not a.dort:
+            # Tous les signaux contredisent un retour. Le dire franchement
+            # vaut mieux qu'une phrase prudente qui n'aide personne.
+            phrases.append(
+                "Rien n'explique ce retour : la personne est en poste, son "
+                "compte est actif"
+                + (f" (vu le {a.porteur_vu_le[:10]})" if a.porteur_vu_le else "")
+                + ", et c'est sa seule machine en service"
+                + (
+                    f", utilisée jusqu'au {a.derniere_synchro[:10]}"
+                    if a.derniere_synchro
+                    else ""
+                )
+                + ". La raison est hors de ce que le programme voit — panne, "
+                "échange, dépôt avant l'été. Demande-lui, et note la réponse "
+                "ici."
+            )
+        else:
+            phrases.append(
+                "Tu l'as reprise alors que la personne étiquetée est toujours "
+                "au tableau, mais cet appareil ne donne plus signe de vie : "
+                "c'est sans doute un ancien, dont l'étiquette a survécu."
+            )
 
     return phrases

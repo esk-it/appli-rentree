@@ -938,6 +938,7 @@ class AppareilOut(BaseModel):
     porteur_en_poste: bool | None = None
     porteur_code: str | None = None
     homonymes_etiquette: int = 0
+    autres_machines_actives: int = 0
     lecture: list[str] = []
     porteur_compte_existe: bool | None = None
     porteur_ou: str | None = None
@@ -1034,6 +1035,7 @@ def _appareil_out(a) -> AppareilOut:
         motif_indisponible=a.motif_indisponible, note=a.note,
         porteur_en_poste=a.porteur_en_poste, porteur_code=a.porteur_code,
         homonymes_etiquette=a.homonymes_etiquette, lecture=a.lecture,
+        autres_machines_actives=a.autres_machines_actives,
         porteur_compte_existe=a.porteur_compte_existe, porteur_ou=a.porteur_ou,
         porteur_suspendu=a.porteur_suspendu, porteur_vu_le=a.porteur_vu_le,
     )
