@@ -933,6 +933,8 @@ class AppareilOut(BaseModel):
     dort: bool = False
     a_recuperer: bool = False
     libre: bool = False
+    motif_indisponible: str | None = None
+    note: str | None = None
     serie: str
     modele: str
     ou: str
@@ -974,6 +976,8 @@ class MouvementMachineOut(BaseModel):
     confie_a: str | None
     confie_a_nom: str | None
     confie_le: str | None
+    note: str | None = None
+    motif_indisponible: str | None = None
 
 
 class ParcOut(BaseModel):
@@ -1019,6 +1023,7 @@ def _appareil_out(a) -> AppareilOut:
         derniere_synchro=a.derniere_synchro,
         recupere_le=a.recupere_le, attribue_a=a.attribue_a, dort=a.dort,
         a_recuperer=a.a_recuperer, libre=a.libre,
+        motif_indisponible=a.motif_indisponible, note=a.note,
     )
 
 
@@ -1140,6 +1145,7 @@ def _croiser(session, profs, legende, importe_le) -> FlotteOut:
             "attribue_a": x.attribue_a,
             "recupere_de": x.recupere_de,
             "attribue_le": x.attribue_le.isoformat() if x.attribue_le else None,
+            "note": x.note,
         }
         for x in session.query(SuiviChromebook).all()
     }
@@ -1168,6 +1174,7 @@ def _croiser(session, profs, legende, importe_le) -> FlotteOut:
                 rendu_par=m.rendu_par, rendu_par_nom=m.rendu_par_nom,
                 rendu_le=m.rendu_le, confie_a=m.confie_a,
                 confie_a_nom=m.confie_a_nom, confie_le=m.confie_le,
+                note=m.note, motif_indisponible=m.motif_indisponible,
             )
             for m in r.historique
         ],

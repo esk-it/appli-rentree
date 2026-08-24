@@ -516,3 +516,58 @@ def test_une_adresse_inconnue_reste_lisible_au_journal():
     )
     assert r.historique[0].rendu_par == "parti@x.fr"
     assert r.historique[0].rendu_par_nom is None
+
+
+def test_une_machine_desactivee_dit_pourquoi_elle_nest_pas_reattribuable():
+    """Le cas vécu : rendue, mais elle n'apparaissait nulle part ensuite.
+
+    Google désactive un appareil retiré du parc et son étiquette lui
+    survit. Ne rien dire laisse chercher pourquoi il a disparu.
+    """
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("yanna.lachoua-martial@lekreisker.fr", serie="MORTE",
+                   statut="DEPROVISIONED")],
+        [], [],
+        suivi={"MORTE": {"recupere_le": "2026-08-24",
+                         "recupere_de": "yanna.lachoua-martial@lekreisker.fr",
+                         "attribue_a": None, "attribue_le": None}},
+    )
+    machine = r.appareils[0]
+
+    assert machine.libre is False
+    assert "désactivée" in machine.motif_indisponible
+    assert r.historique[0].motif_indisponible == machine.motif_indisponible
+
+
+def test_une_machine_hors_du_parc_du_personnel_le_dit_aussi():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("K-B5-13-08", serie="ELEVE", ou="/1. Chromebooks/2. Elèves")],
+        [], [],
+    )
+    assert "hors du parc du personnel" in r.appareils[0].motif_indisponible
+
+
+def test_une_machine_disponible_na_pas_de_motif():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte([_appareil("Prof_08", serie="LIBRE")], [], [])
+    assert r.appareils[0].libre is True
+    assert r.appareils[0].motif_indisponible is None
+
+
+def test_la_note_suit_la_machine_jusquau_journal():
+    """Le programme ne peut pas déduire ce qu'on décide : il offre de l'écrire."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("x@x.fr", serie="A", statut="DEPROVISIONED")], [], [],
+        suivi={"A": {"recupere_le": "2026-08-24", "recupere_de": "x@x.fr",
+                     "attribue_a": None, "attribue_le": None,
+                     "note": "Rendue au fournisseur, hors garantie"}},
+    )
+    assert r.appareils[0].note == "Rendue au fournisseur, hors garantie"
+    assert r.historique[0].note == "Rendue au fournisseur, hors garantie"

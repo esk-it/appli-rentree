@@ -83,6 +83,18 @@ Le suivi permet de le voir, parce qu'il garde **de qui** chaque machine a
 au tableau n'est pas parti : il est revenu, et il lui faut de nouveau une
 machine.
 
+## Une machine rendue n'est pas forcément réattribuable
+
+Google désactive un appareil qu'on a retiré du parc, et son étiquette lui
+survit : on retrouve donc des machines au nom de quelqu'un qui n'y est
+pour rien, parfois sans synchronisation depuis des années. Les rendre ne
+les remet pas en circulation — mais ne rien dire laisse chercher pourquoi
+elles n'apparaissent nulle part.
+
+Chaque appareil porte donc, le cas échéant, **le motif** qui l'écarte des
+machines disponibles. Et une note libre permet d'inscrire ce qu'on a
+décidé d'en faire, puisque le programme ne peut pas le déduire.
+
 ## Ce que Google ne peut pas savoir
 
 Rendre une machine et en confier une autre sont des gestes **physiques**.
@@ -148,6 +160,10 @@ class Appareil:
     """Son porteur quitte l'établissement : la machine est attendue."""
     libre: bool = False
     """Parc de prêt, ou étiquetée au nom d'un compte qui n'existe plus."""
+    motif_indisponible: str | None = None
+    """Pourquoi elle ne rejoint pas les machines à attribuer."""
+    note: str | None = None
+    """Ce que l'établissement a décidé d'en faire. Texte libre."""
     attribue_a: str | None = None
     """Adresse à qui elle a été confiée, avant mise à jour de l'étiquette."""
     attribue_le: str | None = None
@@ -218,6 +234,8 @@ class MouvementMachine:
     confie_a: str | None = None
     confie_a_nom: str | None = None
     confie_le: str | None = None
+    note: str | None = None
+    motif_indisponible: str | None = None
 
     @property
     def quand(self) -> str:
@@ -314,6 +332,7 @@ def analyser_flotte(
                 recupere_le=(suivi.get(a.get("serie") or "") or {}).get("recupere_le"),
                 recupere_de=(suivi.get(a.get("serie") or "") or {}).get("recupere_de"),
                 attribue_le=(suivi.get(a.get("serie") or "") or {}).get("attribue_le"),
+                note=(suivi.get(a.get("serie") or "") or {}).get("note"),
                 attribue_a=(suivi.get(a.get("serie") or "") or {}).get("attribue_a"),
             )
         )
@@ -423,6 +442,32 @@ def analyser_flotte(
             "les connexions démentent. Deux machines échangées par erreur se "
             "voient ici — le programme ne tranche pas, il montre."
         )
+    # Marquer les appareils selon ce qu'il y a à en faire : c'est cela que
+    # la vue du parc colore, et non l'état technique de la machine.
+    attendus = {a.serie for p in rapport.a_recuperer for a in p.appareils}
+    libres = {a.serie for a in rapport.disponibles}
+    for a in rapport.appareils:
+        a.a_recuperer = a.serie in attendus
+        a.libre = a.serie in libres
+        if a.libre or a.attribue_a:
+            continue
+        # Une machine qu'on vient de rendre et qui n'apparaît pas parmi les
+        # disponibles doit dire pourquoi : sans motif, on la cherche.
+        if not a.est_actif:
+            a.motif_indisponible = (
+                "désactivée dans Google — elle ne peut plus être réattribuée"
+            )
+        elif not a.ou.startswith(prefixe_personnel):
+            a.motif_indisponible = (
+                f"hors du parc du personnel ({a.ou}) — le programme ne la "
+                "propose pas pour un enseignant"
+            )
+        elif a.recupere_le:
+            a.motif_indisponible = (
+                "rendue, mais son étiquette désigne encore quelqu'un : "
+                "corrige-la dans la console pour qu'elle redevienne disponible"
+            )
+
     # Le journal : les gestes notés, remis en récit. Les noms viennent des
     # comptes, parce qu'une adresse seule ne dit pas grand-chose trois
     # semaines après.
@@ -447,17 +492,11 @@ def analyser_flotte(
                 confie_a=a.attribue_a,
                 confie_a_nom=noms.get((a.attribue_a or "").lower()),
                 confie_le=a.attribue_le,
+                note=a.note,
+                motif_indisponible=a.motif_indisponible,
             )
         )
     rapport.historique.sort(key=lambda m: m.quand, reverse=True)
-
-    # Marquer les appareils selon ce qu'il y a à en faire : c'est cela que
-    # la vue du parc colore, et non l'état technique de la machine.
-    attendus = {a.serie for p in rapport.a_recuperer for a in p.appareils}
-    libres = {a.serie for a in rapport.disponibles}
-    for a in rapport.appareils:
-        a.a_recuperer = a.serie in attendus
-        a.libre = a.serie in libres
 
     from collections import Counter
 

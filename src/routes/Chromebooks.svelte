@@ -147,6 +147,25 @@
     }
   }
 
+  /**
+   * La note d'une machine, écrite au clavier puis enregistrée à la sortie
+   * du champ. Le programme ne peut pas déduire ce qu'on décide d'un
+   * appareil désactivé ou d'une étiquette douteuse ; il offre de l'écrire.
+   */
+  let noteEnEdition = $state(/** @type {string|null} */ (null));
+  let texteNote = $state("");
+
+  function ouvrirNote(a) {
+    noteEnEdition = a.serie;
+    texteNote = a.note ?? "";
+  }
+
+  async function enregistrerNote(serie) {
+    const valeur = texteNote;
+    noteEnEdition = null;
+    await noter({ serie, note: valeur }, "Note enregistrée");
+  }
+
   function confirmerAttribution(serie) {
     if (!attribution) return;
     const a = attribution;
@@ -592,6 +611,31 @@
                           <span class="font-mono">étiquette {m.etiquette}</span>
                         {/if}
                       </p>
+                      {#if m.motif_indisponible}
+                        <p class="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                          {m.motif_indisponible}
+                        </p>
+                      {/if}
+                      {#if noteEnEdition === m.serie}
+                        <input
+                          class="champ mt-1 w-full text-xs"
+                          placeholder="Ce que tu décides de cette machine…"
+                          bind:value={texteNote}
+                          onblur={() => enregistrerNote(m.serie)}
+                          onkeydown={(e) => {
+                            if (e.key === "Enter") e.target.blur();
+                            if (e.key === "Escape") noteEnEdition = null;
+                          }}
+                        />
+                      {:else}
+                        <button
+                          class="mt-1 text-left text-xs text-stone-500 underline-offset-2
+                                 hover:underline dark:text-stone-400"
+                          onclick={() => ouvrirNote(m)}
+                        >
+                          {m.note ?? "+ ajouter une note"}
+                        </button>
+                      {/if}
                     </div>
 
                     <div class="shrink-0 text-right text-xs tabular-nums text-stone-500 dark:text-stone-400">
@@ -754,6 +798,11 @@
                         {jour(a.derniere_synchro)}
                       </td>
                       <td class="whitespace-nowrap">
+                        {#if a.statut !== "ACTIVE"}
+                          <span class="text-xs text-stone-500 dark:text-stone-400">
+                            désactivée
+                          </span>
+                        {/if}
                         {#if a.recupere_le}
                           <span class="text-xs text-emerald-700 dark:text-emerald-400">
                             rendue le {jour(a.recupere_le)}
@@ -784,6 +833,37 @@
                         {/if}
                       </td>
                     </tr>
+                    {#if a.motif_indisponible || a.note || noteEnEdition === a.serie}
+                      <tr>
+                        <td colspan="5" class="px-3 pb-2 pt-0">
+                          {#if a.motif_indisponible}
+                            <p class="text-xs text-amber-700 dark:text-amber-400">
+                              {a.motif_indisponible}
+                            </p>
+                          {/if}
+                          {#if noteEnEdition === a.serie}
+                            <input
+                              class="champ mt-1 w-full text-xs"
+                              placeholder="Ce que tu décides de cette machine…"
+                              bind:value={texteNote}
+                              onblur={() => enregistrerNote(a.serie)}
+                              onkeydown={(e) => {
+                                if (e.key === "Enter") e.target.blur();
+                                if (e.key === "Escape") noteEnEdition = null;
+                              }}
+                            />
+                          {:else}
+                            <button
+                              class="mt-0.5 text-left text-xs text-stone-500 underline-offset-2
+                                     hover:underline dark:text-stone-400"
+                              onclick={() => ouvrirNote(a)}
+                            >
+                              {a.note ?? "+ ajouter une note"}
+                            </button>
+                          {/if}
+                        </td>
+                      </tr>
+                    {/if}
                   {/each}
                 </tbody>
               </table>
