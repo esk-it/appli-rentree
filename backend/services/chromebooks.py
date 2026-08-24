@@ -580,8 +580,15 @@ def analyser_flotte(
             a.porteur_suspendu = bool(compte.get("suspendu"))
             a.porteur_vu_le = compte.get("derniere_connexion")
 
+    # Les personnes que le rapport vient de conclure « revenues » : la
+    # lecture s'en sert pour ne pas dire inexpliqué un retour qu'il a
+    # lui-même expliqué.
+    revenus = {
+        p.email for p in rapport.a_attribuer if p.raison == "revenu" and p.email
+    }
+
     for a in rapport.appareils:
-        a.lecture = _lire(a, mouvement_par_adresse)
+        a.lecture = _lire(a, mouvement_par_adresse, revenus)
 
     # Le journal : les gestes notés, remis en récit. Les noms viennent des
     # comptes, parce qu'une adresse seule ne dit pas grand-chose trois
@@ -633,7 +640,6 @@ def analyser_flotte(
         a for a in rapport.appareils
         if a.porteur and a.dort and a.est_actif and not a.recupere_le
     ]
-    revenus = [p for p in rapport.a_attribuer if p.raison == "revenu"]
     if revenus:
         rapport.avertissements.append(
             f"{len(revenus)} enseignant(s) ont rendu leur machine avant l'été et "
@@ -712,7 +718,11 @@ _MOUVEMENTS = {
 _BRANCHES_SORTIE = ("/7. Sortis",)
 
 
-def _lire(a: Appareil, mouvements: dict[str, str]) -> list[str]:
+def _lire(
+    a: Appareil,
+    mouvements: dict[str, str],
+    revenus: set[str] | None = None,
+) -> list[str]:
     """Relie les faits d'un appareil en une ou deux phrases.
 
     Chaque phrase vient d'une règle nommée par son commentaire, et se
@@ -824,7 +834,16 @@ def _lire(a: Appareil, mouvements: dict[str, str]) -> list[str]:
     # Repris alors que son porteur est toujours là. Trois situations
     # distinctes, qui n'appellent pas la même conclusion.
     if a.recupere_le and a.porteur_en_poste and a.porteur_code != "sortant":
-        if a.autres_machines_actives:
+        if a.porteur in (revenus or ()):
+            # Le rapport a déjà tiré la conséquence de cette reprise : dire
+            # ici que rien ne l'explique contredirait l'autre écran.
+            phrases.append(
+                "Cette reprise est ce qui fait figurer la personne parmi "
+                "celles à rééquiper : elle a rendu sa machine et elle est "
+                "toujours au tableau. Attribue-lui une machine du parc de "
+                "prêt quand elle revient."
+            )
+        elif a.autres_machines_actives:
             phrases.append(
                 f"La personne étiquetée est toujours au tableau, et elle a "
                 f"{a.autres_machines_actives} autre(s) machine(s) en service : "

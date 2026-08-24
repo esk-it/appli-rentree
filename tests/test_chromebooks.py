@@ -839,11 +839,13 @@ def _compte_ou(email, nom, prenom, ou="/5. Professeurs", suspendu=False, vu=None
             "suspendu": suspendu, "derniere_connexion": vu}
 
 
-def test_un_retour_que_rien_nexplique_est_nomme_comme_tel():
-    """Le cas réel : Nicole LANCONNEUR, en poste, compte actif, une machine.
+def test_reprendre_lunique_machine_dun_titulaire_le_rend_a_rEquiper():
+    """Le cas réel : Nicole LANCONNEUR, partie en juin, de retour en septembre.
 
-    Tous les signaux contredisent un retour. Une phrase prudente
-    n'aiderait personne ; nommer l'absence d'explication, si.
+    Une première version disait « rien n'explique ce retour ». C'était
+    faux : la reprise elle-même est l'explication, et le rapport en tire
+    déjà la conséquence en la plaçant parmi les personnes à rééquiper.
+    Deux écrans ne doivent pas se contredire.
     """
     from backend.services.chromebooks import analyser_flotte
 
@@ -859,10 +861,10 @@ def test_un_retour_que_rien_nexplique_est_nomme_comme_tel():
     )
     lecture = " ".join(r.appareils[0].lecture)
 
-    assert "Rien n'explique ce retour" in lecture
-    assert "2026-08-18" in lecture, "la dernière connexion étaye le constat"
-    assert "2026-07-03" in lecture, "et la dernière utilisation de la machine"
-    assert "Demande-lui" in lecture
+    assert [p.raison for p in r.a_attribuer if p.nom == "LANCONNEUR"] == ["revenu"]
+    assert "à rééquiper" in lecture
+    assert "parc de prêt" in lecture
+    assert "Rien n'explique" not in lecture, "le rapport a une explication"
 
 
 def test_un_porteur_qui_en_a_une_autre_change_la_conclusion():
@@ -889,16 +891,25 @@ def test_un_porteur_qui_en_a_une_autre_change_la_conclusion():
     assert "Rien n'explique" not in lecture
 
 
-def test_une_machine_endormie_reprise_a_quelquun_de_present():
+def test_un_retour_inexplique_ne_concerne_que_ceux_hors_du_tableau():
+    """Pour un enseignant du tableau, la reprise s'explique d'elle-même.
+
+    L'absence d'explication ne subsiste que lorsque le tableau ne connaît
+    pas la personne — et alors c'est son compte qui parle.
+    """
     from backend.services.chromebooks import analyser_flotte
 
     r = analyser_flotte(
-        [_avec_synchro("x@lekreisker.fr", "A", "2023-01-01T10:00:00.000Z")],
-        [_Prof("X", "Paul", "Maths", "en_poste")],
-        [_compte_ou("x@lekreisker.fr", "X", "Paul")],
-        suivi={"A": {"recupere_le": "2026-08-24", "recupere_de": "x@lekreisker.fr",
+        [_avec_synchro("agent@lekreisker.fr", "A", "2026-07-03T10:00:00.000Z")],
+        [],
+        [_compte_ou("agent@lekreisker.fr", "AGENT", "Paul",
+                    ou="/6. Personnel/Entretien", vu="2026-08-18T09:00:00.000Z")],
+        suivi={"A": {"recupere_le": "2026-08-24",
+                     "recupere_de": "agent@lekreisker.fr",
                      "attribue_a": None, "attribue_le": None}},
     )
     lecture = " ".join(r.appareils[0].lecture)
-    assert "ne donne plus signe de vie" in lecture
-    assert "Rien n'explique" not in lecture
+
+    assert "ne figure pas au tableau des enseignants" in lecture
+    assert "/6. Personnel/Entretien" in lecture
+    assert r.a_attribuer == [], "il n'est pas au tableau : rien à en conclure"
