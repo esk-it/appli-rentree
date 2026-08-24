@@ -287,6 +287,8 @@ class LigneProf:
     raison: str = ""
     """Pourquoi cette personne attend une machine : `arrivant`, `remplace`,
     ou `revenu` — elle a rendu la sienne avant l'été et elle est de retour."""
+    remplace_qui: str | None = None
+    """Nom de la personne remplacée, quand la raison est `remplace`."""
     methode: str = "exact"
     """Comment l'adresse a été retrouvée : `exact`, `nom_compose`, …"""
     approximatif: bool = False
@@ -451,6 +453,7 @@ def analyser_flotte(
             email=adresse, appareils=par_porteur.get(adresse, []) if adresse else [],
             methode=lien.methode, approximatif=lien.approximatif,
             homonymes=lien.candidats or [],
+            remplace_qui=getattr(p, "remplace_qui", None),
         )
         if adresse and lien.approximatif:
             rapport.rapproches.append(ligne)

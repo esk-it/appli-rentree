@@ -7,6 +7,7 @@
   import PackageOpen from "@lucide/svelte/icons/package-open";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Download from "@lucide/svelte/icons/download";
+  import Loader from "@lucide/svelte/icons/loader-2";
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
   import Chromebook from "$lib/components/Chromebook.svelte";
   import Bouton from "$lib/components/Bouton.svelte";
@@ -20,6 +21,10 @@
   let fichier = $state(/** @type {File|null} */ (null));
   let flotte = $state(/** @type {any} */ (null));
   let chargement = $state(false);
+  // Le tableau est conservé, mais le croiser à Google demande une dizaine
+  // de secondes. Sans rien dire pendant ce temps, l'écran donne à croire
+  // qu'il attend un fichier — et on recharge celui qu'on a déjà.
+  let ouverture = $state(true);
   let vue = $state("a_recuperer");
   let enCours = $state(/** @type {string|null} */ (null));
   let attribution = $state(/** @type {any} */ (null));
@@ -287,6 +292,8 @@
       flotte = await googleApi.flotteEnregistree();
     } catch {
       flotte = null;
+    } finally {
+      ouverture = false;
     }
   });
 </script>
@@ -316,6 +323,14 @@
         enseignant — entrant, sortant — vient du tableau que tu tiens, où il est
         porté par la couleur.
       </p>
+
+      {#if ouverture}
+        <p class="flex items-center gap-2 rounded-lg bg-stone-100 px-3 py-2 text-sm text-stone-600 dark:bg-stone-700/50 dark:text-stone-300">
+          <Loader class="h-4 w-4 animate-spin" />
+          Lecture du parc et des comptes Google… Le tableau des professeurs est
+          conservé, tu n'as pas à le recharger.
+        </p>
+      {/if}
 
       <div class="flex flex-wrap items-center gap-3">
         <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-sm text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
@@ -511,7 +526,11 @@
                       {/if}
                     </td>
                     <td class="whitespace-nowrap text-xs {p.raison === 'revenu' ? 'text-amber-700 dark:text-amber-400' : 'text-stone-600 dark:text-stone-400'}">
-                      {RAISONS[p.raison] ?? p.raison}
+                      {#if p.raison === "remplace" && p.remplace_qui}
+                        remplacement de {p.remplace_qui}
+                      {:else}
+                        {RAISONS[p.raison] ?? p.raison}
+                      {/if}
                     </td>
                     <td class="whitespace-nowrap">
                       {#if !p.email}

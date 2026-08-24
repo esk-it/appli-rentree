@@ -22,10 +22,20 @@ raccourci que le reste du programme s'interdit.
 Une ligne sans couleur n'est pas un cas douteux : c'est un enseignant en
 poste, que rien ne distingue. C'est le cas le plus fréquent.
 
-Une ligne qui porte **deux personnes** — « CLOITRE / FUMAT », prénoms
-« Morgane / Linda » — décrit un remplacement. L'ordre suggère qui est qui,
-mais il ne l'affirme pas : la ligne est lue telle quelle et signalée, à
-charge d'un humain de la démêler s'il faut créer deux comptes.
+## Une ligne à deux noms décrit un remplacement
+
+« CLOITRE / FUMAT », prénoms « Morgane / Linda » : Morgane CLOITRE est
+remplacée par Linda FUMAT. L'ordre n'est pas une suggestion, c'est la
+convention du tableau — les deux colonnes se lisent en parallèle, la
+dernière part désignant la personne en poste.
+
+Le module retient donc **le remplaçant** comme enseignant, puisque c'est
+lui qui fait cours et qui aura besoin d'une machine, et garde le nom du
+remplacé pour pouvoir l'énoncer.
+
+La règle ne s'applique qu'aux lignes où les deux colonnes se découpent en
+autant de parts. « MARTIN / DURAND » avec un seul prénom ne se démêle
+pas : la ligne est alors lue telle quelle et signalée.
 
 ## L'import garde ce qu'il lit
 
@@ -86,6 +96,15 @@ class Prof:
     couleur: str | None
     code: str
     libelle: str
+    remplace_nom: str | None = None
+    """Personne remplacée, quand la ligne en portait deux."""
+    remplace_prenom: str | None = None
+
+    @property
+    def remplace_qui(self) -> str | None:
+        if not self.remplace_nom:
+            return None
+        return f"{self.remplace_prenom or ''} {self.remplace_nom}".strip()
 
 
 @dataclass
@@ -97,7 +116,9 @@ class RapportProfs:
     notes: list[str] = field(default_factory=list)
     """Texte libre trouvé sous la légende, conservé tel quel."""
     lignes_a_deux: list[Prof] = field(default_factory=list)
-    """Lignes décrivant deux personnes — un remplacement. Jamais découpées."""
+    """Lignes à deux noms que les colonnes ne permettent pas de démêler."""
+    remplacements: list[Prof] = field(default_factory=list)
+    """Lignes démêlées : le remplaçant, et qui il remplace."""
     avertissements: list[str] = field(default_factory=list)
 
     def par_code(self, code: str) -> list[Prof]:
@@ -131,6 +152,22 @@ def _code_depuis_libelle(libelle: str) -> str:
         if any(mot.startswith(p) for mot in mots_du_libelle for p in prefixes):
             return code
     return "inconnu"
+
+
+def demeler_remplacement(nom: str, prenom: str) -> tuple[str, str, str, str] | None:
+    """Sépare « CLOITRE / FUMAT » + « Morgane / Linda » en deux personnes.
+
+    Retourne `(nom_remplacant, prenom_remplacant, nom_remplace,
+    prenom_remplace)`, ou `None` si les deux colonnes ne se découpent pas
+    en autant de parts — auquel cas il n'y a rien à démêler sans deviner.
+    """
+    noms = [x.strip() for x in (nom or "").split("/") if x.strip()]
+    prenoms = [x.strip() for x in (prenom or "").split("/") if x.strip()]
+    if len(noms) < 2 or len(noms) != len(prenoms):
+        return None
+    # La dernière part désigne la personne en poste : c'est elle qui fait
+    # cours aujourd'hui, et donc elle qu'il faut équiper.
+    return noms[-1], prenoms[-1], noms[0], prenoms[0]
 
 
 def couleur_de(cellule) -> str | None:
@@ -277,6 +314,11 @@ def lire_fichier_profs(chemin: str | Path) -> RapportProfs:
         if teinte and entree is None:
             rapport.couleurs_hors_legende.setdefault(teinte, []).append(cellules[0].row)
 
+        demele = demeler_remplacement(nom, prenom)
+        remplace_nom = remplace_prenom = None
+        if demele:
+            nom, prenom, remplace_nom, remplace_prenom = demele
+
         prof = Prof(
                 nom=re.sub(r"\s+", " ", nom).strip(),
                 prenom=re.sub(r"\s+", " ", prenom).strip(),
@@ -286,9 +328,13 @@ def lire_fichier_profs(chemin: str | Path) -> RapportProfs:
                 couleur=teinte,
                 code=entree.code if entree else (EN_POSTE if not teinte else "inconnu"),
                 libelle=entree.libelle if entree else ("" if not teinte else "?"),
+                remplace_nom=remplace_nom,
+                remplace_prenom=remplace_prenom,
         )
         rapport.profs.append(prof)
-        if "/" in prof.nom or "/" in prof.prenom:
+        if demele:
+            rapport.remplacements.append(prof)
+        elif "/" in prof.nom or "/" in prof.prenom:
             rapport.lignes_a_deux.append(prof)
 
     for teinte, lignes_concernees in rapport.couleurs_hors_legende.items():
@@ -298,15 +344,24 @@ def lire_fichier_profs(chemin: str | Path) -> RapportProfs:
             + ("…" if len(lignes_concernees) > 8 else "")
             + ". Elles sont laissées sans mouvement — l'interpréter serait deviner."
         )
+    if rapport.remplacements:
+        exemples = ", ".join(
+            f"{p.prenom} {p.nom} remplace {p.remplace_qui}"
+            for p in rapport.remplacements[:3]
+        )
+        rapport.avertissements.append(
+            f"{len(rapport.remplacements)} ligne(s) décrivent un remplacement : "
+            f"{exemples}. C'est le remplaçant qui est retenu comme enseignant, "
+            "puisque c'est lui qui fait cours."
+        )
     if rapport.lignes_a_deux:
         exemples = ", ".join(
             f"{p.nom} ({p.ligne})" for p in rapport.lignes_a_deux[:4]
         )
         rapport.avertissements.append(
-            f"{len(rapport.lignes_a_deux)} ligne(s) portent deux personnes — "
-            f"un remplacement : {exemples}. Elles comptent pour une et ne sont "
-            "pas découpées : l'ordre des noms suggère qui est qui, il ne "
-            "l'affirme pas."
+            f"{len(rapport.lignes_a_deux)} ligne(s) portent deux noms sans que "
+            f"les colonnes se répondent : {exemples}. Elles ne sont pas "
+            "découpées — les démêler demanderait de deviner."
         )
     if not rapport.profs:
         rapport.avertissements.append("Aucun enseignant lu dans ce classeur.")
@@ -337,6 +392,7 @@ def enregistrer(session, rapport: RapportProfs, *, annee_id: int) -> int:
                 nom=p.nom, prenom=p.prenom, civilite=p.civilite,
                 discipline=p.discipline, code=p.code, libelle=p.libelle,
                 couleur=p.couleur, ligne=p.ligne,
+                remplace_nom=p.remplace_nom, remplace_prenom=p.remplace_prenom,
             )
         )
     session.commit()
@@ -358,6 +414,7 @@ def lire_enregistres(session, *, annee_id: int) -> list[Prof]:
             nom=x.nom, prenom=x.prenom, discipline=x.discipline or "",
             civilite=x.civilite or "", ligne=x.ligne or 0, couleur=x.couleur,
             code=x.code, libelle=x.libelle or "",
+            remplace_nom=x.remplace_nom, remplace_prenom=x.remplace_prenom,
         )
         for x in lignes
     ]

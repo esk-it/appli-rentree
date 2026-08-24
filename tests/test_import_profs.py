@@ -127,8 +127,13 @@ def test_une_note_en_bas_nest_pas_un_enseignant(tmp_path):
     assert any("PROF1" in n for n in r.notes)
 
 
-def test_une_ligne_a_deux_personnes_est_signalee(tmp_path):
-    """Un remplacement tient sur une ligne ; l'ordre suggère, il n'affirme pas."""
+def test_une_ligne_a_deux_noms_est_demelee(tmp_path):
+    """« Morgane / Linda CLOITRE / FUMAT » : Morgane CLOITRE remplacée par Linda FUMAT.
+
+    Les deux colonnes se lisent en parallèle, la dernière part désignant
+    la personne en poste. C'est elle qu'il faut retenir : c'est elle qui
+    fait cours, et donc elle qu'il faut équiper.
+    """
     from backend.services.import_profs import lire_fichier_profs
 
     f = _classeur(tmp_path, [
@@ -136,9 +141,45 @@ def test_une_ligne_a_deux_personnes_est_signalee(tmp_path):
     ], [(VERT, "Profs remplacé sur une partie de l'année")])
 
     r = lire_fichier_profs(f)
-    assert len(r.profs) == 1, "la ligne compte pour une, sans découpage"
+    assert len(r.profs) == 1
+    p = r.profs[0]
+    assert (p.nom, p.prenom) == ("FUMAT", "Linda"), "le remplaçant est retenu"
+    assert p.remplace_qui == "Morgane CLOITRE"
+    assert r.lignes_a_deux == []
+    assert any("remplace Morgane CLOITRE" in a for a in r.avertissements)
+
+
+def test_une_ligne_a_deux_noms_indemelable_reste_intacte(tmp_path):
+    """Deux noms mais un seul prénom : les démêler demanderait de deviner."""
+    from backend.services.import_profs import lire_fichier_profs
+
+    f = _classeur(tmp_path, [
+        ("Mme", "MARTIN / DURAND", "Paule", "Breton", VERT),
+    ], [(VERT, "Profs remplacé sur une partie de l'année")])
+
+    r = lire_fichier_profs(f)
+    assert r.profs[0].nom == "MARTIN / DURAND"
+    assert r.profs[0].remplace_qui is None
     assert len(r.lignes_a_deux) == 1
-    assert any("deux personnes" in a for a in r.avertissements)
+    assert any("sans que les colonnes se répondent" in a for a in r.avertissements)
+
+
+def test_le_remplacement_survit_a_la_conservation(session, tmp_path, annee_factory):
+    from backend.services.import_profs import (
+        enregistrer,
+        lire_enregistres,
+        lire_fichier_profs,
+    )
+
+    annee = annee_factory("2026-2027")
+    f = _classeur(tmp_path, [
+        ("Mme", "CLOITRE / FUMAT", "Morgane / Linda", "Breton", VERT),
+    ], [(VERT, "Profs remplacé sur une partie de l'année")])
+    enregistrer(session, lire_fichier_profs(f), annee_id=annee.id)
+
+    relu = lire_enregistres(session, annee_id=annee.id)[0]
+    assert relu.nom == "FUMAT"
+    assert relu.remplace_qui == "Morgane CLOITRE"
 
 
 def test_la_couleur_est_lue_meme_si_seule_la_civilite_est_peinte(tmp_path):

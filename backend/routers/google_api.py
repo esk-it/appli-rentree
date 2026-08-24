@@ -967,6 +967,7 @@ class ProfAvecAppareilsOut(BaseModel):
     approximatif: bool = False
     homonymes: list[str] = []
     raison: str = ""
+    remplace_qui: str | None = None
 
 
 class DiscordanceOut(BaseModel):
@@ -1047,6 +1048,7 @@ def _prof_out(p) -> ProfAvecAppareilsOut:
         email=p.email, appareils=[_appareil_out(a) for a in p.appareils],
         attribue=p.attribue, methode=p.methode,
         approximatif=p.approximatif, homonymes=p.homonymes, raison=p.raison,
+        remplace_qui=p.remplace_qui,
     )
 
 

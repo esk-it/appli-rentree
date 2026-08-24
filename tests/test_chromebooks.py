@@ -913,3 +913,32 @@ def test_un_retour_inexplique_ne_concerne_que_ceux_hors_du_tableau():
     assert "ne figure pas au tableau des enseignants" in lecture
     assert "/6. Personnel/Entretien" in lecture
     assert r.a_attribuer == [], "il n'est pas au tableau : rien à en conclure"
+
+
+def test_un_remplacant_est_nomme_et_sa_raison_precisee():
+    """« remplacement » seul ne dit pas qui : le tableau, lui, le sait."""
+    from dataclasses import dataclass
+
+    from backend.services.chromebooks import analyser_flotte
+
+    @dataclass
+    class ProfRemplacant:
+        nom: str = "FUMAT"
+        prenom: str = "Linda"
+        discipline: str = "Breton"
+        code: str = "remplace"
+        remplace_qui: str = "Morgane CLOITRE"
+
+    r = analyser_flotte(
+        [_appareil("Prof_08", serie="P8")],
+        [ProfRemplacant()],
+        [_compte("linda.fumat@lekreisker.fr", "FUMAT", "Linda"),
+         _compte("morgane.cloitre@lekreisker.fr", "CLOITRE", "Morgane")],
+    )
+
+    assert [p.nom for p in r.a_attribuer] == ["FUMAT"]
+    ligne = r.a_attribuer[0]
+    assert ligne.email == "linda.fumat@lekreisker.fr", "le compte est retrouvé"
+    assert ligne.raison == "remplace"
+    assert ligne.remplace_qui == "Morgane CLOITRE"
+    assert r.sans_compte == [], "elle n'est plus dans les introuvables"

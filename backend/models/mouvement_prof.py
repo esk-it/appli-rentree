@@ -55,6 +55,10 @@ class MouvementProf(Base):
     ligne: Mapped[int | None] = mapped_column(Integer, nullable=True)
     """Numéro de ligne dans le classeur — utile pour retrouver un cas."""
 
+    remplace_nom: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    """Quand la ligne décrivait un remplacement, la personne remplacée."""
+    remplace_prenom: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
     date_import: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     annee_scolaire: Mapped["AnneeScolaire"] = relationship()
