@@ -98,6 +98,20 @@ plus deux renseignements qui font souvent basculer la décision : la
 personne étiquetée est-elle encore là, et combien d'autres machines
 portent le même nom.
 
+## Le tableau des enseignants ne couvre pas tout le monde
+
+Une machine étiquetée au nom d'une AESH restait muette : la personne
+n'apparaît pas au tableau des professeurs, donc rien à en dire. C'était
+regarder par la mauvaise fenêtre. Le compte Google, lui, existe pour tout
+le monde, et l'unité d'organisation où il est rangé dit à quel titre la
+personne est là — `/6. Personnel/AESH`, `/5. Professeurs`,
+`/7. Sortis/Profs sortis`.
+
+Le rapport interroge donc les deux : le tableau pour le mouvement de
+l'année, le compte pour l'existence, la suspension, l'emplacement et la
+dernière connexion. Un compte absent, suspendu, ou rangé dans une branche
+de sortie explique à lui seul qu'une machine soit revenue.
+
 ## Lire, et pas seulement montrer
 
 Aligner des champs ne suffit pas. « Étiquette julien.martial, connexions
@@ -206,6 +220,12 @@ class Appareil:
     enseignante signale des étiquettes jamais corrigées."""
     lecture: list[str] = field(default_factory=list)
     """Ce que les faits, mis ensemble, racontent de cette machine."""
+    porteur_compte_existe: bool | None = None
+    porteur_ou: str | None = None
+    """Unité d'organisation du compte : elle dit à quel titre la personne
+    est là, quand le tableau des enseignants ne la connaît pas."""
+    porteur_suspendu: bool | None = None
+    porteur_vu_le: str | None = None
     attribue_a: str | None = None
     """Adresse à qui elle a été confiée, avant mise à jour de l'étiquette."""
     attribue_le: str | None = None
@@ -517,6 +537,13 @@ def analyser_flotte(
     mouvement_par_adresse = {
         p.email: p.code for p in rapport.profs if p.email
     }
+    # Le compte existe pour tout le monde, là où le tableau ne couvre que
+    # les enseignants : c'est lui qui renseigne sur une AESH, un agent, ou
+    # quelqu'un déjà rangé dans une branche de sortie.
+    comptes_par_adresse = {
+        (c.get("email") or "").lower(): c for c in comptes if c.get("email")
+    }
+
     for a in rapport.appareils:
         if not a.porteur:
             continue
@@ -525,6 +552,13 @@ def analyser_flotte(
         if code is not None:
             a.porteur_code = code
             a.porteur_en_poste = code != "sortant"
+
+        compte = comptes_par_adresse.get(a.porteur)
+        a.porteur_compte_existe = compte is not None
+        if compte is not None:
+            a.porteur_ou = compte.get("ou")
+            a.porteur_suspendu = bool(compte.get("suspendu"))
+            a.porteur_vu_le = compte.get("derniere_connexion")
 
     for a in rapport.appareils:
         a.lecture = _lire(a, mouvement_par_adresse)
@@ -653,6 +687,11 @@ _MOUVEMENTS = {
 }
 
 
+# Branches où un compte encore actif signale autre chose qu'un enseignant
+# en poste — une sortie déjà rangée, ou un autre statut dans la maison.
+_BRANCHES_SORTIE = ("/7. Sortis",)
+
+
 def _lire(a: Appareil, mouvements: dict[str, str]) -> list[str]:
     """Relie les faits d'un appareil en une ou deux phrases.
 
@@ -729,6 +768,38 @@ def _lire(a: Appareil, mouvements: dict[str, str]) -> list[str]:
             "Aucune connexion enregistrée : appareil neuf, ou gardé en réserve "
             "sans avoir jamais servi."
         )
+
+    # Ce que le compte du porteur apprend, quand le tableau se tait.
+    if a.porteur:
+        if a.porteur_compte_existe is False:
+            phrases.append(
+                "Le compte de la personne étiquetée n'existe plus dans Google : "
+                "elle a quitté l'établissement, et la machine peut être "
+                "réattribuée."
+            )
+        elif a.porteur_suspendu:
+            phrases.append(
+                "Son compte est suspendu : elle n'est plus en activité, "
+                "ce qui explique que la machine soit revenue."
+            )
+        elif a.porteur_ou and a.porteur_ou.startswith(_BRANCHES_SORTIE):
+            phrases.append(
+                f"Son compte est rangé dans {a.porteur_ou} : elle est déjà "
+                "traitée comme sortie."
+            )
+        elif a.porteur_code is None and a.porteur_ou:
+            # Le silence du programme avait une cause : le tableau ne couvre
+            # que les enseignants. Le dire vaut mieux que ne rien dire.
+            phrases.append(
+                f"Elle ne figure pas au tableau des enseignants — son compte "
+                f"est rangé dans {a.porteur_ou}, elle n'y est donc pas à ce "
+                "titre. Le programme ne connaît pas son mouvement de l'année."
+                + (
+                    f" Dernière connexion : {a.porteur_vu_le[:10]}."
+                    if a.porteur_vu_le
+                    else " Elle ne s'est jamais connectée."
+                )
+            )
 
     # Repris alors que son porteur est toujours là.
     if a.recupere_le and a.porteur_en_poste and a.porteur_code != "sortant":

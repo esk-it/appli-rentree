@@ -752,3 +752,83 @@ def test_une_machine_endormie_ne_pretend_pas_servir_encore():
     assert "réclamer" not in par_serie["DORT"], "elle dort : on ne peut pas l'affirmer"
     assert "ne donne plus signe de vie" in par_serie["DORT"]
     assert "réclamer" in par_serie["VIVE"], "celle-ci, si"
+
+
+def test_le_compte_explique_ce_que_le_tableau_ignore():
+    """Le cas réel : une AESH, absente du tableau des enseignants.
+
+    Regarder le seul tableau des profs, c'était regarder par la mauvaise
+    fenêtre : le compte Google existe pour tout le monde, et l'unité où il
+    est rangé dit à quel titre la personne est là.
+    """
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("marine.le-jeune@lekreisker.fr", serie="A",
+                   recents=["marine.le-jeune@lekreisker.fr"])],
+        [],
+        [{"email": "marine.le-jeune@lekreisker.fr", "nom": "LE JEUNE",
+          "prenom": "Marine", "ou": "/6. Personnel/AESH", "suspendu": False,
+          "derniere_connexion": "2026-06-18T08:00:00.000Z"}],
+    )
+    a = r.appareils[0]
+    lecture = " ".join(a.lecture)
+
+    assert a.porteur_ou == "/6. Personnel/AESH"
+    assert a.porteur_suspendu is False
+    assert "ne figure pas au tableau des enseignants" in lecture
+    assert "/6. Personnel/AESH" in lecture
+    assert "2026-06-18" in lecture
+
+
+def test_un_compte_disparu_libere_la_machine():
+    """L'autre cas réel : la personne n'a plus de compte du tout."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("gaelle.bauduin@lekreisker.fr", serie="A",
+                   recents=["johan.lemer@lekreisker.fr"])],
+        [], [_compte("johan.lemer@lekreisker.fr", "LEMER", "Johan")],
+    )
+    a = r.appareils[0]
+
+    assert a.porteur_compte_existe is False
+    assert "n'existe plus dans Google" in " ".join(a.lecture)
+    assert "peut être réattribuée" in " ".join(a.lecture)
+
+
+def test_un_compte_suspendu_explique_le_retour():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("parti@lekreisker.fr", serie="A")],
+        [],
+        [{"email": "parti@lekreisker.fr", "nom": "PARTI", "prenom": "Jean",
+          "ou": "/5. Professeurs", "suspendu": True}],
+    )
+    assert "suspendu" in " ".join(r.appareils[0].lecture)
+
+
+def test_un_compte_deja_range_en_sortie_le_dit():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("ancien@lekreisker.fr", serie="A")],
+        [],
+        [{"email": "ancien@lekreisker.fr", "nom": "ANCIEN", "prenom": "Paul",
+          "ou": "/7. Sortis/Profs sortis", "suspendu": False}],
+    )
+    assert "déjà traitée comme sortie" in " ".join(r.appareils[0].lecture)
+
+
+def test_un_enseignant_connu_du_tableau_ne_declenche_pas_la_regle_du_compte():
+    """La règle ne comble qu'un silence : elle ne double pas ce qu'on sait."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("connu@lekreisker.fr", serie="A")],
+        [_Prof("CONNU", "Paul", "Maths", "en_poste")],
+        [{"email": "connu@lekreisker.fr", "nom": "CONNU", "prenom": "Paul",
+          "ou": "/5. Professeurs", "suspendu": False}],
+    )
+    assert not any("ne figure pas au tableau" in p for p in r.appareils[0].lecture)

@@ -929,6 +929,28 @@
                                       </dd>
                                     </div>
                                   {/if}
+                                  {#if a.porteur}
+                                    <div class="flex gap-2">
+                                      <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Son compte</dt>
+                                      <dd class="min-w-0">
+                                        {#if a.porteur_compte_existe === false}
+                                          <span class="text-red-700 dark:text-red-400">
+                                            n'existe plus
+                                          </span>
+                                        {:else}
+                                          <span class="break-all font-mono">{a.porteur_ou}</span>
+                                          {#if a.porteur_suspendu}
+                                            <span class="text-amber-700 dark:text-amber-400">· suspendu</span>
+                                          {/if}
+                                          {#if a.porteur_vu_le}
+                                            <span class="text-stone-400">
+                                              · vu {jour(a.porteur_vu_le)}
+                                            </span>
+                                          {/if}
+                                        {/if}
+                                      </dd>
+                                    </div>
+                                  {/if}
                                   {#if a.homonymes_etiquette > 0}
                                     <div class="flex gap-2">
                                       <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400"></dt>
