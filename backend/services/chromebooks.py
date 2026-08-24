@@ -83,6 +83,38 @@ Le suivi permet de le voir, parce qu'il garde **de qui** chaque machine a
 au tableau n'est pas parti : il est revenu, et il lui faut de nouveau une
 machine.
 
+## Trois noms pour une seule machine
+
+Un appareil peut porter un autocollant à un nom, une étiquette Google à un
+autre, et servir tous les jours à un troisième. C'est arrivé : étiquette
+`julien.martial`, autocollant `adele.lemordant`, connexions
+`samuel.ouchia-lebars`. Aucun de ces trois n'est faux ; ils datent
+simplement d'époques différentes.
+
+Devant une machine pareille, la question n'est pas « à qui est-elle ? »
+mais « qu'est-ce qu'on sait d'elle ? ». Le rapport rassemble donc, pour
+chaque appareil, ce que chaque source en dit — sans arbitrer entre elles —
+plus deux renseignements qui font souvent basculer la décision : la
+personne étiquetée est-elle encore là, et combien d'autres machines
+portent le même nom.
+
+## Lire, et pas seulement montrer
+
+Aligner des champs ne suffit pas. « Étiquette julien.martial, connexions
+samuel.ouchia-lebars, porteur en congé formation » : les trois faits sont
+là, mais c'est leur rapprochement qui dit la chose — Julien est absent
+cette année, Samuel se sert de sa machine pendant ce temps.
+
+Le rapport propose donc une **lecture** : une ou deux phrases qui relient
+les faits. Chacune vient d'une règle nommée, vérifiable en relisant les
+champs affichés juste à côté. Ce qui relève de l'inférence le dit —
+« sans doute », « probablement » — parce qu'une machine qui change de
+mains ne laisse pas de trace, et que le programme ne fera jamais mieux que
+supposer.
+
+Aucune de ces phrases ne décide quoi que ce soit. Elles épargnent le
+raisonnement, pas le jugement.
+
 ## Une machine rendue n'est pas forcément réattribuable
 
 Google désactive un appareil qu'on a retiré du parc, et son étiquette lui
@@ -164,6 +196,16 @@ class Appareil:
     """Pourquoi elle ne rejoint pas les machines à attribuer."""
     note: str | None = None
     """Ce que l'établissement a décidé d'en faire. Texte libre."""
+    porteur_en_poste: bool | None = None
+    """La personne de l'étiquette figure-t-elle encore au tableau ? `None`
+    si l'étiquette ne désigne personne d'identifiable."""
+    porteur_code: str | None = None
+    """Son mouvement : `sortant`, `en_poste`, `arrivant`…"""
+    homonymes_etiquette: int = 0
+    """Autres machines portant la même étiquette. Trois pour une même
+    enseignante signale des étiquettes jamais corrigées."""
+    lecture: list[str] = field(default_factory=list)
+    """Ce que les faits, mis ensemble, racontent de cette machine."""
     attribue_a: str | None = None
     """Adresse à qui elle a été confiée, avant mise à jour de l'étiquette."""
     attribue_le: str | None = None
@@ -468,6 +510,25 @@ def analyser_flotte(
                 "corrige-la dans la console pour qu'elle redevienne disponible"
             )
 
+    # Ce que chaque source dit de l'appareil, sans arbitrer entre elles.
+    from collections import Counter as _Compteur
+
+    porte_par = _Compteur(a.porteur for a in rapport.appareils if a.porteur)
+    mouvement_par_adresse = {
+        p.email: p.code for p in rapport.profs if p.email
+    }
+    for a in rapport.appareils:
+        if not a.porteur:
+            continue
+        a.homonymes_etiquette = porte_par[a.porteur] - 1
+        code = mouvement_par_adresse.get(a.porteur)
+        if code is not None:
+            a.porteur_code = code
+            a.porteur_en_poste = code != "sortant"
+
+    for a in rapport.appareils:
+        a.lecture = _lire(a, mouvement_par_adresse)
+
     # Le journal : les gestes notés, remis en récit. Les noms viennent des
     # comptes, parce qu'une adresse seule ne dit pas grand-chose trois
     # semaines après.
@@ -580,3 +641,101 @@ def chercher_appareil(rapport: RapportFlotte, requete: str) -> list[Appareil]:
     # chances d'avoir entre les mains.
     trouves.sort(key=lambda a: a.derniere_synchro or "", reverse=True)
     return trouves
+
+
+# Libellés des mouvements, pour des phrases qui se lisent à voix haute.
+_MOUVEMENTS = {
+    "sortant": "quitte l'établissement",
+    "arrivant": "vient d'arriver",
+    "formation": "est en congé formation cette année",
+    "remplace": "est remplacé une partie de l'année",
+    "en_poste": "est toujours en poste",
+}
+
+
+def _lire(a: Appareil, mouvements: dict[str, str]) -> list[str]:
+    """Relie les faits d'un appareil en une ou deux phrases.
+
+    Chaque phrase vient d'une règle nommée par son commentaire, et se
+    vérifie sur les champs affichés à côté. Ce qui relève de la supposition
+    le dit : une machine qui change de mains ne laisse pas de trace.
+    """
+    phrases: list[str] = []
+    premier = a.derniers_utilisateurs[0] if a.derniers_utilisateurs else None
+    mouvement = _MOUVEMENTS.get(a.porteur_code or "")
+
+    # Hors service : c'est le fait qui prime sur tous les autres.
+    if not a.est_actif:
+        phrases.append(
+            "Google a désactivé cet appareil : il ne peut plus être remis en "
+            "service ni réattribué."
+            + (
+                f" Il ne s'est plus synchronisé depuis {a.derniere_synchro[:4]}."
+                if a.derniere_synchro
+                else " Il ne s'est jamais synchronisé."
+            )
+        )
+        if a.porteur:
+            phrases.append(
+                "Son étiquette porte encore un nom : elle date d'avant sa mise "
+                "hors service, et n'apprend rien sur qui l'avait en dernier."
+            )
+        return phrases
+
+    # Une absence explique presque toujours qu'un autre s'en serve.
+    if a.porteur and premier and premier != a.porteur and a.porteur_code in (
+        "formation",
+        "remplace",
+    ):
+        phrases.append(
+            f"La personne étiquetée {mouvement} : c'est {premier} qui s'en sert "
+            "pendant ce temps. Rien d'anormal."
+        )
+
+    # Un partant qui s'en sert encore : c'est la machine qu'on va réclamer.
+    # La condition de fraîcheur est essentielle : la liste des derniers
+    # utilisateurs est un historique, pas un présent. Sur une machine
+    # endormie depuis deux ans, « s'en servait récemment » est faux, et la
+    # phrase contredirait celle qui suit.
+    elif a.porteur_code == "sortant" and premier == a.porteur and not a.dort:
+        phrases.append(
+            "La personne étiquetée quitte l'établissement et s'en servait "
+            "encore récemment : c'est bien cette machine qu'il faut lui "
+            "réclamer."
+        )
+
+    # L'étiquette contredite sans explication : un changement de mains.
+    elif a.porteur and premier and premier != a.porteur:
+        phrases.append(
+            f"L'étiquette dit {a.porteur}, mais c'est {premier} qui s'en sert. "
+            "La machine a sans doute changé de mains sans être réétiquetée."
+        )
+
+    # Plusieurs machines au même nom, dont celle-ci dort : l'étiquette a vécu.
+    if a.homonymes_etiquette and a.dort:
+        phrases.append(
+            f"{a.homonymes_etiquette + 1} machines portent cette étiquette, et "
+            "celle-ci ne donne plus signe de vie : la sienne est probablement "
+            "l'une des autres."
+        )
+    elif a.dort:
+        phrases.append(
+            "Aucune connexion depuis plus d'un an. L'appareil est rangé "
+            "quelque part, en panne, ou perdu — son étiquette ne dit plus où "
+            "il est."
+        )
+    elif a.est_actif and not a.derniers_utilisateurs:
+        phrases.append(
+            "Aucune connexion enregistrée : appareil neuf, ou gardé en réserve "
+            "sans avoir jamais servi."
+        )
+
+    # Repris alors que son porteur est toujours là.
+    if a.recupere_le and a.porteur_en_poste and a.porteur_code != "sortant":
+        phrases.append(
+            "Tu l'as reprise alors que la personne étiquetée est toujours au "
+            "tableau : vérifie qu'elle n'en a pas besoin, ou qu'il ne s'agit "
+            "pas d'un ancien appareil dont l'étiquette a survécu."
+        )
+
+    return phrases

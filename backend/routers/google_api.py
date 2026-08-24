@@ -935,6 +935,10 @@ class AppareilOut(BaseModel):
     libre: bool = False
     motif_indisponible: str | None = None
     note: str | None = None
+    porteur_en_poste: bool | None = None
+    porteur_code: str | None = None
+    homonymes_etiquette: int = 0
+    lecture: list[str] = []
     serie: str
     modele: str
     ou: str
@@ -1024,6 +1028,8 @@ def _appareil_out(a) -> AppareilOut:
         recupere_le=a.recupere_le, attribue_a=a.attribue_a, dort=a.dort,
         a_recuperer=a.a_recuperer, libre=a.libre,
         motif_indisponible=a.motif_indisponible, note=a.note,
+        porteur_en_poste=a.porteur_en_poste, porteur_code=a.porteur_code,
+        homonymes_etiquette=a.homonymes_etiquette, lecture=a.lecture,
     )
 
 

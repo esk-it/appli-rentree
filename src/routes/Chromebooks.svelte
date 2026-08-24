@@ -155,6 +155,26 @@
   let noteEnEdition = $state(/** @type {string|null} */ (null));
   let texteNote = $state("");
 
+  /** Le statut Google, en français. */
+  const STATUTS = {
+    ACTIVE: "en service",
+    DEPROVISIONED: "désactivée dans Google",
+    DISABLED: "suspendue",
+  };
+
+  /** « il y a deux mois » se juge mieux qu'une date brute. */
+  function depuis(iso) {
+    if (!iso) return "jamais synchronisée";
+    const jours = Math.floor((Date.now() - new Date(iso)) / 86400000);
+    if (jours <= 1) return "aujourd'hui";
+    if (jours < 31) return `il y a ${jours} jours`;
+    const mois = Math.round(jours / 30.4);
+    if (mois < 24) return `il y a ${mois} mois`;
+    return `il y a ${Math.round(mois / 12)} ans`;
+  }
+
+  let detail = $state(/** @type {string|null} */ (null));
+
   function ouvrirNote(a) {
     noteEnEdition = a.serie;
     texteNote = a.note ?? "";
@@ -732,7 +752,7 @@
               <tbody>
                 {#each parcFiltre.slice(0, 400) as a (a.serie)}
                   {@const e = ETATS[etatDe(a)]}
-                  <tr class={e.ligne}>
+                  <tr class={e.ligne} title={a.lecture.join(" ")}>
                     <td class="py-1 pl-3 pr-0">
                       <Chromebook taille={30} etat={e.dessin} />
                     </td>
@@ -788,7 +808,10 @@
                 </thead>
                 <tbody>
                   {#each resultats as a (a.serie)}
-                    <tr class:ligne-douteuse={a.dort}>
+                    <tr
+                      class="cursor-pointer {a.dort ? 'ligne-douteuse' : ''}"
+                      onclick={() => (detail = detail === a.serie ? null : a.serie)}
+                    >
                       <td class="whitespace-nowrap font-mono text-xs">{a.serie}</td>
                       <td class="whitespace-nowrap font-mono text-xs">{a.etiquette}</td>
                       <td class="whitespace-nowrap font-mono text-xs">
@@ -823,16 +846,164 @@
                           <Bouton
                             taille="sm"
                             occupe={enCours === a.serie}
-                            onclick={() =>
+                            onclick={(e) => {
+                              e.stopPropagation();
                               noter({ serie: a.serie, recupere: true,
                                       recupereDe: a.porteur },
-                                    a.serie + " notée rendue")}
+                                    a.serie + " notée rendue");
+                            }}
                           >
                             Je l'ai récupérée
                           </Bouton>
                         {/if}
                       </td>
                     </tr>
+                    {#if detail === a.serie}
+                      <tr class="bg-stone-50/80 dark:bg-stone-800/50">
+                        <td colspan="5" class="px-4 py-4">
+                          <!-- La lecture d'abord : les champs sont dessous
+                               pour la vérifier, pas pour la remplacer. -->
+                          {#if a.lecture.length}
+                            <div class="mb-4 space-y-1.5 border-l-2 border-emerald-400 pl-3
+                                        dark:border-emerald-600">
+                              {#each a.lecture as phrase}
+                                <p class="max-w-3xl text-sm text-stone-700 dark:text-stone-300">
+                                  {phrase}
+                                </p>
+                              {/each}
+                            </div>
+                          {/if}
+                          <div class="flex items-start gap-5">
+                            <Chromebook taille={64} etat={ETATS[etatDe(a)].dessin} classe="shrink-0" />
+
+                            <div class="grid min-w-0 flex-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                              <div>
+                                <p class="libelle-champ">L'appareil</p>
+                                <dl class="space-y-0.5 text-xs">
+                                  <div class="flex gap-2">
+                                    <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Statut</dt>
+                                    <dd class={a.statut === "ACTIVE"
+                                      ? "text-emerald-700 dark:text-emerald-400"
+                                      : "text-red-700 dark:text-red-400"}>
+                                      {STATUTS[a.statut] ?? a.statut}
+                                    </dd>
+                                  </div>
+                                  <div class="flex gap-2">
+                                    <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Modèle</dt>
+                                    <dd>{a.modele}</dd>
+                                  </div>
+                                  <div class="flex gap-2">
+                                    <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Vue</dt>
+                                    <dd class={a.dort ? "text-amber-700 dark:text-amber-400" : ""}>
+                                      {depuis(a.derniere_synchro)}
+                                      {#if a.derniere_synchro}
+                                        <span class="text-stone-400">({jour(a.derniere_synchro)})</span>
+                                      {/if}
+                                    </dd>
+                                  </div>
+                                  <div class="flex gap-2">
+                                    <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Emplacement</dt>
+                                    <dd class="min-w-0 break-all font-mono">{a.ou}</dd>
+                                  </div>
+                                </dl>
+                              </div>
+
+                              <div>
+                                <p class="libelle-champ">Qui, selon qui</p>
+                                <dl class="space-y-0.5 text-xs">
+                                  <div class="flex gap-2">
+                                    <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Étiquette</dt>
+                                    <dd class="min-w-0 break-all font-mono">
+                                      {a.etiquette || "—"}
+                                    </dd>
+                                  </div>
+                                  {#if a.porteur_code}
+                                    <div class="flex gap-2">
+                                      <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400"></dt>
+                                      <dd class={a.porteur_en_poste
+                                        ? "text-stone-500 dark:text-stone-400"
+                                        : "text-red-700 dark:text-red-400"}>
+                                        {a.porteur_en_poste
+                                          ? "cette personne est toujours au tableau"
+                                          : "cette personne est marquée sortante"}
+                                      </dd>
+                                    </div>
+                                  {/if}
+                                  {#if a.homonymes_etiquette > 0}
+                                    <div class="flex gap-2">
+                                      <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400"></dt>
+                                      <dd class="text-amber-700 dark:text-amber-400">
+                                        {a.homonymes_etiquette} autre(s) machine(s) portent
+                                        la même étiquette
+                                      </dd>
+                                    </div>
+                                  {/if}
+                                  <div class="mt-1 flex gap-2">
+                                    <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">S'y connectent</dt>
+                                    <dd class="min-w-0">
+                                      {#if a.derniers_utilisateurs.length}
+                                        <ul class="space-y-0.5">
+                                          {#each a.derniers_utilisateurs.slice(0, 4) as u, i (u)}
+                                            <li class="break-all font-mono {i === 0
+                                              ? 'text-stone-800 dark:text-stone-200'
+                                              : 'text-stone-400 dark:text-stone-500'}">
+                                              {u}
+                                            </li>
+                                          {/each}
+                                        </ul>
+                                      {:else}
+                                        <span class="text-stone-400">aucune connexion enregistrée</span>
+                                      {/if}
+                                    </dd>
+                                  </div>
+                                  {#if a.porteur && a.derniers_utilisateurs.length
+                                       && !a.derniers_utilisateurs.includes(a.porteur)}
+                                    <p class="mt-1 text-amber-700 dark:text-amber-400">
+                                      L'étiquette et les connexions se contredisent : la
+                                      machine a sans doute changé de mains sans qu'on la
+                                      réétiquette.
+                                    </p>
+                                  {/if}
+                                </dl>
+                              </div>
+
+                              <div>
+                                <p class="libelle-champ">Ce que tu en as fait</p>
+                                {#if a.recupere_le}
+                                  <p class="text-xs text-emerald-700 dark:text-emerald-400">
+                                    reprise le {jour(a.recupere_le)}
+                                    {#if a.derniers_utilisateurs.length === 0}{/if}
+                                  </p>
+                                {/if}
+                                {#if a.attribue_a}
+                                  <p class="text-xs">
+                                    confiée à <span class="font-mono">{a.attribue_a}</span>
+                                  </p>
+                                {/if}
+                                {#if !a.recupere_le && !a.attribue_a}
+                                  <p class="text-xs text-stone-400 dark:text-stone-500">
+                                    Aucun mouvement noté. Si tu l'as en main, coche
+                                    « je l'ai récupérée » pour en garder la trace.
+                                  </p>
+                                {/if}
+                                {#if a.motif_indisponible}
+                                  <p class="mt-1.5 text-xs text-amber-700 dark:text-amber-400">
+                                    {a.motif_indisponible}
+                                  </p>
+                                {/if}
+                                {#if a.libre}
+                                  <p class="mt-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+                                    Disponible : tu peux l'attribuer depuis l'onglet
+                                    « À équiper ».
+                                  </p>
+                                {/if}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    {/if}
+
                     {#if a.motif_indisponible || a.note || noteEnEdition === a.serie}
                       <tr>
                         <td colspan="5" class="px-3 pb-2 pt-0">

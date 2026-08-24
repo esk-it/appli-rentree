@@ -261,8 +261,8 @@ def test_une_machine_confiee_nest_plus_une_discordance():
     assert r.discordances == []
 
 
-def _avec_synchro(etiquette, serie, iso):
-    a = _appareil(etiquette, serie=serie)
+def _avec_synchro(etiquette, serie, iso, recents=None):
+    a = _appareil(etiquette, serie=serie, recents=recents)
     a["derniere_synchro"] = iso
     return a
 
@@ -571,3 +571,184 @@ def test_la_note_suit_la_machine_jusquau_journal():
     )
     assert r.appareils[0].note == "Rendue au fournisseur, hors garantie"
     assert r.historique[0].note == "Rendue au fournisseur, hors garantie"
+
+
+def test_une_machine_dit_ce_que_chaque_source_pense_delle():
+    """Trois noms pour une machine : autocollant, étiquette, connexions.
+
+    Le cas réel : étiquette julien.martial, connexions
+    samuel.ouchia-lebars. Aucun des deux n'est faux — ils datent
+    d'époques différentes, et c'est cela qu'il faut montrer.
+    """
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("julien.martial@lekreisker.fr", serie="ECHANGEE",
+                   recents=["samuel.ouchia-lebars@lekreisker.fr"])],
+        [_Prof("MARTIAL", "Julien", "Maths", "en_poste")],
+        [_compte("julien.martial@lekreisker.fr", "MARTIAL", "Julien")],
+    )
+    a = r.appareils[0]
+
+    assert a.porteur == "julien.martial@lekreisker.fr"
+    assert a.derniers_utilisateurs == ["samuel.ouchia-lebars@lekreisker.fr"]
+    assert a.porteur_en_poste is True
+    assert a.porteur_code == "en_poste"
+
+
+def test_une_etiquette_portee_par_plusieurs_machines_est_comptee():
+    """Trois machines pour une même enseignante : des étiquettes jamais
+    corrigées, et le nombre le dit avant qu'on aille les chercher."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("helene.maurice@lekreisker.fr", serie="A"),
+         _appareil("helene.maurice@lekreisker.fr", serie="B"),
+         _appareil("helene.maurice@lekreisker.fr", serie="C"),
+         _appareil("seule@lekreisker.fr", serie="D")],
+        [], [],
+    )
+    par_serie = {a.serie: a for a in r.appareils}
+
+    assert par_serie["A"].homonymes_etiquette == 2
+    assert par_serie["D"].homonymes_etiquette == 0
+
+
+def test_le_porteur_sortant_est_signale_comme_tel():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("adele.lemordant@lekreisker.fr", serie="A")],
+        [_Prof("LEMORDANT", "Adèle", "Anglais", "sortant")],
+        [_compte("adele.lemordant@lekreisker.fr", "LEMORDANT", "Adèle")],
+    )
+    assert r.appareils[0].porteur_en_poste is False
+    assert r.appareils[0].porteur_code == "sortant"
+
+
+def test_une_etiquette_qui_ne_designe_personne_ne_conclut_rien():
+    """Un code d'emplacement n'est pas une adresse : rien à en déduire."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("K-B5-13-08", serie="A", ou="/1. Chromebooks/2. Elèves")],
+        [], [],
+    )
+    assert r.appareils[0].porteur is None
+    assert r.appareils[0].porteur_en_poste is None
+    assert r.appareils[0].homonymes_etiquette == 0
+
+
+def test_une_absence_explique_quun_autre_se_serve_de_la_machine():
+    """Le cas réel : Julien en congé formation, Samuel sur sa machine.
+
+    Les trois faits étaient affichés ; c'est leur rapprochement qui dit la
+    chose, et c'est ce rapprochement qu'on ne devrait pas avoir à faire.
+    """
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("julien.martial@lekreisker.fr", serie="A",
+                   recents=["samuel.ouchia-lebars@lekreisker.fr"])],
+        [_Prof("MARTIAL", "Julien", "Maths", "formation")],
+        [_compte("julien.martial@lekreisker.fr", "MARTIAL", "Julien")],
+    )
+    lecture = " ".join(r.appareils[0].lecture)
+
+    assert "congé formation" in lecture
+    assert "samuel.ouchia-lebars@lekreisker.fr" in lecture
+    assert "Rien d'anormal" in lecture
+
+
+def test_un_partant_qui_sen_sert_encore_est_annonce_comme_tel():
+    from backend.services.chromebooks import analyser_flotte
+
+    from datetime import datetime, timedelta
+
+    hier = (datetime.utcnow() - timedelta(days=1)).isoformat() + "Z"
+    r = analyser_flotte(
+        [_avec_synchro("adele.lemordant@lekreisker.fr", "A", hier,
+                       recents=["adele.lemordant@lekreisker.fr"])],
+        [_Prof("LEMORDANT", "Adèle", "Anglais", "sortant")],
+        [_compte("adele.lemordant@lekreisker.fr", "LEMORDANT", "Adèle")],
+    )
+    assert "quitte l'établissement" in " ".join(r.appareils[0].lecture)
+
+
+def test_une_etiquette_contredite_sans_raison_reste_une_supposition():
+    """Un changement de mains ne laisse pas de trace : on ne l'affirme pas."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("ancien@lekreisker.fr", serie="A",
+                   recents=["nouveau@lekreisker.fr"])],
+        [], [],
+    )
+    lecture = " ".join(r.appareils[0].lecture)
+    assert "sans doute" in lecture
+    assert "réétiquetée" in lecture
+
+
+def test_une_machine_desactivee_le_dit_avant_tout_le_reste():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("yanna@lekreisker.fr", serie="A", statut="DEPROVISIONED")],
+        [], [],
+    )
+    lecture = r.appareils[0].lecture
+    assert "désactivé" in lecture[0]
+    assert any("étiquette" in p for p in lecture)
+
+
+def test_plusieurs_machines_au_meme_nom_dont_une_qui_dort():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_avec_synchro("helene.maurice@lekreisker.fr", "VIVE", "2026-07-05T10:00:00.000Z"),
+         _avec_synchro("helene.maurice@lekreisker.fr", "DORT", "2024-12-26T10:00:00.000Z")],
+        [], [],
+    )
+    par_serie = {a.serie: a for a in r.appareils}
+    assert "2 machines portent cette étiquette" in " ".join(par_serie["DORT"].lecture)
+    assert not any("machines portent" in p for p in par_serie["VIVE"].lecture)
+
+
+def test_reprise_alors_que_la_personne_est_toujours_la():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("nicole.lanconneur@lekreisker.fr", serie="A")],
+        [_Prof("LANCONNEUR", "Nicole", "Anglais", "en_poste")],
+        [_compte("nicole.lanconneur@lekreisker.fr", "LANCONNEUR", "Nicole")],
+        suivi={"A": {"recupere_le": "2026-08-24", "attribue_a": None,
+                     "recupere_de": "nicole.lanconneur@lekreisker.fr"}},
+    )
+    assert "toujours au tableau" in " ".join(r.appareils[0].lecture)
+
+
+def test_une_machine_endormie_ne_pretend_pas_servir_encore():
+    """La liste des derniers utilisateurs est un historique, pas un présent.
+
+    Sur une machine sans synchronisation depuis deux ans, « s'en servait
+    encore récemment » est faux — et contredirait la phrase sur son sommeil.
+    """
+    from datetime import datetime, timedelta
+
+    from backend.services.chromebooks import analyser_flotte
+
+    hier = (datetime.utcnow() - timedelta(days=1)).isoformat() + "Z"
+    r = analyser_flotte(
+        [_avec_synchro("helene.maurice@lekreisker.fr", "DORT",
+                       "2024-12-26T10:00:00.000Z",
+                       recents=["helene.maurice@lekreisker.fr"]),
+         _avec_synchro("helene.maurice@lekreisker.fr", "VIVE", hier,
+                       recents=["helene.maurice@lekreisker.fr"])],
+        [_Prof("MAURICE", "Hélène", "Lettres", "sortant")],
+        [_compte("helene.maurice@lekreisker.fr", "MAURICE", "Hélène")],
+    )
+    par_serie = {a.serie: " ".join(a.lecture) for a in r.appareils}
+
+    assert "réclamer" not in par_serie["DORT"], "elle dort : on ne peut pas l'affirmer"
+    assert "ne donne plus signe de vie" in par_serie["DORT"]
+    assert "réclamer" in par_serie["VIVE"], "celle-ci, si"
