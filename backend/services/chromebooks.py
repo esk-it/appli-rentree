@@ -230,6 +230,14 @@ class Appareil:
     homonymes_etiquette: int = 0
     """Autres machines portant la même étiquette. Trois pour une même
     enseignante signale des étiquettes jamais corrigées."""
+    autres_machines_actives: int = 0
+    """Autres appareils en service au même nom.
+
+    Déclaré ici avec une valeur par défaut, et pas seulement affecté
+    dans la boucle qui le calcule : celle-ci saute les appareils sans
+    porteur, qui se retrouvaient alors dépourvus de l'attribut — et la
+    lecture échouait sur eux.
+    """
     lecture: list[str] = field(default_factory=list)
     """Ce que les faits, mis ensemble, racontent de cette machine."""
     porteur_compte_existe: bool | None = None

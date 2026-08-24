@@ -942,3 +942,40 @@ def test_un_remplacant_est_nomme_et_sa_raison_precisee():
     assert ligne.raison == "remplace"
     assert ligne.remplace_qui == "Morgane CLOITRE"
     assert r.sans_compte == [], "elle n'est plus dans les introuvables"
+
+
+def test_un_appareil_sans_porteur_porte_tous_ses_champs():
+    """Un champ affecté dans une boucle n'existe que pour ce qu'elle traite.
+
+    La boucle qui compte les machines d'un même porteur saute les appareils
+    qui n'en ont pas ; sans déclaration sur la classe, ceux-là se
+    retrouvaient dépourvus de l'attribut, et la lecture échouait — erreur
+    500 sur tout l'écran.
+    """
+    from dataclasses import fields
+
+    from backend.services.chromebooks import Appareil
+
+    a = Appareil(serie="X", modele="M", ou="/x", statut="ACTIVE",
+                 etiquette="", porteur=None)
+
+    # Chaque champ doit être lisible sur une instance neuve, sans qu'aucune
+    # boucle ne soit passée dessus.
+    for f in fields(Appareil):
+        getattr(a, f.name)
+
+    assert a.autres_machines_actives == 0
+    assert a.homonymes_etiquette == 0
+
+
+def test_la_flotte_se_lit_meme_sans_aucun_porteur():
+    """Le cas réel : des appareils élèves, étiquetés d'un code de salle."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("K-B5-13-08", serie="A", ou="/1. Chromebooks/2. Elèves"),
+         _appareil("SU-B3-C11-13", serie="B", ou="/1. Chromebooks/2. Elèves")],
+        [], [],
+    )
+    assert len(r.appareils) == 2
+    assert all(a.autres_machines_actives == 0 for a in r.appareils)
