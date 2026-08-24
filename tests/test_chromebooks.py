@@ -452,3 +452,67 @@ def test_la_synthese_du_parc_compte_ce_qui_est_la():
     assert p.dormants == 1, "B n'a pas synchronisé depuis plus d'un an"
     assert p.par_modele[0] == ("Acer Spin 511", 3)
     assert dict(p.par_ou)["/1. Chromebooks/1. Personnel éducatif"] == 3
+
+
+def test_le_journal_raconte_le_trajet_dune_machine():
+    """Une machine confiée quitte les listes d'actions — et le champ de vision.
+
+    Le cas vécu : la machine de Maryvonne L'HER confiée à Pierre BILLANT.
+    Trois semaines plus tard, c'est la seule question qu'on se pose.
+    """
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("maryvonne.lher@lekreisker.fr", serie="M1")],
+        [],
+        [_compte("maryvonne.lher@lekreisker.fr", "L'HER", "Maryvonne"),
+         _compte("pierre.billant@lekreisker.fr", "BILLANT", "Pierre")],
+        suivi={"M1": {"recupere_le": "2026-08-21",
+                      "recupere_de": "maryvonne.lher@lekreisker.fr",
+                      "attribue_a": "pierre.billant@lekreisker.fr",
+                      "attribue_le": "2026-08-24"}},
+    )
+
+    assert len(r.historique) == 1
+    m = r.historique[0]
+    assert m.rendu_par_nom == "Maryvonne L'HER"
+    assert m.confie_a_nom == "Pierre BILLANT"
+    assert m.rendu_le == "2026-08-21"
+    assert m.confie_le == "2026-08-24"
+
+
+def test_le_journal_va_du_plus_recent_au_plus_ancien():
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("a@x.fr", serie="VIEUX"), _appareil("b@x.fr", serie="RECENT")],
+        [], [],
+        suivi={
+            "VIEUX": {"recupere_le": "2026-08-01", "recupere_de": "a@x.fr",
+                      "attribue_a": None, "attribue_le": None},
+            "RECENT": {"recupere_le": "2026-08-24", "recupere_de": "b@x.fr",
+                       "attribue_a": None, "attribue_le": None},
+        },
+    )
+    assert [m.serie for m in r.historique] == ["RECENT", "VIEUX"]
+
+
+def test_une_machine_sans_geste_note_nentre_pas_au_journal():
+    """Le journal raconte ce qu'on a fait, pas ce que Google contient."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte([_appareil("a@x.fr", serie="A")], [], [])
+    assert r.historique == []
+
+
+def test_une_adresse_inconnue_reste_lisible_au_journal():
+    """Sans compte correspondant, l'adresse tient lieu de nom."""
+    from backend.services.chromebooks import analyser_flotte
+
+    r = analyser_flotte(
+        [_appareil("x@x.fr", serie="A")], [], [],
+        suivi={"A": {"recupere_le": "2026-08-24", "recupere_de": "parti@x.fr",
+                     "attribue_a": None, "attribue_le": None}},
+    )
+    assert r.historique[0].rendu_par == "parti@x.fr"
+    assert r.historique[0].rendu_par_nom is None

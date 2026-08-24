@@ -964,6 +964,18 @@ class DiscordanceOut(BaseModel):
     constates: list[str]
 
 
+class MouvementMachineOut(BaseModel):
+    serie: str
+    modele: str
+    etiquette: str
+    rendu_par: str | None
+    rendu_par_nom: str | None
+    rendu_le: str | None
+    confie_a: str | None
+    confie_a_nom: str | None
+    confie_le: str | None
+
+
 class ParcOut(BaseModel):
     total: int
     actifs: int
@@ -989,6 +1001,7 @@ class FlotteOut(BaseModel):
     recuperees: list[AppareilOut]
     dormantes: list[AppareilOut]
     tous: list[AppareilOut]
+    historique: list[MouvementMachineOut] = []
     """Toute la flotte, pour la recherche par numéro depuis l'écran."""
     legende: list[dict]
     nb_par_code: dict[str, int]
@@ -1126,6 +1139,7 @@ def _croiser(session, profs, legende, importe_le) -> FlotteOut:
             "recupere_le": x.recupere_le.isoformat() if x.recupere_le else None,
             "attribue_a": x.attribue_a,
             "recupere_de": x.recupere_de,
+            "attribue_le": x.attribue_le.isoformat() if x.attribue_le else None,
         }
         for x in session.query(SuiviChromebook).all()
     }
@@ -1148,6 +1162,15 @@ def _croiser(session, profs, legende, importe_le) -> FlotteOut:
         # « Parc » sert justement à voir ce que les listes d'action cachent.
         tous=[_appareil_out(a) for a in r.appareils],
         parc=ParcOut(**vars(r.parc)),
+        historique=[
+            MouvementMachineOut(
+                serie=m.serie, modele=m.modele, etiquette=m.etiquette,
+                rendu_par=m.rendu_par, rendu_par_nom=m.rendu_par_nom,
+                rendu_le=m.rendu_le, confie_a=m.confie_a,
+                confie_a_nom=m.confie_a_nom, confie_le=m.confie_le,
+            )
+            for m in r.historique
+        ],
         discordances=[
             DiscordanceOut(
                 appareil=_appareil_out(d.appareil),

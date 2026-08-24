@@ -60,6 +60,17 @@ par `rapprochement.py`, qui applique des règles successives et dit
 laquelle a conclu — un lien obtenu autrement que par l'égalité stricte
 reste affiché comme tel, à vérifier d'un coup d'œil.
 
+## Ce qu'on a fait, et qu'on doit pouvoir revoir
+
+Une machine confiée quitte les listes d'actions — c'est le but. Mais elle
+quitte aussi le champ de vision : rien ne rappelait ensuite à qui elle
+était allée, ni de qui elle venait. Or c'est exactement la question qu'on
+se pose trois semaines plus tard, quand quelqu'un réclame la sienne.
+
+Le suivi gardait déjà les faits ; le journal les rejoue, du plus récent au
+plus ancien. Il ne déduit rien de Google : il raconte les gestes que
+l'établissement a notés.
+
 ## Rendre en juin et revenir en septembre
 
 Un enseignant qui ignore s'il sera reconduit rend sa machine avant l'été.
@@ -139,6 +150,7 @@ class Appareil:
     """Parc de prêt, ou étiquetée au nom d'un compte qui n'existe plus."""
     attribue_a: str | None = None
     """Adresse à qui elle a été confiée, avant mise à jour de l'étiquette."""
+    attribue_le: str | None = None
 
     @property
     def est_de_pret(self) -> bool:
@@ -194,6 +206,26 @@ class LigneProf:
 
 
 @dataclass
+class MouvementMachine:
+    """Un geste noté sur une machine : reprise, remise, ou les deux."""
+
+    serie: str
+    modele: str
+    etiquette: str
+    rendu_par: str | None = None
+    rendu_par_nom: str | None = None
+    rendu_le: str | None = None
+    confie_a: str | None = None
+    confie_a_nom: str | None = None
+    confie_le: str | None = None
+
+    @property
+    def quand(self) -> str:
+        """La date du geste le plus récent — c'est elle qui ordonne."""
+        return max(self.confie_le or "", self.rendu_le or "")
+
+
+@dataclass
 class SyntheseParc:
     """Ce que le parc est, indépendamment de ce qu'il y a à y faire."""
 
@@ -226,6 +258,8 @@ class RapportFlotte:
     """Confiées à quelqu'un dans l'application, mais l'étiquette dit autre chose."""
     recuperees: list[Appareil] = field(default_factory=list)
     parc: SyntheseParc = field(default_factory=SyntheseParc)
+    historique: list[MouvementMachine] = field(default_factory=list)
+    """Les gestes notés, du plus récent au plus ancien."""
     dormantes: list[Appareil] = field(default_factory=list)
     """Étiquetées au nom de quelqu'un, mais sans signe de vie depuis un an."""
     avertissements: list[str] = field(default_factory=list)
@@ -279,6 +313,7 @@ def analyser_flotte(
                 derniere_synchro=a.get("derniere_synchro"),
                 recupere_le=(suivi.get(a.get("serie") or "") or {}).get("recupere_le"),
                 recupere_de=(suivi.get(a.get("serie") or "") or {}).get("recupere_de"),
+                attribue_le=(suivi.get(a.get("serie") or "") or {}).get("attribue_le"),
                 attribue_a=(suivi.get(a.get("serie") or "") or {}).get("attribue_a"),
             )
         )
@@ -388,6 +423,34 @@ def analyser_flotte(
             "les connexions démentent. Deux machines échangées par erreur se "
             "voient ici — le programme ne tranche pas, il montre."
         )
+    # Le journal : les gestes notés, remis en récit. Les noms viennent des
+    # comptes, parce qu'une adresse seule ne dit pas grand-chose trois
+    # semaines après.
+    noms = {}
+    for c in comptes:
+        adresse = (c.get("email") or "").lower()
+        if adresse:
+            entier = f"{c.get('prenom') or ''} {c.get('nom') or ''}".strip()
+            noms[adresse] = entier or None
+
+    for a in rapport.appareils:
+        if not (a.recupere_le or a.attribue_a):
+            continue
+        rapport.historique.append(
+            MouvementMachine(
+                serie=a.serie,
+                modele=a.modele,
+                etiquette=a.etiquette,
+                rendu_par=a.recupere_de,
+                rendu_par_nom=noms.get((a.recupere_de or "").lower()),
+                rendu_le=a.recupere_le,
+                confie_a=a.attribue_a,
+                confie_a_nom=noms.get((a.attribue_a or "").lower()),
+                confie_le=a.attribue_le,
+            )
+        )
+    rapport.historique.sort(key=lambda m: m.quand, reverse=True)
+
     # Marquer les appareils selon ce qu'il y a à en faire : c'est cela que
     # la vue du parc colore, et non l'état technique de la machine.
     attendus = {a.serie for p in rapport.a_recuperer for a in p.appareils}

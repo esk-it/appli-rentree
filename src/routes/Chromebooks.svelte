@@ -7,6 +7,7 @@
   import PackageOpen from "@lucide/svelte/icons/package-open";
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Download from "@lucide/svelte/icons/download";
+  import ArrowRight from "@lucide/svelte/icons/arrow-right";
   import Chromebook from "$lib/components/Chromebook.svelte";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
@@ -179,6 +180,7 @@
     { id: "rapproches", label: "Rapprochés", badge: flotte?.rapproches?.length ?? 0 },
     { id: "recherche", label: "Retrouver une machine", badge: 0 },
     { id: "parc", label: "Le parc", badge: flotte?.parc?.total ?? 0 },
+    { id: "journal", label: "Journal", badge: flotte?.historique?.length ?? 0 },
   ]);
 
   /** Comment le compte a été retrouvé, en français. */
@@ -535,6 +537,99 @@
               </tbody>
             </table>
           </div>
+
+        {:else if vue === "journal"}
+          <div class="px-4 py-3 text-xs text-stone-600 dark:text-stone-400">
+            Ce que tu as noté : machines reprises, machines confiées. Une
+            machine attribuée quitte les listes d'actions — c'est le but — mais
+            elle quittait aussi le champ de vision. C'est ici qu'on retrouve à
+            qui elle est allée, et de qui elle venait.
+          </div>
+
+          {#if !flotte.historique.length}
+            <p class="px-4 pb-4 text-sm text-stone-500 dark:text-stone-400">
+              Aucun mouvement noté pour l'instant. Coche « je l'ai récupérée »
+              ou attribue une machine, et le geste s'inscrira ici.
+            </p>
+          {:else}
+            <div class="max-h-[30rem] overflow-auto">
+              <ol class="divide-y divide-stone-100 dark:divide-stone-700/60">
+                {#each flotte.historique as m (m.serie)}
+                  <li class="flex items-start gap-4 px-4 py-3">
+                    <Chromebook
+                      taille={34}
+                      etat={m.confie_a ? "actif" : "rendu"}
+                      classe="mt-0.5 shrink-0"
+                    />
+                    <div class="min-w-0 flex-1">
+                      <!-- Le trajet en une ligne : d'où elle vient, où elle
+                           va. C'est la phrase qu'on se dit à voix haute. -->
+                      <p class="flex flex-wrap items-baseline gap-x-2 text-sm">
+                        {#if m.rendu_par}
+                          <span class="text-stone-500 dark:text-stone-400">reprise à</span>
+                          <span class="font-medium text-stone-800 dark:text-stone-200">
+                            {m.rendu_par_nom ?? m.rendu_par}
+                          </span>
+                        {/if}
+                        {#if m.rendu_par && m.confie_a}
+                          <ArrowRight class="h-3.5 w-3.5 shrink-0 text-stone-400" />
+                        {/if}
+                        {#if m.confie_a}
+                          <span class="text-stone-500 dark:text-stone-400">confiée à</span>
+                          <span class="font-medium text-emerald-700 dark:text-emerald-400">
+                            {m.confie_a_nom ?? m.confie_a}
+                          </span>
+                        {:else if m.rendu_par}
+                          <span class="text-stone-400 dark:text-stone-500">
+                            · en attente d'attribution
+                          </span>
+                        {/if}
+                      </p>
+                      <p class="mt-0.5 flex flex-wrap gap-x-3 text-xs text-stone-500 dark:text-stone-400">
+                        <span class="font-mono">{m.serie}</span>
+                        <span>{m.modele}</span>
+                        {#if m.etiquette}
+                          <span class="font-mono">étiquette {m.etiquette}</span>
+                        {/if}
+                      </p>
+                    </div>
+
+                    <div class="shrink-0 text-right text-xs tabular-nums text-stone-500 dark:text-stone-400">
+                      {#if m.rendu_le}<p>reprise le {jour(m.rendu_le)}</p>{/if}
+                      {#if m.confie_le}<p>remise le {jour(m.confie_le)}</p>{/if}
+                    </div>
+
+                    <div class="flex shrink-0 flex-col gap-1">
+                      {#if m.confie_a}
+                        <button
+                          class="rounded-md px-2 py-1 text-xs text-stone-500 transition
+                                 hover:bg-stone-100 hover:text-red-700 dark:hover:bg-stone-700"
+                          disabled={enCours === m.serie}
+                          onclick={() =>
+                            noter({ serie: m.serie, attribueA: "" },
+                                  m.serie + " : attribution annulée")}
+                        >
+                          Annuler la remise
+                        </button>
+                      {/if}
+                      {#if m.rendu_le}
+                        <button
+                          class="rounded-md px-2 py-1 text-xs text-stone-500 transition
+                                 hover:bg-stone-100 hover:text-red-700 dark:hover:bg-stone-700"
+                          disabled={enCours === m.serie}
+                          onclick={() =>
+                            noter({ serie: m.serie, recupere: false },
+                                  m.serie + " : reprise annulée")}
+                        >
+                          Annuler la reprise
+                        </button>
+                      {/if}
+                    </div>
+                  </li>
+                {/each}
+              </ol>
+            </div>
+          {/if}
 
         {:else if vue === "parc"}
           <div class="flex flex-wrap items-center gap-2 px-4 py-3">
