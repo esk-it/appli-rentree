@@ -136,6 +136,10 @@ class ExportKoxoPayload(BaseModel):
     annee_cible_id: int
     annee_source_id: int | None = None
     enregistrer_prevus: bool = False
+    groupe_secondaire_force: str | None = None
+    """Groupe secondaire imposé à toutes les lignes. Réservé aux sortants :
+    il sert à les rassembler dans un groupe dédié plutôt que de les laisser
+    porter leur dernière classe."""
 
 
 class ExportKoxoReponse(BaseModel):
@@ -148,6 +152,8 @@ class ExportKoxoReponse(BaseModel):
     """Contenu CSV encodé cp1252 puis base64 — le frontend décode et déclenche
     le téléchargement."""
     nb_prevus_enregistres: int = 0
+    groupe_secondaire_force: str | None = None
+    avertissements: list[str] = []
 
 
 @router.post("/koxo", response_model=ExportKoxoReponse)
@@ -163,6 +169,7 @@ def exporter_koxo(
             categorie=payload.categorie,
             annee_cible_id=payload.annee_cible_id,
             annee_source_id=payload.annee_source_id,
+            groupe_secondaire_force=payload.groupe_secondaire_force,
         )
         nb_prevus = _enregistrer_si_demande(
             session,
@@ -192,6 +199,7 @@ def exporter_koxo(
         nom_fichier=rapport.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
         nb_prevus_enregistres=nb_prevus,
+        groupe_secondaire_force=rapport.groupe_secondaire_force,
         avertissements=rapport.avertissements,
     )
 

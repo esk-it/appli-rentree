@@ -571,7 +571,7 @@ export const simulation = {
 // Exports vers les cibles (KoXo, Google, PMB, JPM…)
 // ---------------------------------------------------------------------------
 export const exportsCible = {
-  async koxo({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null, enregistrerPrevus = false }) {
+  async koxo({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null, enregistrerPrevus = false, groupeSecondaireForce = null }) {
     return jsonOrThrow(
       await fetch(`${BASE}/exports/koxo`, {
         method: "POST",
@@ -583,6 +583,7 @@ export const exportsCible = {
           annee_cible_id: anneeCibleId,
           annee_source_id: anneeSourceId,
           enregistrer_prevus: enregistrerPrevus,
+          groupe_secondaire_force: groupeSecondaireForce,
         }),
       }),
     );

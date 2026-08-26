@@ -9,6 +9,15 @@ import csv
 import io
 
 import pytest
+from fastapi.testclient import TestClient
+
+
+@pytest.fixture()
+def client(tmp_db_path):
+    from backend.main import app
+
+    with TestClient(app) as c:
+        yield c
 
 
 @pytest.fixture()
@@ -375,3 +384,121 @@ def test_multi_snapshots_retient_le_dernier(session, site_factory, annee_factory
     rows = _lire_csv_koxo(contenu)
     assert len(rows) == 1
     assert rows[0]["Groupe secondaire"] == "COURANT"
+
+
+# ---------------------------------------------------------------------------
+# Groupe de destination des sortants
+# ---------------------------------------------------------------------------
+
+
+def test_les_sortants_peuvent_etre_ranges_dans_un_groupe_dedie(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    """Sans destination, un sortant porte sa dernière classe.
+
+    Synchronisé tel quel, KoXo le remettrait dans cette classe, au milieu
+    de la promotion suivante. Le rassembler dans un groupe dédié est ce que
+    recommande la documentation KoXo pour la bascule annuelle.
+    """
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    site = site_factory("NDK")
+    prec = annee_factory("2024-2025")
+    cour = annee_factory("2025-2026")
+    p = personne_factory(site_id=site.id, nom="SORT", login="sort")
+    snap_factory(p.id, prec.id, classe="TALE")
+
+    contenu, _ = generer_csv_koxo(
+        session=session, site_id=site.id, type_personne="eleve",
+        categorie="anciens", annee_cible_id=cour.id, annee_source_id=prec.id,
+    )
+    assert _lire_csv_koxo(contenu)[0]["Groupe secondaire"] == "TALE"
+
+    contenu, rapport = generer_csv_koxo(
+        session=session, site_id=site.id, type_personne="eleve",
+        categorie="anciens", annee_cible_id=cour.id, annee_source_id=prec.id,
+        groupe_secondaire_force="Anciens élèves",
+    )
+    assert _lire_csv_koxo(contenu)[0]["Groupe secondaire"] == "Anciens élèves"
+    assert rapport.groupe_secondaire_force == "Anciens élèves"
+    assert any("NON destructif" in a for a in rapport.avertissements)
+
+
+@pytest.mark.parametrize("categorie", ["tous", "nouveaux"])
+def test_forcer_le_groupe_est_refuse_hors_des_sortants(
+    session, site_factory, annee_factory, categorie
+):
+    """Sur « tous », ce serait ranger toute une population dans une classe."""
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    site = site_factory("NDK")
+    prec = annee_factory("2024-2025")
+    cour = annee_factory("2025-2026")
+    with pytest.raises(ValueError, match="anciens"):
+        generer_csv_koxo(
+            session=session, site_id=site.id, type_personne="eleve",
+            categorie=categorie, annee_cible_id=cour.id,
+            annee_source_id=prec.id, groupe_secondaire_force="Anciens élèves",
+        )
+
+
+def test_un_groupe_de_destination_vide_ne_force_rien(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    """Le champ laissé vide dans l'écran ne doit pas vider le groupe."""
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    site = site_factory("NDK")
+    prec = annee_factory("2024-2025")
+    cour = annee_factory("2025-2026")
+    p = personne_factory(site_id=site.id, nom="SORT", login="sort")
+    snap_factory(p.id, prec.id, classe="TALE")
+
+    contenu, rapport = generer_csv_koxo(
+        session=session, site_id=site.id, type_personne="eleve",
+        categorie="anciens", annee_cible_id=cour.id, annee_source_id=prec.id,
+        groupe_secondaire_force="   ",
+    )
+    assert _lire_csv_koxo(contenu)[0]["Groupe secondaire"] == "TALE"
+    assert rapport.groupe_secondaire_force is None
+
+
+def test_le_rapport_signale_une_ligne_sans_id_unique(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    """Sans ID unique, la synchronisation ne reconnaîtra pas le compte."""
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    site = site_factory("NDK")
+    annee = annee_factory("2025-2026")
+    p = personne_factory(site_id=site.id, nom="SANSBADGE", login="sb")
+    p.badge = 0  # `badge` est NOT NULL ; zéro est le seul falsy possible
+    session.commit()
+    snap_factory(p.id, annee.id, classe="3B")
+
+    _, rapport = generer_csv_koxo(
+        session=session, site_id=site.id, type_personne="eleve",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    assert any("sans ID unique" in a for a in rapport.avertissements)
+
+
+def test_lendpoint_koxo_repond(session, site_factory, annee_factory, client):
+    """Garde-fou : le routeur lisait un champ absent du rapport.
+
+    `avertissements=rapport.avertissements` avait été ajouté au routeur
+    sans le champ correspondant sur `RapportExportKoxo` — l'endpoint
+    répondait 500 à chaque appel, et aucun test ne s'en apercevait parce
+    que tous appelaient le service en direct.
+    """
+    site = site_factory("NDK")
+    annee = annee_factory("2025-2026")
+
+    r = client.post("/api/exports/koxo", json={
+        "site_id": site.id, "type_personne": "eleve", "categorie": "tous",
+        "annee_cible_id": annee.id,
+    })
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert "avertissements" in d
+    assert "groupe_secondaire_force" in d

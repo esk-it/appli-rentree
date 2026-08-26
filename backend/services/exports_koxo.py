@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import csv
 import io
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from sqlalchemy.orm import Session
@@ -70,6 +70,8 @@ class ContexteExport:
     categorie: Categorie
     annee_cible_id: int
     annee_source_id: int | None
+    groupe_secondaire_force: str | None = None
+    """Groupe secondaire imposé à toutes les lignes. Réservé aux sortants."""
 
 
 @dataclass
@@ -79,6 +81,11 @@ class RapportExportKoxo:
     categorie: str
     nb_lignes: int
     nom_fichier_suggere: str
+    groupe_secondaire_force: str | None = None
+    avertissements: list[str] = field(default_factory=list)
+    """Ce qui, dans ce fichier, empêchera la synchronisation de faire son
+    travail — un compte sans ID unique ne sera pas reconnu, un groupe
+    secondaire vide range le compte nulle part."""
 
 
 # ---------------------------------------------------------------------------
@@ -94,6 +101,7 @@ def generer_csv_koxo(
     categorie: Categorie,
     annee_cible_id: int,
     annee_source_id: int | None = None,
+    groupe_secondaire_force: str | None = None,
 ) -> tuple[bytes, RapportExportKoxo]:
     """Génère un CSV KoXo pour une catégorie donnée.
 
@@ -105,6 +113,10 @@ def generer_csv_koxo(
         annee_cible_id: année de référence pour "tous" et "nouveaux".
         annee_source_id: année précédente — obligatoire pour "nouveaux" et
             "anciens" (la comparaison ne peut se faire sans référent).
+        groupe_secondaire_force: groupe secondaire imposé à toutes les
+            lignes. Réservé à `anciens` : il sert à rassembler les sortants
+            dans un groupe dédié plutôt que de les laisser porter leur
+            dernière classe.
 
     Returns:
         Tuple (contenu CSV en bytes cp1252, rapport typé).
@@ -120,6 +132,14 @@ def generer_csv_koxo(
         raise ValueError(
             f"annee_source_id requis pour categorie={categorie!r}"
         )
+    if groupe_secondaire_force and categorie != "anciens":
+        # Sur « tous » ou « nouveaux », forcer le groupe rassemblerait toute
+        # une population dans une seule classe. Le paramètre n'a de sens que
+        # pour ranger des sortants.
+        raise ValueError(
+            "groupe_secondaire_force n'est accepté que pour categorie="
+            f"'anciens' (reçu {categorie!r})"
+        )
 
     site = session.query(Site).filter_by(id=site_id).one_or_none()
     if site is None:
@@ -131,6 +151,7 @@ def generer_csv_koxo(
         categorie=categorie,
         annee_cible_id=annee_cible_id,
         annee_source_id=annee_source_id,
+        groupe_secondaire_force=(groupe_secondaire_force or "").strip() or None,
     )
 
     if categorie == "tous":
@@ -147,8 +168,56 @@ def generer_csv_koxo(
         categorie=categorie,
         nb_lignes=len(lignes),
         nom_fichier_suggere=_nom_fichier(site.nom, type_personne, categorie),
+        groupe_secondaire_force=ctx.groupe_secondaire_force,
+        avertissements=_relire(lignes, ctx),
     )
     return contenu, rapport
+
+
+def _relire(lignes: list[dict], ctx: ContexteExport) -> list[str]:
+    """Ce que ce fichier fera mal, dit avant de l'importer.
+
+    La synchronisation reconnaît un compte par son ID unique. Une ligne qui
+    n'en porte pas ne sera pas reconnue : elle créera un doublon, ou en mode
+    destructif fera disparaître le compte existant. Mieux vaut l'apprendre
+    ici qu'après.
+    """
+    avertissements = []
+
+    sans_id = [l for l in lignes if not (l.get("ID unique") or "").strip()]
+    if sans_id:
+        qui = ", ".join(f"{l['Prénom']} {l['Nom']}" for l in sans_id[:5])
+        avertissements.append(
+            f"{len(sans_id)} ligne(s) sans ID unique — {qui}"
+            + (", …" if len(sans_id) > 5 else "")
+            + ". La synchronisation ne les reconnaîtra pas."
+        )
+
+    sans_login = [l for l in lignes if not (l.get("Identifiant") or "").strip()]
+    if sans_login:
+        avertissements.append(
+            f"{len(sans_login)} ligne(s) sans identifiant. KoXo en générera "
+            "un : vérifie qu'il ne s'agit pas de comptes qui en ont déjà un."
+        )
+
+    sans_groupe = [l for l in lignes if not (l.get("Groupe secondaire") or "").strip()]
+    if sans_groupe:
+        qui = ", ".join(f"{l['Prénom']} {l['Nom']}" for l in sans_groupe[:5])
+        avertissements.append(
+            f"{len(sans_groupe)} ligne(s) sans groupe secondaire — {qui}"
+            + (", …" if len(sans_groupe) > 5 else "")
+            + ". Ces comptes ne seront rangés dans aucune classe."
+        )
+
+    if ctx.groupe_secondaire_force:
+        avertissements.append(
+            f"Les {len(lignes)} sortants porteront le groupe secondaire "
+            f"« {ctx.groupe_secondaire_force} » au lieu de leur dernière "
+            "classe. Synchronise ce fichier en mode NON destructif : le mode "
+            "destructif supprime tout ce qui n'y figure pas."
+        )
+
+    return avertissements
 
 
 # ---------------------------------------------------------------------------
@@ -221,11 +290,23 @@ def _lignes_anciens(session: Session, ctx: ContexteExport) -> list[dict]:
 
     ids_anciens = set(snapshots_source) - ids_cible
     personnes = _charger_personnes(session, ids_anciens)
-    return [
+    lignes = [
         _formatter_ligne(personnes[pid], snapshots_source[pid], ctx.type_personne)
         for pid in ids_anciens
         if pid in personnes
     ]
+
+    # Sans destination forcée, la ligne d'un sortant porte sa **dernière
+    # classe** — c'est le seul groupe que le référentiel lui connaisse.
+    # Synchronisé tel quel, KoXo le remettrait dans cette classe, au milieu
+    # de la promotion suivante. Le rassembler dans un groupe dédié est ce
+    # que recommande la documentation KoXo pour la bascule annuelle : les
+    # comptes restent, identifiables, et la suppression devient un geste
+    # distinct et daté.
+    if ctx.groupe_secondaire_force:
+        for ligne in lignes:
+            ligne["Groupe secondaire"] = ctx.groupe_secondaire_force
+    return lignes
 
 
 # ---------------------------------------------------------------------------
