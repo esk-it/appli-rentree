@@ -26,6 +26,7 @@
     { id: "conformite", label: "Conformité Google", icon: ShieldCheck },
     { id: "cycle", label: "Le cycle annuel", icon: RefreshCw },
     { id: "ordre_koxo_google", label: "KoXo puis Google", icon: KeyRound },
+    { id: "controle_koxo", label: "Contrôle avant synchro KoXo", icon: ShieldCheck },
     { id: "arbitrage", label: "Arbitrage", icon: Scale },
     { id: "simulation", label: "Simulation", icon: Zap },
     { id: "exports", label: "Exports", icon: FileDown },
@@ -523,6 +524,69 @@
           de pré-rentrée le remet au rang. Le déplacer avant serait un détour :
           l'arbre de destination n'existe pas encore, puisque c'est celui-ci qui
           va le devenir.
+        </p>
+
+      {:else if sectionActive === "controle_koxo"}
+        <h2>Contrôle avant synchronisation KoXo</h2>
+        <p>
+          La montée de classe se fait dans KoXo par une
+          <strong>synchronisation</strong> — la « bascule » — et non par un
+          import ordinaire. Elle déplace les comptes existants vers leur
+          nouveau groupe secondaire <em>et</em> crée ceux qui manquent, en une
+          passe.
+        </p>
+
+        <h3>Comment KoXo reconnaît un compte</h3>
+        <p>
+          Par son <strong>ID unique</strong>. Ce n'est que si ce champ est vide
+          qu'il retombe sur la chaîne <code>Nom + Prénom + Date de
+          naissance</code>. Or l'établissement ne renseigne pas la date de
+          naissance : le repli ne distingue donc rien.
+        </p>
+        <p>
+          Un compte que la synchronisation ne reconnaît pas est un compte
+          <strong>recréé sous un autre identifiant</strong> — ou
+          <strong>supprimé</strong>, si la synchronisation tourne en mode
+          destructif. D'où la règle : <strong>synchronisation non
+          destructive</strong>, toujours. Les sortants se traitent à part, avec
+          l'export « Anciens ».
+        </p>
+
+        <h3>Ce que le contrôle regarde</h3>
+        <ul>
+          <li><strong>Rapprochement ambigu</strong> — le badge désigne une
+            personne, l'identifiant une autre. Le programme ne tranche pas.</li>
+          <li><strong>ID unique en double</strong> — deux comptes répondent à
+            la même clé ; la synchronisation ne saura pas lequel mettre à
+            jour.</li>
+          <li><strong>ID unique qui n'est pas un badge</strong> — un
+            identifiant écrit là où un numéro est attendu.</li>
+          <li><strong>ID unique absent</strong> — rien ne permet de
+            reconnaître le compte.</li>
+          <li><strong>Identifiant divergent</strong> — KoXo et le référentiel
+            ne connaissent pas ce badge sous le même identifiant. Un
+            identifiant constaté fait autorité : c'est le référentiel qu'on
+            aligne, jamais l'inverse.</li>
+          <li><strong>Badge inconnu</strong> — aucune ligne de l'export ne
+            s'adressera à ce compte.</li>
+          <li><strong>À créer</strong> — le déroulement normal d'une rentrée,
+            pas un défaut.</li>
+        </ul>
+
+        <h3>Ce qu'il ne fait pas</h3>
+        <p>
+          Il n'écrit rien, ni dans le référentiel ni dans KoXo. Aucun écart
+          n'est corrigé automatiquement : quand KoXo et le référentiel
+          divergent, le programme n'a aucun moyen de savoir laquelle des deux
+          valeurs fait foi. Il montre, et la correction se fait dans KoXo.
+        </p>
+
+        <h3>Une moitié de contrôle peut être muette</h3>
+        <p>
+          Le sens « qui manque à KoXo » compare la population du référentiel à
+          l'export. Les adultes n'ayant pas de photographie annuelle, borner
+          par année vide leur population — l'écran le dit alors plutôt que
+          d'afficher un zéro rassurant.
         </p>
 
       {:else if sectionActive === "arbitrage"}

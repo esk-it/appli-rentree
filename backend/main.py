@@ -22,6 +22,7 @@ from backend.routers import (
     annees,
     arbitrages,
     bascule,
+    controle_koxo,
     etablissements,
     exports,
     google_api,
@@ -217,6 +218,7 @@ app.include_router(ingestion.router)
 app.include_router(reconciliation.router)
 app.include_router(arbitrages.router)
 app.include_router(amorcage.router)
+app.include_router(controle_koxo.router)
 app.include_router(exports.router)
 app.include_router(simulation.router)
 app.include_router(statistiques_router.router)

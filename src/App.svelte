@@ -30,6 +30,7 @@
   import Sites from "./routes/Sites.svelte";
   import TableCorrespondance from "./routes/TableCorrespondance.svelte";
   import Amorcage from "./routes/Amorcage.svelte";
+  import ControleKoxo from "./routes/ControleKoxo.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
   import Bascule from "./routes/Bascule.svelte";
   import Sortants from "./routes/Sortants.svelte";
@@ -256,6 +257,7 @@
         { id: "sites", label: "Sites", icon: Building2 },
         { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon },
         { id: "amorcage", label: "Amorçage KoXo", icon: Rocket },
+        { id: "controle_koxo", label: "Contrôle KoXo", icon: ShieldCheck },
       ],
     },
     {
@@ -510,6 +512,8 @@
           <TableCorrespondance rotationInitiale={rotationDemandee} />
         {:else if page === "amorcage"}
           <Amorcage />
+        {:else if page === "controle_koxo"}
+          <ControleKoxo />
         {:else if page === "snapshots"}
           <Snapshots onNaviguer={(p) => (page = p)} />
         {:else if page === "reconciliation"}

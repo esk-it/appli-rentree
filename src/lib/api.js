@@ -673,6 +673,34 @@ export const exportsCible = {
 // ---------------------------------------------------------------------------
 // Amorçage — chargement des Personnes depuis KoXo
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Contrôle d'un export KoXo avant la synchronisation annuelle
+// ---------------------------------------------------------------------------
+export const koxo = {
+  async controle({ fichier, typePersonne, siteId = null, anneeId = null }) {
+    if (!fichier) throw new Error("Aucun fichier fourni au controle");
+    const bytes = new Uint8Array(await fichier.arrayBuffer());
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, /** @type {any} */ (bytes.subarray(i, i + chunk)));
+    }
+    return jsonOrThrow(
+      await fetch(`${BASE}/koxo/controle`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          fichier_base64: btoa(binary),
+          nom_fichier: fichier.name,
+          type_personne: typePersonne,
+          site_id: siteId,
+          annee_id: anneeId,
+        }),
+      }),
+    );
+  },
+};
+
 export const amorcage = {
   async koxo({ fichier, siteId, typePersonne, mode = "simulation" }) {
     if (!fichier) throw new Error("Aucun fichier fourni à l'amorçage");

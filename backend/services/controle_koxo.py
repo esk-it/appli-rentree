@@ -1,0 +1,524 @@
+"""Contrôle d'un export KoXo avant la synchronisation annuelle.
+
+## Pourquoi ce contrôle existe
+
+La synchronisation KoXo — la « bascule » — déplace les comptes existants
+vers leur nouveau groupe secondaire et crée ceux qui manquent, en une
+passe. Elle reconnaît un compte existant par son **ID unique** ; ce n'est
+que si ce champ est vide qu'elle retombe sur la chaîne
+`Nom + Prénom + Date de naissance`.
+
+Or l'établissement ne renseigne pas la date de naissance. Le repli ne
+distingue donc rien : un compte non reconnu par son ID unique est un
+compte que la synchronisation peut recréer sous un autre login — ou, en
+mode destructif, **supprimer**.
+
+Le programme écrit toujours le badge Charlemagne dans l'`ID unique` de ses
+exports, et sur ce point il est juste. Mais il n'avait jamais relu ce que
+KoXo détient pour le confronter au référentiel. Les divergences
+antérieures au programme lui restaient invisibles — celles-là mêmes qui
+feront échouer la reconnaissance.
+
+## Ce que le contrôle n'est pas
+
+Il **n'écrit rien**. Ni dans le référentiel, ni dans KoXo. Il lit un export
+et raconte ce qu'il voit. Aucun écart n'est corrigé automatiquement : un
+`ID unique` erroné dans KoXo se répare dans KoXo, et le programme n'a
+aucun moyen de savoir laquelle des deux valeurs fait foi.
+
+## Le rapprochement, et pourquoi il refuse de trancher
+
+Une ligne KoXo se rattache à une Personne de deux façons : par son
+`ID unique` (= le badge) et par son `Identifiant` (= le login). Quand les
+deux désignent la même personne, tout va bien. Quand ils désignent deux
+personnes différentes, **le contrôle ne choisit pas** : il signale
+l'ambiguïté.
+
+Ce n'est pas de la prudence de principe. Une première version de ce
+contrôle, écrite à la main, rapprochait par login seul et comparait
+ensuite les badges. Elle a rapproché la ligne KoXo `cguivarch1`
+(Camille GUIVARCH, professeure) de la Personne `cguivarch1` (Corentin
+GUIVARCH, élève) et annoncé un écart de badge qui n'existait pas. Le
+défaut n'était pas dans les données : il était dans le rapprochement
+silencieux.
+"""
+from __future__ import annotations
+
+import csv
+import io
+import unicodedata
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from sqlalchemy.orm import Session
+
+from backend.models import Personne, Snapshot
+
+# Libellés de colonnes acceptés, une fois normalisés (minuscules, sans accent).
+COLONNES = {
+    "groupe primaire": "groupe_primaire",
+    "groupe secondaire": "groupe_secondaire",
+    "nom": "nom",
+    "prenom": "prenom",
+    "identifiant": "login",
+    "id unique": "id_unique",
+    "badge": "id_unique",
+    "email": "email",
+    "titre": "titre",
+    "mot de passe": "_motdepasse",
+    "date de naissance": "date_naissance",
+}
+
+ENCODAGES = ("utf-8-sig", "utf-8", "cp1252")
+SEPARATEURS = (";", ",", "\t")
+
+
+def _plat(texte: str | None) -> str:
+    """Minuscules, sans accent — pour comparer des libellés de colonnes."""
+    decompose = unicodedata.normalize("NFD", (texte or "").strip().lower())
+    return "".join(c for c in decompose if unicodedata.category(c) != "Mn")
+
+
+@dataclass
+class LigneKoxo:
+    """Une ligne de l'export, telle qu'elle est écrite.
+
+    `id_unique` reste une **chaîne**. Le convertir en nombre dès la lecture
+    ferait disparaître le cas qui compte le plus : un `ID unique` qui n'est
+    pas un nombre du tout.
+    """
+
+    ligne: int
+    nom: str = ""
+    prenom: str = ""
+    login: str = ""
+    id_unique: str = ""
+    groupe_primaire: str = ""
+    groupe_secondaire: str = ""
+    email: str = ""
+    date_naissance: str = ""
+
+    @property
+    def nom_complet(self) -> str:
+        return f"{self.prenom} {self.nom}".strip()
+
+
+GENRES = (
+    "id_absent",
+    "id_non_numerique",
+    "id_en_double",
+    "login_en_double",
+    "badge_inconnu",
+    "login_divergent",
+    "rapprochement_ambigu",
+    "absent_de_koxo",
+)
+
+
+@dataclass
+class Ecart:
+    genre: str
+    """L'un des `GENRES`."""
+    qui: str
+    """Le nom, tel qu'il est écrit dans la source où l'écart apparaît."""
+    login: str = ""
+    id_unique: str = ""
+    badge_referentiel: str = ""
+    login_referentiel: str = ""
+    lignes: list[int] = field(default_factory=list)
+    explication: str = ""
+    consequence: str = ""
+    """Ce que la synchronisation en fera si rien n'est corrigé."""
+
+
+@dataclass
+class RapportControle:
+    fichier: str = ""
+    type_personne: str = ""
+    nb_lignes: int = 0
+    nb_concordants: int = 0
+    """Lignes dont l'ID unique et le login désignent la même Personne."""
+    colonnes_lues: list[str] = field(default_factory=list)
+    separateur: str = ""
+    encodage: str = ""
+    date_naissance_renseignee: int = 0
+    """Combien de lignes portent une date de naissance. Zéro signifie que
+    le repli de reconnaissance ne distinguera rien."""
+    contient_mots_de_passe: bool = False
+    """Un export KoXo peut contenir les mots de passe en clair. Le contrôle
+    ne les lit pas et n'en garde rien ; il le signale pour que le fichier
+    ne traîne pas."""
+    ecarts: list[Ecart] = field(default_factory=list)
+    avertissements: list[str] = field(default_factory=list)
+
+    @property
+    def nb_par_genre(self) -> dict[str, int]:
+        compte: dict[str, int] = {}
+        for e in self.ecarts:
+            compte[e.genre] = compte.get(e.genre, 0) + 1
+        return compte
+
+    @property
+    def est_sain(self) -> bool:
+        """Aucun écart pouvant faire échouer une reconnaissance.
+
+        `absent_de_koxo` n'en fait pas partie : un compte à créer est le
+        déroulement normal d'une rentrée, pas un défaut.
+        """
+        return not [e for e in self.ecarts if e.genre != "absent_de_koxo"]
+
+
+# ---------------------------------------------------------------------------
+# Lecture
+# ---------------------------------------------------------------------------
+
+
+def lire_export_brut(
+    chemin: str | Path,
+) -> tuple[list[LigneKoxo], list[str], str, str, bool]:
+    """Lit l'export sans rien convertir.
+
+    Renvoie les lignes, les colonnes reconnues, le séparateur, l'encodage
+    retenus — ces trois derniers pour que l'écran puisse montrer comment le
+    fichier a été compris, plutôt que de le laisser deviner — et si une
+    colonne de mots de passe était présente.
+    """
+    chemin = Path(chemin)
+    if not chemin.exists():
+        raise ValueError(f"Fichier introuvable : {chemin}")
+
+    brut = chemin.read_bytes()
+    if not brut.strip():
+        raise ValueError("Le fichier est vide.")
+
+    meilleur: tuple[int, list[dict], list[str], str, str] | None = None
+    for encodage in ENCODAGES:
+        try:
+            texte = brut.decode(encodage)
+        except UnicodeDecodeError:
+            continue
+        for sep in SEPARATEURS:
+            lecteur = csv.DictReader(io.StringIO(texte), delimiter=sep)
+            entetes = lecteur.fieldnames or []
+            reconnues = [c for c in entetes if _plat(c) in COLONNES]
+            # Le bon séparateur est celui qui fait apparaître le plus de
+            # colonnes connues : avec le mauvais, tout tient en une seule.
+            if len(reconnues) < 3:
+                continue
+            lignes = list(lecteur)
+            score = len(reconnues)
+            if meilleur is None or score > meilleur[0]:
+                meilleur = (score, lignes, entetes, sep, encodage)
+        if meilleur is not None:
+            break
+
+    if meilleur is None:
+        raise ValueError(
+            "Format non reconnu. Un export KoXo doit porter au moins les "
+            "colonnes Nom, Prénom, Identifiant et ID unique."
+        )
+
+    _, brutes, entetes, sep, encodage = meilleur
+    correspondance = {c: COLONNES[_plat(c)] for c in entetes if _plat(c) in COLONNES}
+
+    lignes: list[LigneKoxo] = []
+    for i, ligne in enumerate(brutes, start=2):  # 1 = en-tête
+        valeurs = {}
+        for colonne, champ in correspondance.items():
+            if champ.startswith("_"):
+                continue
+            valeurs[champ] = (ligne.get(colonne) or "").strip()
+        if not valeurs.get("nom") and not valeurs.get("login"):
+            continue  # ligne vide, ou pied de tableau
+        valeurs.pop("titre", None)
+        lignes.append(LigneKoxo(ligne=i, **valeurs))
+
+    # Les colonnes internes (préfixe `_`) ne sont pas montrées : elles ne
+    # sont pas lues. Le mot de passe est de celles-là.
+    lues = sorted(v for v in set(correspondance.values()) if not v.startswith("_"))
+    mots_de_passe = "_motdepasse" in correspondance.values()
+    return lignes, lues, sep, encodage, mots_de_passe
+
+
+# ---------------------------------------------------------------------------
+# Contrôle
+# ---------------------------------------------------------------------------
+
+
+def controler_export_koxo(
+    session: Session,
+    chemin: str | Path,
+    *,
+    type_personne: str,
+    site_id: int | None = None,
+    annee_id: int | None = None,
+) -> RapportControle:
+    """Confronte un export KoXo au référentiel. N'écrit rien.
+
+    Args:
+        chemin: le fichier .csv exporté depuis KoXo.
+        type_personne: `eleve` ou `adulte` — délimite la population du
+            référentiel à laquelle l'export est comparé.
+        site_id: restreint cette population à un site, si fourni.
+        annee_id: restreint aux personnes présentes cette année-là. Sans
+            cela, les sortants des années passées seraient comptés comme
+            « absents de KoXo », ce qu'ils sont sans que ce soit un défaut.
+    """
+    if type_personne not in ("eleve", "adulte"):
+        raise ValueError(f"type_personne invalide : {type_personne!r}")
+
+    lignes, colonnes, sep, encodage, mots_de_passe = lire_export_brut(chemin)
+    rapport = RapportControle(
+        fichier=Path(chemin).name,
+        type_personne=type_personne,
+        nb_lignes=len(lignes),
+        colonnes_lues=colonnes,
+        separateur=sep,
+        encodage=encodage,
+        date_naissance_renseignee=sum(1 for l in lignes if l.date_naissance),
+        contient_mots_de_passe=mots_de_passe,
+    )
+
+    if mots_de_passe:
+        rapport.avertissements.append(
+            "Ce fichier contient une colonne de mots de passe. Le contrôle ne "
+            "la lit pas et n'en conserve rien — mais le fichier, lui, les "
+            "porte en clair : efface-le une fois le contrôle passé."
+        )
+
+    if rapport.date_naissance_renseignee == 0:
+        rapport.avertissements.append(
+            "Aucune date de naissance n'est renseignée dans cet export. La "
+            "reconnaissance ne peut donc reposer que sur l'ID unique : un "
+            "compte dont l'ID unique est absent, erroné ou en double ne sera "
+            "pas reconnu, et une synchronisation en mode destructif le "
+            "supprimerait."
+        )
+
+    # --- La population du référentiel à laquelle on compare -----------------
+    requete = session.query(Personne).filter(Personne.type == type_personne)
+    if site_id is not None:
+        requete = requete.filter(Personne.site_id == site_id)
+    population = requete.all()
+    if annee_id is not None:
+        presents = {
+            x.personne_id
+            for x in session.query(Snapshot.personne_id).filter(
+                Snapshot.annee_scolaire_id == annee_id
+            )
+        }
+        population = [p for p in population if p.id in presents]
+
+    if not population:
+        # Un zéro tranquille se lit « rien ne manque à KoXo », alors qu'il
+        # signifie « je n'ai comparé à rien ». Les adultes, par exemple,
+        # n'ont pas de photographie annuelle : borner par année vide la
+        # population et rend le contrôle muet dans ce sens.
+        borne = []
+        if site_id is not None:
+            borne.append("ce site")
+        if annee_id is not None:
+            borne.append("cette année")
+        rapport.avertissements.append(
+            "Aucune personne du référentiel ne correspond à la population "
+            f"demandée ({type_personne}"
+            + (" / " + " / ".join(borne) if borne else "")
+            + "). Les comptes KoXo restent contrôlés, mais rien ne peut être "
+            "dit de ce qui manque à KoXo — élargis l'année ou le site pour "
+            "obtenir cette moitié du contrôle."
+        )
+
+    # Les index de rapprochement portent sur **tout** le référentiel, pas sur
+    # la seule population comparée : une ligne KoXo qui tombe sur un élève
+    # d'un autre site doit être reconnue comme telle, pas déclarée inconnue.
+    tous = session.query(Personne).all()
+    par_badge: dict[int, list[Personne]] = defaultdict(list)
+    par_login: dict[str, list[Personne]] = defaultdict(list)
+    for p in tous:
+        if p.badge is not None:
+            par_badge[p.badge].append(p)
+        if p.login:
+            par_login[p.login].append(p)
+
+    # --- Doublons internes à l'export ---------------------------------------
+    lignes_par_id: dict[str, list[LigneKoxo]] = defaultdict(list)
+    lignes_par_login: dict[str, list[LigneKoxo]] = defaultdict(list)
+    for l in lignes:
+        if l.id_unique:
+            lignes_par_id[l.id_unique].append(l)
+        if l.login:
+            lignes_par_login[l.login].append(l)
+
+    ids_en_double = {k for k, v in lignes_par_id.items() if len(v) > 1}
+    for ident in sorted(ids_en_double):
+        groupe = lignes_par_id[ident]
+        rapport.ecarts.append(
+            Ecart(
+                genre="id_en_double",
+                qui=" / ".join(sorted({l.nom_complet for l in groupe})),
+                id_unique=ident,
+                login=", ".join(l.login for l in groupe),
+                lignes=[l.ligne for l in groupe],
+                explication=(
+                    f"{len(groupe)} comptes KoXo portent l'ID unique {ident} : "
+                    + ", ".join(l.login for l in groupe)
+                ),
+                consequence=(
+                    "La synchronisation ne peut pas savoir lequel mettre à "
+                    "jour. Supprime le compte en trop dans KoXo."
+                ),
+            )
+        )
+
+    for login, groupe in sorted(lignes_par_login.items()):
+        if len(groupe) > 1:
+            rapport.ecarts.append(
+                Ecart(
+                    genre="login_en_double",
+                    qui=" / ".join(sorted({l.nom_complet for l in groupe})),
+                    login=login,
+                    lignes=[l.ligne for l in groupe],
+                    explication=f"L'identifiant {login} apparaît {len(groupe)} fois.",
+                    consequence="Deux comptes ne peuvent pas porter le même identifiant.",
+                )
+            )
+
+    # --- Ligne à ligne -------------------------------------------------------
+    badges_vus: set[int] = set()
+    for l in lignes:
+        if not l.id_unique:
+            rapport.ecarts.append(
+                Ecart(
+                    genre="id_absent",
+                    qui=l.nom_complet,
+                    login=l.login,
+                    lignes=[l.ligne],
+                    explication="Ce compte KoXo n'a pas d'ID unique.",
+                    consequence=(
+                        "La reconnaissance retombera sur Nom + Prénom + date "
+                        "de naissance. Sans date, elle ne distingue pas les "
+                        "homonymes."
+                    ),
+                )
+            )
+            continue
+
+        if not l.id_unique.isdigit():
+            candidat = par_login.get(l.login) or []
+            attendu = str(candidat[0].badge) if len(candidat) == 1 else ""
+            rapport.ecarts.append(
+                Ecart(
+                    genre="id_non_numerique",
+                    qui=l.nom_complet,
+                    login=l.login,
+                    id_unique=l.id_unique,
+                    badge_referentiel=attendu,
+                    lignes=[l.ligne],
+                    explication=(
+                        f"L'ID unique vaut « {l.id_unique} », qui n'est pas un "
+                        "numéro de badge."
+                        + (f" Le référentiel attend {attendu}." if attendu else "")
+                    ),
+                    consequence=(
+                        "Ce compte ne sera pas reconnu par son ID unique. "
+                        "Corrige-le dans KoXo avant la synchronisation."
+                    ),
+                )
+            )
+            continue
+
+        badge = int(l.id_unique)
+        badges_vus.add(badge)
+        par_id = par_badge.get(badge) or []
+        par_ident = par_login.get(l.login) or []
+
+        if not par_id:
+            rapport.ecarts.append(
+                Ecart(
+                    genre="badge_inconnu",
+                    qui=l.nom_complet,
+                    login=l.login,
+                    id_unique=l.id_unique,
+                    lignes=[l.ligne],
+                    explication=(
+                        f"Aucune personne du référentiel ne porte le badge {badge}."
+                    ),
+                    consequence=(
+                        "Aucune ligne de l'export ne s'adressera à ce compte. "
+                        "En mode destructif, il serait supprimé."
+                    ),
+                )
+            )
+            continue
+
+        personne = par_id[0]
+
+        # Le badge désigne quelqu'un, le login quelqu'un d'autre : on ne
+        # tranche pas — c'est exactement l'erreur que ce contrôle existe
+        # pour ne plus commettre.
+        if par_ident and all(p.id != personne.id for p in par_ident):
+            autre = par_ident[0]
+            rapport.ecarts.append(
+                Ecart(
+                    genre="rapprochement_ambigu",
+                    qui=l.nom_complet,
+                    login=l.login,
+                    id_unique=l.id_unique,
+                    badge_referentiel=str(personne.badge),
+                    login_referentiel=personne.login or "",
+                    lignes=[l.ligne],
+                    explication=(
+                        f"L'ID unique {badge} désigne {personne.prenom} "
+                        f"{personne.nom} ({personne.type}), mais l'identifiant "
+                        f"{l.login} désigne {autre.prenom} {autre.nom} "
+                        f"({autre.type})."
+                    ),
+                    consequence=(
+                        "Le programme ne choisit pas entre les deux. Vérifie "
+                        "dans KoXo de qui ce compte est réellement celui."
+                    ),
+                )
+            )
+            continue
+
+        if personne.login and personne.login != l.login:
+            rapport.ecarts.append(
+                Ecart(
+                    genre="login_divergent",
+                    qui=l.nom_complet,
+                    login=l.login,
+                    id_unique=l.id_unique,
+                    badge_referentiel=str(personne.badge),
+                    login_referentiel=personne.login,
+                    lignes=[l.ligne],
+                    explication=(
+                        f"KoXo connaît ce badge sous l'identifiant {l.login}, "
+                        f"le référentiel sous {personne.login}."
+                    ),
+                    consequence=(
+                        "L'export écrirait un identifiant que KoXo ne porte "
+                        "pas. Un identifiant constaté fait autorité : c'est "
+                        "le référentiel qu'il faut aligner."
+                    ),
+                )
+            )
+            continue
+
+        rapport.nb_concordants += 1
+
+    # --- L'autre sens : qui manque à KoXo ------------------------------------
+    for p in population:
+        if p.badge is not None and p.badge not in badges_vus:
+            rapport.ecarts.append(
+                Ecart(
+                    genre="absent_de_koxo",
+                    qui=f"{p.prenom} {p.nom}",
+                    login=p.login or "",
+                    badge_referentiel=str(p.badge),
+                    explication="Aucun compte KoXo ne porte ce badge.",
+                    consequence="La synchronisation créera le compte.",
+                )
+            )
+
+    return rapport

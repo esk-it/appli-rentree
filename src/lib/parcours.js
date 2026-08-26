@@ -122,6 +122,14 @@ export const ETAPES = [
     ecran: "onglet Adresses",
   },
   {
+    id: "controle_koxo",
+    phase: "bascule",
+    page: "controle_koxo",
+    titre: "Contrôler l'export KoXo",
+    role: "La synchronisation reconnaît un compte par son ID unique, et la date de naissance n'est pas renseignée pour la départager. Un compte non reconnu est recréé sous un autre identifiant, ou supprimé en mode destructif.",
+    reperer: "Aucun écart à corriger dans KoXo — seules restent les créations.",
+  },
+  {
     id: "comptes",
     phase: "bascule",
     page: "exports",
