@@ -132,3 +132,63 @@ def test_les_ambigus_ne_sont_jamais_corriges(session, inscrit):
         ],
     )
     assert appliquer_corrections(session, r, mode="reel") == 0
+
+
+def test_un_compte_aux_champs_intervertis_est_retrouve(session, personne_factory):
+    """Cas réel : 172 comptes d'un site portent nom et prénom à l'envers.
+
+    Ils ont été créés ainsi. Le client lit pourtant `familyName` et
+    `givenName` correctement — c'est la donnée qui est inversée, et aucun
+    rapprochement par nom ne les retrouvait.
+    """
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    p = personne_factory(nom="SAILLOUR", prenom="Aaron")
+    p.email_constate = "aaron.saillour@ndecleder.fr"
+    session.commit()
+
+    comptes = [
+        # Champs intervertis, comme dans l'annuaire réel.
+        {"email": "aaron.saillour@lekreisker.fr", "nom": "Aaron",
+         "prenom": "SAILLOUR", "ou": "/2. NDE/NDE2026/4J"},
+    ]
+    r = detecter_divergences(session, comptes)
+    assert len(r.divergences) == 1
+    d = r.divergences[0]
+    assert d.resolvable
+    assert d.adresse_google == "aaron.saillour@lekreisker.fr"
+    assert "intervertis" in d.motif, "le motif dit comment il a été retrouvé"
+
+
+def test_lordre_inverse_ne_fabrique_pas_de_faux_rapprochement(
+    session, personne_factory
+):
+    """Deux comptes que les deux ordres désignent restent ambigus."""
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    p = personne_factory(nom="MARTIN", prenom="PAUL")
+    p.email_constate = "introuvable@lekreisker.fr"
+    session.commit()
+
+    comptes = [
+        {"email": "paul.martin@lekreisker.fr", "nom": "MARTIN", "prenom": "PAUL"},
+        {"email": "martin.paul@lekreisker.fr", "nom": "PAUL", "prenom": "MARTIN"},
+    ]
+    r = detecter_divergences(session, comptes)
+    assert r.divergences[0].resolvable is False
+    assert "plusieurs comptes possibles" in r.divergences[0].motif
+
+
+def test_un_nom_egal_au_prenom_nest_pas_indexe_deux_fois(session, personne_factory):
+    """« MARTIN Martin » ne doit pas se dédoubler et devenir ambigu."""
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    p = personne_factory(nom="MARTIN", prenom="MARTIN")
+    p.email_constate = "introuvable@lekreisker.fr"
+    session.commit()
+
+    comptes = [
+        {"email": "martin.martin@lekreisker.fr", "nom": "MARTIN", "prenom": "MARTIN"},
+    ]
+    r = detecter_divergences(session, comptes)
+    assert r.divergences[0].resolvable is True

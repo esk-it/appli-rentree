@@ -79,11 +79,23 @@ def detecter_divergences(
             `None` = l'année la plus récente, celle qu'on prépare.
     """
     adresses_google = {(u.get("email") or "").lower() for u in comptes_google}
+
+    # Les comptes sont indexés dans les **deux ordres**. Sur l'instance
+    # réelle, 172 des 250 comptes d'un site portent le prénom dans le champ
+    # du nom et inversement — ils ont été créés ainsi. Le client lit
+    # pourtant `familyName` et `givenName` correctement : c'est la donnée
+    # qui est à l'envers, et aucun rapprochement par nom ne les retrouvait.
+    #
+    # Indexer les deux sens ne fait courir qu'un risque : qu'un compte
+    # « Martin Paul » réponde aussi à « Paul Martin ». Le cas est signalé
+    # comme ambigu plus bas, jamais tranché — un compte trouvé par l'ordre
+    # inverse reste soumis aux mêmes conditions d'unicité.
     par_nom_google: dict[tuple[str, str], list[dict]] = {}
     for u in comptes_google:
-        par_nom_google.setdefault(
-            (normaliser_nom(u.get("nom")), normaliser_nom(u.get("prenom"))), []
-        ).append(u)
+        a, b = normaliser_nom(u.get("nom")), normaliser_nom(u.get("prenom"))
+        par_nom_google.setdefault((a, b), []).append(u)
+        if a != b:
+            par_nom_google.setdefault((b, a), []).append(u)
 
     if annee_id is None:
         annees = session.query(AnneeScolaire).all()
@@ -119,13 +131,23 @@ def detecter_divergences(
 
         if len(candidats) == 1 and homonymes_referentiel.get(cle, 0) == 1:
             u = candidats[0]
+            inverse = (
+                normaliser_nom(u.get("nom")) == cle[1]
+                and normaliser_nom(u.get("prenom")) == cle[0]
+                and cle[0] != cle[1]
+            )
             rapport.divergences.append(
                 Divergence(
                     personne_id=p.id, cle_pivot=p.cle_pivot, nom=p.nom, prenom=p.prenom,
                     adresse_enregistree=enregistree,
                     adresse_google=u["email"], ou_google=u.get("ou"),
                     resolvable=True,
-                    motif="un seul compte porte ce nom",
+                    motif=(
+                        "un seul compte porte ce nom, mais avec le nom et le "
+                        "prénom intervertis dans Google"
+                        if inverse
+                        else "un seul compte porte ce nom"
+                    ),
                 )
             )
         elif not candidats:
