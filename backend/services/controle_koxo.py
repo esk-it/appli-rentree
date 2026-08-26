@@ -432,17 +432,18 @@ def controler_export_koxo(
             a_garder = [l for l in groupe if l.login == titulaire.login]
             a_supprimer = [l for l in groupe if l.login != titulaire.login]
             if a_garder and a_supprimer:
-                # Désactiver plutôt que supprimer se défend — les données
-                # restent. Mais un compte désactivé porte toujours son ID
-                # unique : l'ambiguïté ne disparaît que s'il quitte
-                # l'export. C'est vérifiable, et ça vaut mieux que de le
-                # supposer dans un sens ou dans l'autre.
+                # Désactiver plutôt que supprimer garde les données, et
+                # suffit quand l'export KoXo exclut les comptes désactivés —
+                # c'est le réglage en place ici. Un compte désactivé porte
+                # toujours son ID unique : ce qui lève l'ambiguïté n'est pas
+                # la désactivation, c'est son absence de l'export. D'où la
+                # vérification, qui ne coûte qu'un aller-retour.
                 correction = (
-                    "Supprimer ou désactiver "
+                    "Désactiver "
                     + ", ".join(f"« {l.login} »" for l in a_supprimer)
-                    + f", et garder « {titulaire.login} ». Si tu désactives, "
-                    "ré-exporte et repasse ce contrôle : l'écart ne disparaît "
-                    "que si KoXo cesse de sortir le compte désactivé."
+                    + f", et garder « {titulaire.login} ». Puis ré-exporter en "
+                    "excluant les comptes désactivés et repasser ce contrôle : "
+                    "l'écart doit avoir disparu."
                 )
 
         rapport.ecarts.append(

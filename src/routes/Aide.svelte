@@ -27,6 +27,7 @@
     { id: "cycle", label: "Le cycle annuel", icon: RefreshCw },
     { id: "ordre_koxo_google", label: "KoXo puis Google", icon: KeyRound },
     { id: "controle_koxo", label: "Contrôle avant synchro KoXo", icon: ShieldCheck },
+    { id: "synchro_koxo", label: "Synchroniser KoXo", icon: RefreshCw },
     { id: "arbitrage", label: "Arbitrage", icon: Scale },
     { id: "simulation", label: "Simulation", icon: Zap },
     { id: "exports", label: "Exports", icon: FileDown },
@@ -587,6 +588,61 @@
           l'export. Les adultes n'ayant pas de photographie annuelle, borner
           par année vide leur population — l'écran le dit alors plutôt que
           d'afficher un zéro rassurant.
+        </p>
+
+      {:else if sectionActive === "synchro_koxo"}
+        <h2>Synchroniser KoXo</h2>
+        <p>
+          La montée de classe se fait par une <strong>synchronisation</strong> —
+          la « bascule » — et non par un import ordinaire. Elle déplace les
+          comptes existants vers leur nouveau groupe secondaire <em>et</em> crée
+          ceux qui manquent, en une passe.
+        </p>
+
+        <h3>Deux passes, dans cet ordre</h3>
+        <ol>
+          <li><strong>Les sortants d'abord.</strong> Export
+            <em>KoXo / Anciens</em>, avec un <strong>groupe secondaire de
+            destination</strong> — <code>Anciens élèves</code>. Sans lui, chaque
+            ligne porte la dernière classe de l'élève, et la synchronisation le
+            remettrait dans cette classe, au milieu de la promotion suivante. Le
+            groupe doit exister dans KoXo avant de lancer.</li>
+          <li><strong>Tous les autres ensuite.</strong> Export
+            <em>KoXo / Tous</em> — l'état complet visé. C'est cette passe qui
+            déplace les élèves dans leur nouvelle classe et crée les entrants
+            avec leur mot de passe.</li>
+        </ol>
+
+        <h3>Non destructif, dans les deux cas</h3>
+        <p>
+          Le mode destructif supprime tout ce qui ne figure pas dans le fichier.
+          Il supprimerait donc les comptes que la reconnaissance a manqués — et
+          la reconnaissance repose ici sur le seul ID unique, la date de
+          naissance n'étant pas renseignée.
+        </p>
+        <p>
+          Ranger les sortants dans un groupe dédié est précisément ce qui rend
+          le mode destructif inutile : ils sont parqués, identifiables, et leur
+          suppression devient un geste distinct et daté plutôt qu'un effet de
+          bord.
+        </p>
+
+        <h3>Puis la boucle vers Google</h3>
+        <p>
+          Une fois les créations faites, <strong>ré-exporte depuis KoXo en
+          incluant les mots de passe</strong> et dépose ce fichier dans
+          l'écran Exports, cible Google. Sans lui, la colonne
+          <code>Password</code> reste vide et Google refuse les créations. Le
+          fichier n'est pas conservé — voir <em>KoXo puis Google</em>.
+        </p>
+
+        <h3>Supprimer ou désactiver un doublon</h3>
+        <p>
+          Quand le contrôle signale deux comptes sur le même ID unique,
+          <strong>désactiver suffit</strong> si l'export KoXo est configuré pour
+          exclure les comptes désactivés — ce qui est le cas ici. Les données
+          restent, et l'ambiguïté disparaît. Le vérifier est immédiat : repasse
+          le contrôle sur un export neuf, l'écart doit avoir disparu.
         </p>
 
       {:else if sectionActive === "arbitrage"}

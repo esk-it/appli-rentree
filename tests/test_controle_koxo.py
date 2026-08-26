@@ -394,7 +394,10 @@ def test_un_doublon_nomme_le_compte_a_supprimer(session, tmp_path, peupler):
     e = [x for x in r.ecarts if x.genre == "id_en_double"][0]
     assert "« lperon1 »" in e.correction, "le compte en trop est nommé"
     assert "garder « lperon »" in e.correction
-    assert "désactiver" in e.correction, "désactiver est une option, et sa limite est dite"
+    assert e.correction.startswith("Désactiver"), (
+        "désactiver garde les données et suffit ici : c'est ce qu'on propose"
+    )
+    assert "repasser ce contrôle" in e.correction, "la vérification est dite"
 
 
 def test_un_doublon_sans_titulaire_connu_ne_propose_rien(session, tmp_path, peupler):

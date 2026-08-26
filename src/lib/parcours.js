@@ -130,6 +130,15 @@ export const ETAPES = [
     reperer: "Aucun écart à corriger dans KoXo — seules restent les créations.",
   },
   {
+    id: "synchro_koxo",
+    phase: "bascule",
+    page: "exports",
+    titre: "Synchroniser KoXo",
+    role: "Deux passes, dans cet ordre : les sortants d'abord, rangés dans un groupe dédié, puis tous les autres. Les deux en mode non destructif — le mode destructif supprime ce qui ne figure pas dans le fichier, à commencer par les comptes que la reconnaissance a manqués.",
+    reperer: "Les élèves ont changé de groupe secondaire dans KoXo, et les nouveaux ont un mot de passe.",
+    ecran: "cible KoXo",
+  },
+  {
     id: "comptes",
     phase: "bascule",
     page: "exports",
