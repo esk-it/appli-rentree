@@ -21,6 +21,7 @@
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import Info from "@lucide/svelte/icons/info";
   import Download from "@lucide/svelte/icons/download";
+  import Wrench from "@lucide/svelte/icons/wrench";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
@@ -170,14 +171,14 @@
     const colonnes = [
       "genre", "qui", "identifiant_koxo", "id_unique_koxo",
       "badge_referentiel", "identifiant_referentiel", "lignes", "explication",
-      "consequence",
+      "correction", "consequence",
     ];
     const echapper = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const lignes = rapport.ecarts.map((e) =>
       [
         e.genre, e.qui, e.login, e.id_unique, e.badge_referentiel,
         e.login_referentiel, (e.lignes ?? []).join(" "), e.explication,
-        e.consequence,
+        e.correction, e.consequence,
       ]
         .map(echapper)
         .join(";"),
@@ -360,14 +361,27 @@
                       {(e.lignes ?? []).join(", ") || "—"}
                     </td>
                   </tr>
-                  {#if e.explication}
+                  {#if e.explication || e.correction}
                     <tr>
                       <td colspan="5" class="px-4 pb-2 pt-0">
-                        <p class="text-xs text-stone-600 dark:text-stone-400">
-                          {e.explication}
-                        </p>
+                        {#if e.explication}
+                          <p class="text-xs text-stone-600 dark:text-stone-400">
+                            {e.explication}
+                          </p>
+                        {/if}
+                        <!-- Le geste avant le commentaire : c'est lui qu'on
+                             vient chercher, et il se recopie tel quel dans
+                             KoXo. -->
+                        {#if e.correction}
+                          <p class="mt-1 flex items-start gap-1.5 rounded bg-white/70 px-2 py-1
+                                    text-xs font-medium text-stone-800 dark:bg-stone-900/40
+                                    dark:text-stone-100">
+                            <Wrench class="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-60" />
+                            {e.correction}
+                          </p>
+                        {/if}
                         {#if e.consequence}
-                          <p class="mt-0.5 text-xs {t.titre}">→ {e.consequence}</p>
+                          <p class="mt-0.5 text-xs {t.titre}">{e.consequence}</p>
                         {/if}
                       </td>
                     </tr>

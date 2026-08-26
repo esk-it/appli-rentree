@@ -309,3 +309,122 @@ def test_une_population_vide_le_dit_au_lieu_dafficher_zero(
     assert not [e for e in r.ecarts if e.genre == "absent_de_koxo"]
     assert any("rien ne peut être dit" in a for a in r.avertissements)
     assert r.nb_concordants == 1, "l'autre moitié du contrôle fonctionne"
+
+
+def test_le_badge_propose_vient_du_nom_jamais_du_login(session, tmp_path, peupler):
+    """Cas réel Lana LE SAOUT, et le plus coûteux du lot.
+
+    Son ID unique était cassé, donc l'amorçage ne l'avait pas reconnue et
+    le programme avait donné son identifiant `llesaout` à une homonyme
+    entrante. Proposer le badge de la personne portant ce login — 97820,
+    celui de Léna — aurait fait répondre le compte de Lana au nom d'une
+    autre. C'est l'identité qui rapproche, pas l'identifiant.
+    """
+    from backend.services.controle_koxo import controler_export_koxo
+
+    peupler([
+        ("eleve", "LE SAOUT", "Lana", "llesaout2", 81010),
+        ("eleve", "LE SAOUT", "Lena", "llesaout", 97820),
+    ])
+    f = _export(tmp_path, [
+        ["Elèves", "T_G3B", "", "LE SAOUT", "Lana", "llesaout", "llesaout2",
+         "Xxxxxx11", "lana.lesaout@lekreisker.fr"],
+    ], entetes=[
+        "Groupe primaire", "Groupe secondaire", "Titre", "Nom", "Prénom",
+        "Identifiant", "ID unique", "Mot de passe", "Email",
+    ])
+
+    r = controler_export_koxo(session, f, type_personne="eleve")
+    e = [x for x in r.ecarts if x.genre == "id_non_numerique"][0]
+    assert e.badge_referentiel == "81010", "le badge de Lana, pas celui de Léna"
+    assert "81010" in e.correction
+    assert "97820" not in e.correction
+    assert "Lena LE SAOUT" in e.consequence, "le conflit d'identifiant est dit"
+
+
+def test_un_id_absent_recoit_le_badge_de_la_personne(session, tmp_path, peupler):
+    from backend.services.controle_koxo import controler_export_koxo
+
+    peupler([("eleve", "COSTES", "Flore", "fcostes", 94680)])
+    f = _export(tmp_path, [
+        ["Elèves", "T_STMG1", "", "COSTES", "Flore", "fcostes", "",
+         "Xxxxxx11", "flore.costes@lekreisker.fr"],
+    ], entetes=[
+        "Groupe primaire", "Groupe secondaire", "Titre", "Nom", "Prénom",
+        "Identifiant", "ID unique", "Mot de passe", "Email",
+    ])
+
+    r = controler_export_koxo(session, f, type_personne="eleve")
+    e = [x for x in r.ecarts if x.genre == "id_absent"][0]
+    assert e.correction == "Mettre 94680 dans l'ID unique du compte « fcostes »."
+
+
+def test_deux_homonymes_ne_donnent_aucune_proposition(session, tmp_path, peupler):
+    """Choisir serait deviner — et écrire un badge faux dans KoXo."""
+    from backend.services.controle_koxo import controler_export_koxo
+
+    peupler([
+        ("eleve", "MARTIN", "Paul", "pmartin", 100),
+        ("eleve", "MARTIN", "Paul", "pmartin1", 200),
+    ])
+    f = _export(tmp_path, [
+        ["Elèves", "31", "", "MARTIN", "Paul", "pmartin", "", "Xxxxxx11", "x@y.fr"],
+    ], entetes=[
+        "Groupe primaire", "Groupe secondaire", "Titre", "Nom", "Prénom",
+        "Identifiant", "ID unique", "Mot de passe", "Email",
+    ])
+
+    r = controler_export_koxo(session, f, type_personne="eleve")
+    e = [x for x in r.ecarts if x.genre == "id_absent"][0]
+    assert e.correction == "", "aucune correction proposée"
+    assert "2 personnes portent ce nom" in e.consequence
+
+
+def test_un_doublon_nomme_le_compte_a_supprimer(session, tmp_path, peupler):
+    """« Supprime le compte en trop » obligeait à revenir demander lequel."""
+    from backend.services.controle_koxo import controler_export_koxo
+
+    peupler([("eleve", "PERON", "Lou", "lperon", 87500)])
+    f = _export(tmp_path, [
+        _prof("PERON", "Lou", "lperon", 87500),
+        _prof("PERON", "Lou", "lperon1", 87500),
+    ])
+
+    r = controler_export_koxo(session, f, type_personne="eleve")
+    e = [x for x in r.ecarts if x.genre == "id_en_double"][0]
+    assert "« lperon1 »" in e.correction, "le compte en trop est nommé"
+    assert "garder « lperon »" in e.correction
+    assert "désactiver" in e.correction, "désactiver est une option, et sa limite est dite"
+
+
+def test_un_doublon_sans_titulaire_connu_ne_propose_rien(session, tmp_path, peupler):
+    from backend.services.controle_koxo import controler_export_koxo
+
+    peupler([("eleve", "AUTRE", "Ann", "aautre", 1)])
+    f = _export(tmp_path, [
+        _prof("PERON", "Lou", "lperon", 87500),
+        _prof("PERON", "Lou", "lperon1", 87500),
+    ])
+
+    r = controler_export_koxo(session, f, type_personne="eleve")
+    e = [x for x in r.ecarts if x.genre == "id_en_double"][0]
+    assert e.correction == ""
+    assert "lequel est réellement utilisé" in e.consequence
+
+
+def test_un_nom_a_espace_se_rapproche_quand_meme(session, tmp_path, peupler):
+    """KoXo écrit « LE SAOUT », les adresses « lesaout »."""
+    from backend.services.controle_koxo import controler_export_koxo
+
+    peupler([("eleve", "LESAOUT", "Lana", "llesaout", 81010)])
+    f = _export(tmp_path, [
+        ["Elèves", "T_G3B", "", "LE SAOUT", "Lana", "llesaout", "",
+         "Xxxxxx11", "x@y.fr"],
+    ], entetes=[
+        "Groupe primaire", "Groupe secondaire", "Titre", "Nom", "Prénom",
+        "Identifiant", "ID unique", "Mot de passe", "Email",
+    ])
+
+    r = controler_export_koxo(session, f, type_personne="eleve")
+    e = [x for x in r.ecarts if x.genre == "id_absent"][0]
+    assert e.badge_referentiel == "81010"

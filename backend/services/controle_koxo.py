@@ -80,6 +80,62 @@ def _plat(texte: str | None) -> str:
     return "".join(c for c in decompose if unicodedata.category(c) != "Mn")
 
 
+def _cle_nom(prenom: str | None, nom: str | None) -> str:
+    """Clé de rapprochement par identité, insensible aux espaces et accents.
+
+    « LE SAOUT » et « LESAOUT » désignent la même famille selon la source :
+    KoXo garde l'espace, les adresses le suppriment.
+    """
+    return _plat(prenom).replace(" ", "") + "|" + _plat(nom).replace(" ", "")
+
+
+def _badge_propose(
+    ligne: "LigneKoxo",
+    par_nom: dict[str, list],
+    par_login: dict[str, list],
+) -> tuple[str, str]:
+    """Quel badge devrait porter cette ligne KoXo, et ce qu'il faut en dire.
+
+    **Le rapprochement se fait sur l'identité, jamais sur le login.** Une
+    première version proposait le badge de la personne portant le même
+    login au référentiel : pour Lana LE SAOUT, dont le login `llesaout`
+    avait été réattribué à une homonyme entrante, elle proposait le badge
+    de l'homonyme. Écrire ce numéro dans KoXo aurait fait répondre le
+    compte de Lana au nom d'une autre.
+
+    Renvoie `(badge, note)`. Badge vide quand plusieurs personnes portent
+    ce nom : la note dit alors lesquelles.
+    """
+    candidats = par_nom.get(_cle_nom(ligne.prenom, ligne.nom)) or []
+    if not candidats:
+        return "", ""
+    if len(candidats) > 1:
+        qui = ", ".join(
+            f"{p.prenom} {p.nom} (badge {p.badge})" for p in candidats[:4]
+        )
+        return "", (
+            f"{len(candidats)} personnes portent ce nom au référentiel — "
+            f"{qui}. Choisis toi-même le badge : le programme ne devine pas."
+        )
+
+    personne = candidats[0]
+    badge = str(personne.badge) if personne.badge is not None else ""
+
+    # Le login que KoXo donne à cette personne appartient-il à quelqu'un
+    # d'autre au référentiel ? C'est le cas qui coûte le plus cher.
+    note = ""
+    autres = [p for p in (par_login.get(ligne.login) or []) if p.id != personne.id]
+    if autres:
+        a = autres[0]
+        note = (
+            f"Attention : le référentiel attribue l'identifiant "
+            f"« {ligne.login} » à {a.prenom} {a.nom} (badge {a.badge}). "
+            "Une fois l'ID unique corrigé, ré-amorce depuis KoXo pour que "
+            "ce conflit d'identifiant soit tranché."
+        )
+    return badge, note
+
+
 @dataclass
 class LigneKoxo:
     """Une ligne de l'export, telle qu'elle est écrite.
@@ -128,6 +184,14 @@ class Ecart:
     login_referentiel: str = ""
     lignes: list[int] = field(default_factory=list)
     explication: str = ""
+    correction: str = ""
+    """Le geste exact à faire dans KoXo, valeur comprise — « Mettre 81010
+    dans l'ID unique », « Supprimer le compte llesaout2 ».
+
+    Vide quand le programme ne peut pas désigner une correction sans
+    deviner : deux homonymes, aucun rapprochement possible. La
+    `consequence` dit alors quoi regarder.
+    """
     consequence: str = ""
     """Ce que la synchronisation en fera si rien n'est corrigé."""
 
@@ -335,11 +399,13 @@ def controler_export_koxo(
     tous = session.query(Personne).all()
     par_badge: dict[int, list[Personne]] = defaultdict(list)
     par_login: dict[str, list[Personne]] = defaultdict(list)
+    par_nom: dict[str, list[Personne]] = defaultdict(list)
     for p in tous:
         if p.badge is not None:
             par_badge[p.badge].append(p)
         if p.login:
             par_login[p.login].append(p)
+        par_nom[_cle_nom(p.prenom, p.nom)].append(p)
 
     # --- Doublons internes à l'export ---------------------------------------
     lignes_par_id: dict[str, list[LigneKoxo]] = defaultdict(list)
@@ -353,20 +419,54 @@ def controler_export_koxo(
     ids_en_double = {k for k, v in lignes_par_id.items() if len(v) > 1}
     for ident in sorted(ids_en_double):
         groupe = lignes_par_id[ident]
+
+        # Lequel garder ? Celui dont l'identifiant est aussi celui que le
+        # référentiel connaît pour ce badge : c'est le compte historique,
+        # et un identifiant constaté ne se remplace pas.
+        correction = ""
+        titulaire = None
+        if ident.isdigit():
+            candidats = par_badge.get(int(ident)) or []
+            titulaire = candidats[0] if len(candidats) == 1 else None
+        if titulaire is not None and titulaire.login:
+            a_garder = [l for l in groupe if l.login == titulaire.login]
+            a_supprimer = [l for l in groupe if l.login != titulaire.login]
+            if a_garder and a_supprimer:
+                # Désactiver plutôt que supprimer se défend — les données
+                # restent. Mais un compte désactivé porte toujours son ID
+                # unique : l'ambiguïté ne disparaît que s'il quitte
+                # l'export. C'est vérifiable, et ça vaut mieux que de le
+                # supposer dans un sens ou dans l'autre.
+                correction = (
+                    "Supprimer ou désactiver "
+                    + ", ".join(f"« {l.login} »" for l in a_supprimer)
+                    + f", et garder « {titulaire.login} ». Si tu désactives, "
+                    "ré-exporte et repasse ce contrôle : l'écart ne disparaît "
+                    "que si KoXo cesse de sortir le compte désactivé."
+                )
+
         rapport.ecarts.append(
             Ecart(
                 genre="id_en_double",
                 qui=" / ".join(sorted({l.nom_complet for l in groupe})),
                 id_unique=ident,
                 login=", ".join(l.login for l in groupe),
+                login_referentiel=(titulaire.login if titulaire else ""),
                 lignes=[l.ligne for l in groupe],
                 explication=(
                     f"{len(groupe)} comptes KoXo portent l'ID unique {ident} : "
                     + ", ".join(l.login for l in groupe)
                 ),
+                correction=correction,
                 consequence=(
-                    "La synchronisation ne peut pas savoir lequel mettre à "
-                    "jour. Supprime le compte en trop dans KoXo."
+                    "La synchronisation ne peut pas savoir lequel mettre à jour."
+                    if correction
+                    else (
+                        "La synchronisation ne peut pas savoir lequel mettre à "
+                        "jour. Aucun de ces identifiants n'est celui que le "
+                        "référentiel connaît pour ce badge : regarde dans KoXo "
+                        "lequel est réellement utilisé."
+                    )
                 ),
             )
         )
@@ -388,15 +488,24 @@ def controler_export_koxo(
     badges_vus: set[int] = set()
     for l in lignes:
         if not l.id_unique:
+            badge, note = _badge_propose(l, par_nom, par_login)
             rapport.ecarts.append(
                 Ecart(
                     genre="id_absent",
                     qui=l.nom_complet,
                     login=l.login,
+                    badge_referentiel=badge,
                     lignes=[l.ligne],
                     explication="Ce compte KoXo n'a pas d'ID unique.",
+                    correction=(
+                        f"Mettre {badge} dans l'ID unique du compte "
+                        f"« {l.login} »."
+                        if badge
+                        else ""
+                    ),
                     consequence=(
-                        "La reconnaissance retombera sur Nom + Prénom + date "
+                        note
+                        or "La reconnaissance retombera sur Nom + Prénom + date "
                         "de naissance. Sans date, elle ne distingue pas les "
                         "homonymes."
                     ),
@@ -405,23 +514,28 @@ def controler_export_koxo(
             continue
 
         if not l.id_unique.isdigit():
-            candidat = par_login.get(l.login) or []
-            attendu = str(candidat[0].badge) if len(candidat) == 1 else ""
+            badge, note = _badge_propose(l, par_nom, par_login)
             rapport.ecarts.append(
                 Ecart(
                     genre="id_non_numerique",
                     qui=l.nom_complet,
                     login=l.login,
                     id_unique=l.id_unique,
-                    badge_referentiel=attendu,
+                    badge_referentiel=badge,
                     lignes=[l.ligne],
                     explication=(
                         f"L'ID unique vaut « {l.id_unique} », qui n'est pas un "
                         "numéro de badge."
-                        + (f" Le référentiel attend {attendu}." if attendu else "")
+                    ),
+                    correction=(
+                        f"Remplacer « {l.id_unique} » par {badge} dans l'ID "
+                        f"unique du compte « {l.login} »."
+                        if badge
+                        else ""
                     ),
                     consequence=(
-                        "Ce compte ne sera pas reconnu par son ID unique. "
+                        note
+                        or "Ce compte ne sera pas reconnu par son ID unique. "
                         "Corrige-le dans KoXo avant la synchronisation."
                     ),
                 )
