@@ -104,6 +104,80 @@ def lister_personnes(
     return [_serialiser(p, sites_par_id) for p in q.all()]
 
 
+class LigneMouvementOut(BaseModel):
+    mouvement: str
+    nom: str
+    prenom: str
+    personne_id: int | None = None
+    cle_pivot: str | None = None
+    login: str | None = None
+    email: str | None = None
+    badge: int | None = None
+    type: str = ""
+    site: str | None = None
+    classe: str | None = None
+    classe_precedente: str | None = None
+    classe_suivante: str | None = None
+    discipline: str | None = None
+    detail: str = ""
+    methode_rapprochement: str | None = None
+
+
+class MouvementsOut(BaseModel):
+    annee: str
+    type_personne: str
+    source: str
+    annee_precedente: str | None
+    annee_suivante: str | None
+    lignes: list[LigneMouvementOut]
+    entrants_connus: bool
+    sortants_connus: bool
+    raisons: dict[str, str]
+    nb_par_mouvement: dict[str, int]
+
+
+# Déclarée **avant** `/{personne_id}` : cette route-là capture n'importe
+# quel segment unique, et avalerait « mouvements » pour le donner à
+# manger à un paramètre entier.
+@router.get("/mouvements", response_model=MouvementsOut)
+def lister_mouvements(
+    annee_id: int = Query(..., description="Année observée"),
+    type: str = Query("eleve", description="`eleve` ou `adulte`"),
+    site: str | None = Query(None, description="Code site (NDE, NDK, SU)"),
+    session: Session = Depends(db_session),
+) -> MouvementsOut:
+    """Qui entre, qui sort, qui reste, pour une année et une population.
+
+    Les deux populations ne se lisent pas dans la même source : les élèves
+    dans les photographies annuelles, les adultes dans le tableau des
+    professeurs. Ce que la source ne permet pas d'établir est dit plutôt
+    que deviné.
+    """
+    from dataclasses import asdict
+
+    from backend.services.mouvements import mouvements_annee
+
+    try:
+        r = mouvements_annee(
+            session, annee_id=annee_id, type_personne=type, site=site
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    return MouvementsOut(
+        annee=r.annee,
+        type_personne=r.type_personne,
+        source=r.source,
+        annee_precedente=r.annee_precedente,
+        annee_suivante=r.annee_suivante,
+        lignes=[LigneMouvementOut(**asdict(l)) for l in r.lignes],
+        entrants_connus=r.entrants_connus,
+        sortants_connus=r.sortants_connus,
+        raisons=r.raisons,
+        nb_par_mouvement=r.nb_par_mouvement,
+    )
+
+
 @router.get("/{personne_id}", response_model=PersonneOut)
 def obtenir_personne(
     personne_id: int, session: Session = Depends(db_session)

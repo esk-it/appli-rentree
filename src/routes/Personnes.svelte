@@ -15,7 +15,8 @@
   import Nombre from "$lib/components/Nombre.svelte";
   import Segments from "$lib/components/Segments.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
-  import { personnes } from "$lib/api.js";
+  import Info from "@lucide/svelte/icons/info";
+  import { annees as anneesApi, personnes } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
   let liste = $state(/** @type {any[]} */ ([]));
@@ -26,6 +27,100 @@
   let filtreType = $state(/** @type {"" | "eleve" | "adulte"} */ (""));
   let filtreSite = $state("");
   let filtreClasse = $state("");
+
+  /**
+   * L'année observée, et le mouvement qu'on veut y voir.
+   *
+   * Sans année, l'écran montre le référentiel entier — l'état des lieux,
+   * hors du temps. Avec une année, il montre ce qui s'y passe : qui entre,
+   * qui sort, qui reste. Ce sont deux questions différentes, et la seconde
+   * ne se répond pas en filtrant la première : elle demande de comparer
+   * deux photographies annuelles, ce que seul le serveur peut faire.
+   */
+  let listeAnnees = $state(/** @type {any[]} */ ([]));
+  let anneeId = $state(/** @type {null | number} */ (null));
+  let filtreMouvement = $state("");
+  let mouvements = $state(/** @type {any} */ (null));
+
+  /**
+   * Le mouvement demande une population : entrants et sortants ne se
+   * lisent pas dans la même source selon qu'il s'agit d'élèves ou
+   * d'adultes. « Tous » n'a donc pas de sens ici, et bascule sur les
+   * élèves.
+   */
+  let typePourAnnee = $derived(filtreType === "adulte" ? "adulte" : "eleve");
+
+  $effect(() => {
+    if (anneeId === null) {
+      mouvements = null;
+      return;
+    }
+    const demande = { anneeId, type: typePourAnnee };
+    let annule = false;
+    chargement = true;
+    personnes
+      .mouvements(demande)
+      .then((r) => {
+        if (!annule) mouvements = r;
+      })
+      .catch((e) => {
+        if (!annule) {
+          erreur = String(e).replace(/^Error:\s*/, "");
+          mouvements = null;
+        }
+      })
+      .finally(() => {
+        if (!annule) chargement = false;
+      });
+    return () => (annule = true);
+  });
+
+  const LIBELLES_MOUVEMENT = {
+    entrant: "Nouveaux",
+    sortant: "Sortants",
+    present: "En poste",
+  };
+
+  const TEINTES_MOUVEMENT = {
+    entrant: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+    sortant: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
+    present: "bg-stone-100 text-stone-600 dark:bg-stone-700/60 dark:text-stone-300",
+  };
+
+  /** Les lignes d'une année, mises à la forme du tableau du référentiel. */
+  let lignesAnnee = $derived.by(() => {
+    if (!mouvements) return [];
+    return mouvements.lignes.map((l, i) => ({
+      ...l,
+      // Un arrivant sans compte n'a pas d'identifiant référentiel : on lui
+      // donne une clé négative pour la boucle, et la ligne ne se déplie pas.
+      id: l.personne_id ?? -(i + 1),
+      sans_compte: l.personne_id === null,
+    }));
+  });
+
+  let optionsMouvement = $derived.by(() => {
+    if (!mouvements) return [];
+    const n = mouvements.nb_par_mouvement;
+    return [
+      { id: "", label: "Tous", badge: mouvements.lignes.length },
+      { id: "entrant", label: "Nouveaux", badge: n.entrant ?? 0 },
+      { id: "sortant", label: "Sortants", badge: n.sortant ?? 0 },
+      { id: "present", label: "En poste", badge: n.present ?? 0 },
+    ];
+  });
+
+  /** Les années voisines effectivement disponibles, dites d'un trait. */
+  let voisines = $derived.by(() => {
+    if (!mouvements) return "";
+    const v = [mouvements.annee_precedente, mouvements.annee_suivante].filter(Boolean);
+    return v.join(" et à ");
+  });
+
+  /** La raison pour laquelle le mouvement demandé n'est pas établissable. */
+  let raisonAbsente = $derived(
+    mouvements && filtreMouvement ? (mouvements.raisons[filtreMouvement] ?? "") : "",
+  );
 
   /**
    * La fiche dépliée, s'il y en a une.
@@ -39,6 +134,13 @@
   let ficheEnCours = $state(false);
 
   async function basculer(p) {
+    if (p.sans_compte) {
+      notify.info(
+        `${p.prenom} ${p.nom} ne figure pas encore au référentiel : ` +
+          "cette ligne vient du tableau des professeurs.",
+      );
+      return;
+    }
     if (ouverte === p.id) {
       fermerFiche();
       return;
@@ -72,7 +174,10 @@
   }
 
   let listeFiltree = $derived.by(() => {
-    let r = liste;
+    let r = anneeId === null ? liste : lignesAnnee;
+    if (filtreMouvement && anneeId !== null) {
+      r = r.filter((p) => p.mouvement === filtreMouvement);
+    }
     if (filtreType) r = r.filter((p) => p.type === filtreType);
     if (filtreSite) r = r.filter((p) => p.site === filtreSite);
     if (filtreClasse) r = r.filter((p) => p.classe === filtreClasse);
@@ -87,8 +192,11 @@
     return r;
   });
 
+  /** La source affichée : le référentiel entier, ou une année. */
+  let source = $derived(anneeId === null ? liste : lignesAnnee);
+
   let sitesDispo = $derived([
-    ...new Set(liste.map((p) => p.site).filter(Boolean)),
+    ...new Set(source.map((p) => p.site).filter(Boolean)),
   ].sort());
 
   // Les classes proposées suivent les filtres déjà posés : chercher une
@@ -96,7 +204,7 @@
   let classesDispo = $derived(
     [
       ...new Set(
-        liste
+        source
           .filter((p) => (!filtreType || p.type === filtreType))
           .filter((p) => (!filtreSite || p.site === filtreSite))
           .map((p) => p.classe)
@@ -108,9 +216,9 @@
   // Les compteurs affichés dans les segments donnent la répartition sans
   // avoir à cliquer sur chaque filtre pour la découvrir.
   let optionsType = $derived([
-    { id: "", label: "Tous", badge: liste.length },
-    { id: "eleve", label: "Élèves", badge: liste.filter((p) => p.type === "eleve").length },
-    { id: "adulte", label: "Adultes", badge: liste.filter((p) => p.type === "adulte").length },
+    { id: "", label: "Tous", badge: source.length },
+    { id: "eleve", label: "Élèves", badge: source.filter((p) => p.type === "eleve").length },
+    { id: "adulte", label: "Adultes", badge: source.filter((p) => p.type === "adulte").length },
   ]);
 
   let optionsSite = $derived([
@@ -118,11 +226,20 @@
     ...sitesDispo.map((s) => ({
       id: s,
       label: s,
-      badge: liste.filter((p) => p.site === s).length,
+      badge: source.filter((p) => p.site === s).length,
     })),
   ]);
 
-  onMount(rafraichir);
+  onMount(async () => {
+    try {
+      listeAnnees = (await anneesApi.lister()).slice().sort((a, b) =>
+        a.libelle.localeCompare(b.libelle),
+      );
+    } catch {
+      listeAnnees = [];
+    }
+    await rafraichir();
+  });
 
   async function rafraichir() {
     chargement = true;
@@ -205,7 +322,26 @@
           class="w-80 rounded-lg border border-stone-300 py-1.5 pl-8 pr-3 text-sm dark:border-stone-600 dark:bg-stone-800 dark:text-stone-200"
         />
       </div>
+      <!-- L'année d'abord : c'est elle qui décide si l'écran montre un état
+           des lieux ou un mouvement, et donc ce que les autres filtres
+           signifient. -->
+      <select
+        class="rounded-lg border border-stone-300 px-2 py-1.5 text-sm dark:border-stone-600
+               dark:bg-stone-800 dark:text-stone-200"
+        bind:value={anneeId}
+        aria-label="Année observée"
+      >
+        <option value={null}>Tout le référentiel</option>
+        {#each listeAnnees as a (a.id)}
+          <option value={a.id}>{a.libelle}</option>
+        {/each}
+      </select>
+
       <Segments bind:valeur={filtreType} taille="sm" options={optionsType} />
+
+      {#if anneeId !== null && optionsMouvement.length}
+        <Segments bind:valeur={filtreMouvement} taille="sm" options={optionsMouvement} />
+      {/if}
 
       {#if sitesDispo.length}
         <Segments bind:valeur={filtreSite} taille="sm" options={optionsSite} />
@@ -227,7 +363,7 @@
         </select>
       {/if}
 
-      {#if filtreType || filtreSite || filtreClasse || recherche}
+      {#if filtreType || filtreSite || filtreClasse || recherche || anneeId !== null}
         <button
           class="rounded-md px-2 py-1 text-xs text-stone-500 transition hover:bg-stone-100
                  hover:text-stone-800 dark:hover:bg-stone-700 dark:hover:text-stone-200"
@@ -236,6 +372,8 @@
             filtreSite = "";
             filtreClasse = "";
             recherche = "";
+            anneeId = null;
+            filtreMouvement = "";
           }}
         >
           Tout afficher
@@ -243,10 +381,19 @@
       {/if}
 
       <span class="ml-auto text-xs tabular-nums text-stone-500 dark:text-stone-400">
-        <Nombre valeur={listeFiltree.length} duree={300} /> / {liste.length}
+        <Nombre valeur={listeFiltree.length} duree={300} /> / {source.length}
       </span>
     </div>
   </div>
+
+  <!-- Une liste vide parce que la question n'a pas de réponse ne ressemble
+       en rien à une liste vide parce qu'il n'y a personne. -->
+  {#if mouvements}
+    <p class="text-xs text-stone-500 dark:text-stone-400">
+      {mouvements.annee} · {mouvements.type_personne === "eleve" ? "élèves" : "adultes"}
+      · source : {mouvements.source}{#if voisines}{" · comparée à " + voisines}{/if}
+    </p>
+  {/if}
 
   <div class="card overflow-hidden">
     {#if chargement}
@@ -259,6 +406,16 @@
           icon={Users2}
           titre="Référentiel vide"
           message="Charge d'abord tes comptes existants depuis l'onglet Amorçage KoXo, puis dépose un export Charlemagne dans Snapshots d'années."
+        />
+      </div>
+    {:else if listeFiltree.length === 0 && raisonAbsente}
+      <!-- Retirer un filtre ne donnerait rien : ce n'est pas le filtre qui
+           vide la liste, c'est la question qui n'a pas de réponse. -->
+      <div class="p-4">
+        <EtatVide
+          icon={Info}
+          titre="Cette liste ne peut pas être établie"
+          message={raisonAbsente}
         />
       </div>
     {:else if listeFiltree.length === 0}
@@ -275,6 +432,9 @@
           <thead class="sticky top-0 z-10 bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
             <tr>
               <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700"></th>
+              {#if anneeId !== null}
+                <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Mouvement</th>
+              {/if}
               <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Clé pivot</th>
               <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Type</th>
               <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Nom</th>
@@ -289,7 +449,8 @@
           <tbody>
             {#each listeFiltree as p (p.id)}
               <tr
-                class="cursor-pointer border-b border-stone-100 transition-colors dark:border-stone-800
+                class="border-b border-stone-100 transition-colors dark:border-stone-800
+                       {p.sans_compte ? 'cursor-default' : 'cursor-pointer'}
                        {ouverte === p.id
                   ? 'bg-emerald-50/70 dark:bg-emerald-900/25'
                   : 'hover:bg-emerald-50/40 dark:hover:bg-emerald-900/20'}"
@@ -301,11 +462,26 @@
                       class="h-3.5 w-3.5 shrink-0 text-stone-300 transition-transform duration-150
                              dark:text-stone-600 {ouverte === p.id ? 'rotate-90' : ''}"
                     />
-                    <Avatar personneId={p.id} nom={p.nom} prenom={p.prenom} taille={40} />
+                    <Avatar
+                      personneId={p.sans_compte ? null : p.id}
+                      nom={p.nom}
+                      prenom={p.prenom}
+                      taille={40}
+                    />
                   </div>
                 </td>
+                {#if anneeId !== null}
+                  <td class="whitespace-nowrap px-3 py-1.5 text-xs">
+                    <span class="rounded-full px-2 py-0.5 {TEINTES_MOUVEMENT[p.mouvement]}">
+                      {LIBELLES_MOUVEMENT[p.mouvement]}
+                    </span>
+                    {#if p.detail}
+                      <span class="ml-2 text-stone-500 dark:text-stone-400">{p.detail}</span>
+                    {/if}
+                  </td>
+                {/if}
                 <td class="whitespace-nowrap px-3 py-1.5 font-mono text-xs text-stone-600 dark:text-stone-400">
-                  {p.cle_pivot}
+                  {p.cle_pivot ?? "—"}
                 </td>
                 <td class="px-3 py-1.5 text-xs">
                   <span class="rounded-full px-2 py-0.5 {p.type === 'eleve' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300'}">

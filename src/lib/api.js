@@ -58,6 +58,12 @@ export async function health() {
 // Personnes — référentiel d'identité
 // ---------------------------------------------------------------------------
 export const personnes = {
+  /** Qui entre, qui sort, qui reste — pour une année et une population. */
+  async mouvements({ anneeId, type = "eleve", site = null }) {
+    const p = new URLSearchParams({ annee_id: String(anneeId), type });
+    if (site) p.set("site", site);
+    return jsonOrThrow(await fetch(`${BASE}/personnes/mouvements?${p}`));
+  },
   /** Tout ce que le référentiel sait d'une personne : parcours et comptes. */
   async fiche(id) {
     return jsonOrThrow(await fetch(`${BASE}/personnes/${id}/fiche`));
