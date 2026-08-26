@@ -87,6 +87,34 @@ def lire_htm(chemin: str | Path) -> pd.DataFrame:
     return _normaliser_colonnes(df)
 
 
+MAX_LIGNES_AVANT_ENTETE = 10
+"""Jusqu'où chercher la ligne d'en-tête avant d'abandonner."""
+
+
+def _ligne_entete(df: pd.DataFrame) -> int:
+    """Repère la ligne qui porte les libellés de colonnes.
+
+    Charlemagne coiffe certains exports XLSX d'un titre daté — « Le 26 août
+    2026 à 09 h 32 » — suivi de lignes vides. Lu tel quel, ce titre devient
+    l'en-tête et **aucune** colonne n'est reconnue : l'ingestion refuse le
+    fichier entier, ou pire, prend la vraie ligne d'en-tête pour un élève.
+
+    On retient donc la ligne qui fait apparaître le plus de libellés connus.
+    Zéro si aucune ne fait mieux que la première — un fichier déjà bien
+    formé n'est pas touché.
+    """
+    meilleure, meilleur_score = 0, -1
+    for i in range(min(MAX_LIGNES_AVANT_ENTETE, len(df))):
+        score = sum(
+            1
+            for v in df.iloc[i]
+            if pd.notna(v) and _normaliser_libelle(v) in COLONNES_NORMALISEES
+        )
+        if score > meilleur_score:
+            meilleure, meilleur_score = i, score
+    return meilleure
+
+
 def lire_xlsx(chemin: str | Path, feuille: str | int = 0) -> pd.DataFrame:
     """Lit un export Charlemagne au format XLSX.
 
@@ -95,10 +123,11 @@ def lire_xlsx(chemin: str | Path, feuille: str | int = 0) -> pd.DataFrame:
         feuille: nom ou index de la feuille à lire (par défaut la première)
     """
     chemin = Path(chemin)
-    if chemin.suffix.lower() == ".xls":
-        df = pd.read_excel(chemin, sheet_name=feuille, engine="xlrd")
-    else:
-        df = pd.read_excel(chemin, sheet_name=feuille, engine="openpyxl")
+    moteur = "xlrd" if chemin.suffix.lower() == ".xls" else "openpyxl"
+
+    brut = pd.read_excel(chemin, sheet_name=feuille, engine=moteur, header=None)
+    entete = _ligne_entete(brut)
+    df = pd.read_excel(chemin, sheet_name=feuille, engine=moteur, header=entete)
     return _normaliser_colonnes(df)
 
 

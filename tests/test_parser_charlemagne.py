@@ -68,3 +68,80 @@ def test_mapping_identifiant_adultes(tmp_path):
 
     df = lire_htm(fic)
     assert df.loc[0, "id_charlemagne"] == 313
+
+
+# ---------------------------------------------------------------------------
+# En-tête précédé d'un titre
+# ---------------------------------------------------------------------------
+
+
+def _classeur_avec_titre(tmp_path, lignes_avant_entete):
+    """Reproduit la forme d'un export XLSX coiffé d'un titre daté."""
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    if lignes_avant_entete:
+        ws.append(["Le 26 août 2026 à 09 h 32"])
+        for _ in range(lignes_avant_entete - 1):
+            ws.append([])
+    ws.append([
+        "Num Badge", "Identifiant Elève", "Nom", "Prénom",
+        "Code Classe prec.", "Code classe", "Code Régime", "Email",
+    ])
+    ws.append([
+        "18810", "881", "ZWOLINSKI", "Julie", None, "3T", "D", None,
+    ])
+    ws.append([
+        "18390", "839", "MARC", "Calie", "6B", "5L", "DP3",
+        "calie.marc@lekreisker.fr",
+    ])
+    chemin = tmp_path / "export.xlsx"
+    wb.save(chemin)
+    return chemin
+
+
+def test_un_titre_date_ne_passe_pas_pour_len_tete(tmp_path):
+    """Charlemagne coiffe ses exports XLSX d'un titre, puis de lignes vides.
+
+    Lu tel quel, ce titre devient l'en-tête : aucune colonne n'est reconnue
+    et l'ingestion refuse le fichier — ou prend la vraie ligne d'en-tête
+    pour un élève.
+    """
+    from backend.services.parser_charlemagne import lire_xlsx
+
+    df = lire_xlsx(_classeur_avec_titre(tmp_path, lignes_avant_entete=3))
+    assert list(df.columns)[:4] == ["num_badge", "id_charlemagne", "nom", "prenom"]
+    assert len(df) == 2, "la ligne d'en-tête n'est pas comptée comme un élève"
+    assert df.iloc[0]["nom"] == "ZWOLINSKI"
+
+
+def test_un_classeur_sans_titre_est_lu_comme_avant(tmp_path):
+    """La recherche d'en-tête ne doit pas déplacer ce qui est déjà correct."""
+    from backend.services.parser_charlemagne import lire_xlsx
+
+    df = lire_xlsx(_classeur_avec_titre(tmp_path, lignes_avant_entete=0))
+    assert list(df.columns)[:4] == ["num_badge", "id_charlemagne", "nom", "prenom"]
+    assert len(df) == 2
+
+
+def test_len_tete_nest_pas_cherchee_indefiniment(tmp_path):
+    """Au-delà de quelques lignes, mieux vaut échouer que fouiller le fichier."""
+    import openpyxl
+
+    from backend.services.parser_charlemagne import (
+        MAX_LIGNES_AVANT_ENTETE,
+        lire_xlsx,
+    )
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    for _ in range(MAX_LIGNES_AVANT_ENTETE + 2):
+        ws.append(["blabla"])
+    ws.append(["Num Badge", "Nom", "Prénom"])
+    ws.append(["18810", "ZWOLINSKI", "Julie"])
+    chemin = tmp_path / "trop_loin.xlsx"
+    wb.save(chemin)
+
+    df = lire_xlsx(chemin)
+    assert "num_badge" not in df.columns
