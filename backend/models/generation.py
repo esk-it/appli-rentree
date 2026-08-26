@@ -33,6 +33,9 @@ TYPES_OPERATION = (
     "import_table",
     "export",
     "cycle_vie",
+    # Toucher à un identifiant est assez rare, et assez lourd de
+    # conséquences, pour mériter sa propre famille dans le journal.
+    "identifiant",
 )
 
 

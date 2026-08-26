@@ -168,6 +168,43 @@ def amorcer_depuis_koxo(
 # ---------------------------------------------------------------------------
 
 
+def _reserver_login(session, login, nom, prenom, motif) -> None:
+    """Retient un identifiant qu'on a vu sans pouvoir le rattacher.
+
+    Une ligne rejetée emporte son identifiant hors de vue : plus rien au
+    référentiel ne dit qu'il est pris, et le premier entrant du même nom se
+    le voit attribuer. La réservation le maintient occupé jusqu'à ce que la
+    source soit corrigée.
+    """
+    from backend.models import LoginReserve, Personne
+
+    if not login:
+        return
+    if session.query(Personne).filter_by(login=login).first() is not None:
+        return  # quelqu'un le porte déjà : rien à réserver
+    existante = session.query(LoginReserve).filter_by(login=login).one_or_none()
+    if existante is not None:
+        existante.motif = motif
+        existante.nom, existante.prenom = nom, prenom
+        return
+    session.add(
+        LoginReserve(
+            login=login, source="amorcage_koxo", nom=nom, prenom=prenom, motif=motif
+        )
+    )
+
+
+def _liberer_login(session, login) -> None:
+    """Lève la réservation : une Personne porte désormais cet identifiant."""
+    from backend.models import LoginReserve
+
+    if not login:
+        return
+    r = session.query(LoginReserve).filter_by(login=login).one_or_none()
+    if r is not None:
+        session.delete(r)
+
+
 def _relever_email(personne: Personne, ligne: dict, domaines: set[str]) -> None:
     """Relève l'adresse du compte KoXo si elle est sur un domaine de l'ESK.
 
@@ -202,6 +239,7 @@ def _traiter_ligne(
     if num_badge is None:
         rapport.rejets.append(LigneRejetee(ligne_num, "num_badge manquant", ligne))
         rapport.nb_rejets += 1
+        _reserver_login(session, login, nom, prenom, "num_badge manquant")
         return
     if not nom or not prenom:
         rapport.rejets.append(LigneRejetee(ligne_num, "nom/prénom manquant", ligne))
@@ -217,10 +255,15 @@ def _traiter_ligne(
     except (TypeError, ValueError):
         rapport.rejets.append(LigneRejetee(ligne_num, "num_badge non entier", ligne))
         rapport.nb_rejets += 1
+        _reserver_login(session, login, nom, prenom, "num_badge non entier")
         return
 
     id_ch = deduire_id_charlemagne(num_badge_int, type_personne)
     if id_ch is None:
+        _reserver_login(
+            session, login, nom, prenom,
+            f"badge {num_badge_int} incompatible avec le type {type_personne}",
+        )
         rapport.rejets.append(
             LigneRejetee(
                 ligne_num,
@@ -303,6 +346,8 @@ def _traiter_ligne(
     )
     _relever_email(personne, ligne, domaines)
     session.add(personne)
+    # La Personne prend le relais : la réservation n'a plus lieu d'être.
+    _liberer_login(session, login)
     session.flush()
     rapport.nb_creations += 1
     rapport.personnes.append(

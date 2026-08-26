@@ -19,6 +19,10 @@ from sqlalchemy.orm import Session
 
 from backend.database import db_session
 from backend.services.controle_koxo import RapportControle, controler_export_koxo
+from backend.services.rendre_identifiant import (
+    RenduImpossible,
+    rendre_identifiant,
+)
 
 router = APIRouter(prefix="/api/koxo", tags=["koxo"])
 
@@ -106,3 +110,82 @@ def controler(
     # Le nom du fichier déposé remplace celui du temporaire.
     rapport.fichier = payload.nom_fichier or rapport.fichier
     return _to_out(rapport)
+
+
+class RendrePayload(BaseModel):
+    login: str
+    badge_titulaire: int
+    mode: str = "simulation"
+
+
+class RenduOut(BaseModel):
+    login: str
+    titulaire: str
+    ancien_porteur: str
+    nouveau_login_ancien_porteur: str
+    echange: bool
+    mode: str
+    phrase: str
+    """Ce qui a été fait — ou serait fait — en une phrase."""
+
+
+@router.post("/rendre-identifiant", response_model=RenduOut)
+def rendre(
+    payload: RendrePayload, session: Session = Depends(db_session)
+) -> RenduOut:
+    """Rend un identifiant constaté à la personne qui le détient.
+
+    La seule écriture de cet écran, et la seule circonstance où le
+    programme touche à un identifiant : le rendre à qui le portait déjà,
+    quand celui à qui il avait été attribué n'en a jamais rien fait.
+    """
+    if payload.mode not in ("simulation", "reel"):
+        raise HTTPException(400, f"mode invalide : {payload.mode!r}")
+    try:
+        r = rendre_identifiant(
+            session,
+            login=payload.login,
+            badge_titulaire=payload.badge_titulaire,
+            mode=payload.mode,
+        )
+    except RenduImpossible as e:
+        raise HTTPException(409, str(e)) from None
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    if payload.mode == "reel":
+        from backend.services.journal import journaliser
+
+        journaliser(
+            session,
+            type_operation="identifiant",
+            cible="personne",
+            mode="reel",
+            parametres={"login": r.login, "badge_titulaire": payload.badge_titulaire},
+            resultat={
+                "titulaire": r.titulaire,
+                "ancien_porteur": r.ancien_porteur,
+                "nouveau_login": r.nouveau_login_ancien_porteur,
+            },
+        )
+        session.commit()
+    else:
+        session.rollback()
+
+    verbe = "rendu" if payload.mode == "reel" else "serait rendu"
+    phrase = (
+        f"« {r.login} » {verbe} à {r.titulaire} ; {r.ancien_porteur} "
+        f"{'prend' if payload.mode == 'reel' else 'prendrait'} "
+        f"« {r.nouveau_login_ancien_porteur} »"
+        + (" (échange)" if r.echange else "")
+        + "."
+    )
+    return RenduOut(
+        login=r.login,
+        titulaire=r.titulaire,
+        ancien_porteur=r.ancien_porteur,
+        nouveau_login_ancien_porteur=r.nouveau_login_ancien_porteur,
+        echange=r.echange,
+        mode=payload.mode,
+        phrase=phrase,
+    )

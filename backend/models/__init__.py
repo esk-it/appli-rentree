@@ -9,6 +9,7 @@ from backend.models.arbitrage import Arbitrage
 from backend.models.compte_cible import CompteCible
 from backend.models.etablissement import Etablissement
 from backend.models.generation import Generation
+from backend.models.login_reserve import LoginReserve
 from backend.models.mouvement_prof import MouvementProf
 from backend.models.parametre import Parametre
 from backend.models.personne import Personne
@@ -23,6 +24,7 @@ __all__ = [
     "CompteCible",
     "Etablissement",
     "Generation",
+    "LoginReserve",
     "MouvementProf",
     "Parametre",
     "Personne",

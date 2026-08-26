@@ -22,6 +22,7 @@
   import Info from "@lucide/svelte/icons/info";
   import Download from "@lucide/svelte/icons/download";
   import Wrench from "@lucide/svelte/icons/wrench";
+  import Undo2 from "@lucide/svelte/icons/undo-2";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
@@ -106,6 +107,38 @@
   let chargement = $state(false);
   let erreur = $state("");
   let deplie = $state(/** @type {string|null} */ (null));
+  let renduEnCours = $state(/** @type {string|null} */ (null));
+
+  /**
+   * Rend un identifiant constaté à son détenteur.
+   *
+   * Deux temps : on simule d'abord et on montre la phrase, puis on
+   * applique. Toucher à un identifiant est la chose la plus lourde de
+   * conséquences que le programme sache faire ; la confirmation n'est pas
+   * de la cérémonie.
+   */
+  async function rendre(ecart) {
+    const cle = ecart.login + ecart.id_unique;
+    renduEnCours = cle;
+    try {
+      const apercu = await koxo.rendreIdentifiant({
+        login: ecart.login,
+        badgeTitulaire: Number(ecart.id_unique),
+      });
+      if (!confirm(`${apercu.phrase}\n\nAppliquer ?`)) return;
+      const fait = await koxo.rendreIdentifiant({
+        login: ecart.login,
+        badgeTitulaire: Number(ecart.id_unique),
+        mode: "reel",
+      });
+      notify.succes(fait.phrase);
+      await lancer();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 14000 });
+    } finally {
+      renduEnCours = null;
+    }
+  }
 
   onMount(async () => {
     try {
@@ -382,6 +415,19 @@
                         {/if}
                         {#if e.consequence}
                           <p class="mt-0.5 text-xs {t.titre}">{e.consequence}</p>
+                        {/if}
+                        <!-- La seule écriture de cet écran, et seulement là
+                             où KoXo désigne un détenteur par son ID unique. -->
+                        {#if e.genre === "rapprochement_ambigu" && e.id_unique}
+                          <Bouton
+                            taille="sm"
+                            icon={Undo2}
+                            classe="mt-2"
+                            occupe={renduEnCours === e.login + e.id_unique}
+                            onclick={() => rendre(e)}
+                          >
+                            Rendre « {e.login} » à {e.qui}
+                          </Bouton>
                         {/if}
                       </td>
                     </tr>

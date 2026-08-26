@@ -389,3 +389,115 @@ def test_amorcage_simulation_ne_persiste_pas_l_adresse(
     from backend.models import Personne
 
     assert session.query(Personne).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Réservation des identifiants rejetés
+# ---------------------------------------------------------------------------
+
+
+def test_une_ligne_rejetee_reserve_son_identifiant(session, site_factory, tmp_path):
+    """Le défaut qui a coûté son identifiant à une élève en poste.
+
+    Son ID unique valait un identifiant au lieu d'un badge : la ligne a été
+    rejetée, plus rien au référentiel ne disait que `llesaout` était pris,
+    et la première entrante du même nom se l'est vu attribuer.
+    """
+    from backend.models import LoginReserve
+    from backend.services.amorcage import amorcer_depuis_koxo
+    from backend.services.regles_metier import login_est_libre
+
+    site = site_factory("NDK")
+    f = tmp_path / "koxo.csv"
+    f.write_text(
+        "Groupe primaire,Groupe secondaire,Nom,Prénom,Identifiant,ID unique,Email\n"
+        "Elèves,T_G3B,LE SAOUT,Lana,llesaout,llesaout2,lana@x.fr\n",
+        encoding="cp1252",
+    )
+
+    r = amorcer_depuis_koxo(
+        session, f, site_id=site.id, type_personne="eleve", mode="reel"
+    )
+    assert r.nb_rejets == 1
+    assert not login_est_libre(session, "llesaout"), (
+        "l'identifiant reste pris même si la ligne n'a pas pu être chargée"
+    )
+    reserve = session.query(LoginReserve).filter_by(login="llesaout").one()
+    assert reserve.nom == "LE SAOUT"
+    assert reserve.prenom == "Lana"
+
+
+def test_la_reservation_dit_pourquoi(session, site_factory, tmp_path):
+    """Un identifiant refusé sans explication se cherche longtemps."""
+    from backend.services.amorcage import amorcer_depuis_koxo
+    from backend.services.regles_metier import motif_de_reservation
+
+    site = site_factory("NDK")
+    f = tmp_path / "koxo.csv"
+    f.write_text(
+        "Groupe primaire,Nom,Prénom,Identifiant,ID unique\n"
+        "Elèves,LE SAOUT,Lana,llesaout,pasunnombre\n",
+        encoding="cp1252",
+    )
+    amorcer_depuis_koxo(
+        session, f, site_id=site.id, type_personne="eleve", mode="reel"
+    )
+
+    motif = motif_de_reservation(session, "llesaout")
+    assert motif is not None
+    assert "Lana LE SAOUT" in motif
+    assert motif_de_reservation(session, "personne") is None
+
+
+def test_la_reservation_tombe_quand_la_personne_arrive(
+    session, site_factory, tmp_path
+):
+    """Corrigée dans KoXo, la ligne se charge — la Personne prend le relais."""
+    from backend.models import LoginReserve
+    from backend.services.amorcage import amorcer_depuis_koxo
+
+    site = site_factory("NDK")
+    casse = tmp_path / "casse.csv"
+    casse.write_text(
+        "Groupe primaire,Nom,Prénom,Identifiant,ID unique\n"
+        "Elèves,LE SAOUT,Lana,llesaout,pasunnombre\n",
+        encoding="cp1252",
+    )
+    amorcer_depuis_koxo(
+        session, casse, site_id=site.id, type_personne="eleve", mode="reel"
+    )
+    assert session.query(LoginReserve).filter_by(login="llesaout").count() == 1
+
+    repare = tmp_path / "repare.csv"
+    repare.write_text(
+        "Groupe primaire,Nom,Prénom,Identifiant,ID unique\n"
+        "Elèves,LE SAOUT,Lana,llesaout,81010\n",
+        encoding="cp1252",
+    )
+    amorcer_depuis_koxo(
+        session, repare, site_id=site.id, type_personne="eleve", mode="reel"
+    )
+    assert session.query(LoginReserve).filter_by(login="llesaout").count() == 0
+
+
+def test_un_entrant_ne_prend_pas_un_identifiant_reserve(
+    session, site_factory, tmp_path
+):
+    """Le bout qui compte : la proposition saute l'identifiant réservé."""
+    from backend.services.amorcage import amorcer_depuis_koxo
+    from backend.services.regles_metier import proposer_suffixe
+
+    site = site_factory("NDK")
+    f = tmp_path / "koxo.csv"
+    f.write_text(
+        "Groupe primaire,Nom,Prénom,Identifiant,ID unique\n"
+        "Elèves,LE SAOUT,Lana,llesaout,pasunnombre\n",
+        encoding="cp1252",
+    )
+    amorcer_depuis_koxo(
+        session, f, site_id=site.id, type_personne="eleve", mode="reel"
+    )
+
+    proposition = proposer_suffixe(session, "llesaout")
+    assert proposition.login_propose != "llesaout"
+    assert proposition.a_conflit

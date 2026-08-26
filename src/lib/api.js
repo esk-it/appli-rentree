@@ -706,6 +706,20 @@ export const koxo = {
       }),
     );
   },
+  /** Rend un identifiant constaté à la personne qui le détient. */
+  async rendreIdentifiant({ login, badgeTitulaire, mode = "simulation" }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/koxo/rendre-identifiant`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          login,
+          badge_titulaire: badgeTitulaire,
+          mode,
+        }),
+      }),
+    );
+  },
 };
 
 export const amorcage = {

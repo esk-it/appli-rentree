@@ -109,17 +109,45 @@ def calculer_login_base(
 
 
 def login_est_libre(session: Session, login: str) -> bool:
-    """True si aucune `Personne` n'a ce login au référentiel.
+    """True si personne ne porte ce login, et qu'aucune source ne le réserve.
 
     L'interrogation traverse tous les types (élève/adulte), toutes les années,
     y compris les personnes sorties — un login libéré n'est pas recyclé.
+
+    Elle traverse aussi les **réservations** : un identifiant constaté dans
+    KoXo que l'amorçage n'a pas su rattacher à une `Personne` reste pris.
+    Sans cela, un compte que l'amorçage a rejeté paraît inexistant, et le
+    premier entrant du même nom hérite de son identifiant — c'est ce qui
+    est arrivé à `llesaout`, parti d'une élève en poste à une homonyme
+    entrante. Voir `backend/models/login_reserve.py`.
     """
-    from backend.models import Personne
+    from backend.models import LoginReserve, Personne
 
     if not login:
         return False
-    existante = session.query(Personne).filter_by(login=login).first()
-    return existante is None
+    if session.query(Personne).filter_by(login=login).first() is not None:
+        return False
+    return session.query(LoginReserve).filter_by(login=login).first() is None
+
+
+def motif_de_reservation(session: Session, login: str) -> str | None:
+    """Pourquoi ce login est réservé, s'il l'est. `None` sinon.
+
+    Un identifiant refusé sans explication se cherche longtemps : celui-ci
+    n'est porté par personne au référentiel, il ne se voit nulle part.
+    """
+    from backend.models import LoginReserve
+
+    r = session.query(LoginReserve).filter_by(login=login).first()
+    if r is None:
+        return None
+    qui = " ".join(x for x in (r.prenom, r.nom) if x) or "un compte"
+    return (
+        f"Identifiant constaté dans {r.source.replace('_', ' ')} pour {qui}, "
+        f"que le référentiel n'a pas pu rattacher"
+        + (f" ({r.motif})" if r.motif else "")
+        + "."
+    )
 
 
 @dataclass
@@ -178,8 +206,13 @@ def proposer_suffixe(
     Le champ `personnes_en_conflit` contient les `Personne` qui portent
     déjà `login_base` (pour matérialiser l'arbitrage humain — mêmes personnes
     ou personnes distinctes).
+
+    Les identifiants **réservés** comptent comme pris, au même titre que
+    ceux portés. C'est ici que la réservation agit : sans elle, un compte
+    KoXo que l'amorçage a rejeté est invisible, et cette fonction attribue
+    son identifiant au premier entrant du même nom.
     """
-    from backend.models import Personne
+    from backend.models import LoginReserve, Personne
 
     if not login_base:
         return None
@@ -190,6 +223,12 @@ def proposer_suffixe(
         .all()
     )
     logins_pris = {p.login for p in conflits}
+    logins_pris |= {
+        r.login
+        for r in session.query(LoginReserve)
+        .filter(LoginReserve.login.like(f"{login_base}%"))
+        .all()
+    }
 
     for suffixe in range(1, max_essais + 1):
         candidat = login_base if suffixe == 1 else f"{login_base}{suffixe}"
