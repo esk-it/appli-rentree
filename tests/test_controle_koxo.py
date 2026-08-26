@@ -120,6 +120,12 @@ def test_un_rapprochement_ambigu_est_signale_sans_etre_resolu(
     assert len(ambigus) == 1
     assert "Camille" in ambigus[0].explication
     assert "Corentin" in ambigus[0].explication
+    # Les deux côtés ne sont pas symétriques : KoXo détient, le référentiel
+    # attribue. Le dire évite de croire que le programme sait quelque chose
+    # de la seconde personne — il lui a calculé cet identifiant.
+    assert "KoXo détient" in ambigus[0].explication
+    assert "le référentiel attribue" in ambigus[0].explication
+    assert "constaté" in ambigus[0].consequence
     assert not [e for e in r.ecarts if e.genre == "login_divergent"], (
         "un cas ambigu n'est pas requalifié en simple divergence"
     )

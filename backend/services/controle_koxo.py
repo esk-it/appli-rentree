@@ -584,14 +584,24 @@ def controler_export_koxo(
                     login_referentiel=personne.login or "",
                     lignes=[l.ligne],
                     explication=(
-                        f"L'ID unique {badge} désigne {personne.prenom} "
-                        f"{personne.nom} ({personne.type}), mais l'identifiant "
-                        f"{l.login} désigne {autre.prenom} {autre.nom} "
-                        f"({autre.type})."
+                        f"KoXo détient l'identifiant « {l.login} » pour ce "
+                        f"compte, dont l'ID unique {badge} désigne "
+                        f"{personne.prenom} {personne.nom} au référentiel. Or "
+                        f"le référentiel attribue « {l.login} » à "
+                        f"{autre.prenom} {autre.nom} ({autre.type})."
                     ),
                     consequence=(
-                        "Le programme ne choisit pas entre les deux. Vérifie "
-                        "dans KoXo de qui ce compte est réellement celui."
+                        # La formulation compte : présentés symétriquement, les
+                        # deux côtés donnent à croire que le programme sait
+                        # quelque chose de l'autre personne. Il ne sait rien
+                        # d'elle — il lui a calculé cet identifiant parce
+                        # qu'aucune Personne ne le portait encore.
+                        "Un identifiant détenu dans KoXo a été constaté ; celui "
+                        "du référentiel a pu être calculé faute de mieux. Le "
+                        "programme ne tranche pas de lui-même : vérifie de qui "
+                        f"ce compte est celui, et si c'est {personne.prenom} "
+                        f"{personne.nom}, c'est l'attribution à "
+                        f"{autre.prenom} {autre.nom} qui est à revoir."
                     ),
                 )
             )

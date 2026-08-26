@@ -306,6 +306,26 @@
         </ol>
         <p>Idempotent : rejouer le même fichier ne crée aucun doublon.</p>
 
+        <h3>Une ligne rejetée ici devient un identifiant volé plus tard</h3>
+        <p>
+          L'unicité d'un identifiant se vérifie <strong>dans le
+          référentiel</strong>, jamais dans KoXo — le programme n'interroge
+          pas KoXo à l'ingestion. Un compte KoXo que l'amorçage n'a pas su
+          charger reste donc invisible, et son identifiant paraît libre.
+        </p>
+        <p>
+          Le premier entrant dont le nom produit le même identifiant se le
+          voit alors attribuer, et le titulaire historique récupère un
+          suffixe. C'est arrivé : l'ID unique d'une élève valait un
+          identifiant au lieu d'un numéro, sa ligne d'amorçage a été rejetée,
+          et son identifiant est parti à une homonyme entrante.
+        </p>
+        <p>
+          <strong>Lis donc les rejets</strong>, et corrige-les dans KoXo avant
+          d'ingérer Charlemagne. Le <em>Contrôle KoXo</em> les rattrape après
+          coup, mais l'identifiant est déjà attribué à ce moment-là.
+        </p>
+
       {:else if sectionActive === "ingestion"}
         <h2>Ingestion Charlemagne</h2>
         <p>
