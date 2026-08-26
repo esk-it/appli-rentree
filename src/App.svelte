@@ -210,7 +210,17 @@
     try {
       const h = await attendreBackend({ maxTentatives: 30, baseDelai: 300 });
       backendOk = h.ok;
-      versionBackend = h.version;
+      // La version vient de l'application elle-même, pas du backend : ce
+      // dernier la portait dans une constante qu'aucune publication ne
+      // touchait, et l'écran a affiché 0.75.1 pendant huit versions — au
+      // point de faire douter du mécanisme de mise à jour, qui lui
+      // fonctionnait.
+      try {
+        const { getVersion } = await import("@tauri-apps/api/app");
+        versionBackend = await getVersion();
+      } catch {
+        versionBackend = h.version;
+      }
     } catch (e) {
       backendOk = false;
       erreurDemarrage = e instanceof Error ? e.message : String(e);

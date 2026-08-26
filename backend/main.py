@@ -93,13 +93,31 @@ async def lifespan(app: FastAPI):
     log.info("Arrêt backend")
 
 
+def _version() -> str:
+    """La version de l'application, lue là où elle fait autorité.
+
+    Elle était écrite en dur ici, et aucune publication ne la mettait à
+    jour : l'écran a annoncé 0.75.1 huit versions durant. En développement
+    on la lit dans `tauri.conf.json` ; dans le paquet, ce fichier n'est pas
+    embarqué et l'écran interroge de toute façon l'application elle-même.
+    """
+    import json
+    from pathlib import Path
+
+    conf = Path(__file__).resolve().parent.parent / "src-tauri" / "tauri.conf.json"
+    try:
+        return json.loads(conf.read_text(encoding="utf-8"))["version"]
+    except Exception:
+        return "0.0.0-inconnue"
+
+
 app = FastAPI(
     title="Appli Rentrée — Backend",
     description=(
         "Backend de l'application de préparation de la rentrée scolaire de "
         "l'Ensemble Scolaire du Kreisker (ESK). Sert le frontend Tauri/Svelte."
     ),
-    version="0.75.1",
+    version=_version(),
     lifespan=lifespan,
 )
 

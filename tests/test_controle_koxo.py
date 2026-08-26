@@ -437,3 +437,68 @@ def test_un_nom_a_espace_se_rapproche_quand_meme(session, tmp_path, peupler):
     r = controler_export_koxo(session, f, type_personne="eleve")
     e = [x for x in r.ecarts if x.genre == "id_absent"][0]
     assert e.badge_referentiel == "81010"
+
+
+def test_un_homonyme_dune_autre_base_nest_pas_un_ecart(session, tmp_path, peupler):
+    """Deux serveurs KoXo, deux titulaires légitimes du même identifiant.
+
+    L'établissement tient un serveur par site. Un frère au lycée et une
+    sœur au collège portent chacun `lpouliquen` dans sa base ; le
+    référentiel n'en garde qu'un et suffixe l'autre. Le signaler en rouge
+    noierait le seul cas qui, lui, demande une correction — sur les
+    données réelles, 34 lignes contre une.
+    """
+    import io as _io
+
+    from backend.services.controle_koxo import (
+        controler_export_koxo,
+        retenir_identifiants_constates,
+    )
+
+    peupler([
+        ("eleve", "POULIQUEN", "Leelou", "lpouliquen", 92330),
+        ("eleve", "POULIQUEN", "Lilas", "lpouliquen2", 74180),
+    ])
+
+    # La base du lycée détient « lpouliquen » pour Leelou.
+    lycee = tmp_path / "ndk.csv"
+    with _io.open(lycee, "w", encoding="cp1252", newline="") as f:
+        f.write("Groupe primaire;Nom;Prénom;Identifiant;ID unique\r\n")
+        f.write("Elèves;POULIQUEN;Leelou;lpouliquen;92330\r\n")
+    retenir_identifiants_constates(session, lycee)
+
+    # Celle du collège le détient pour Lilas.
+    college = tmp_path / "su.csv"
+    with _io.open(college, "w", encoding="cp1252", newline="") as f:
+        f.write("Groupe primaire;Nom;Prénom;Identifiant;ID unique\r\n")
+        f.write("Elèves;POULIQUEN;Lilas;lpouliquen;74180\r\n")
+
+    r = controler_export_koxo(session, college, type_personne="eleve")
+    genres = {e.genre for e in r.ecarts}
+    assert "homonyme_autre_base" in genres
+    assert "rapprochement_ambigu" not in genres
+    assert r.est_sain, "une cohabitation légitime ne rend pas l'export malsain"
+
+    e = [x for x in r.ecarts if x.genre == "homonyme_autre_base"][0]
+    assert "Leelou POULIQUEN" in e.explication
+    assert "rien à faire" in e.consequence
+
+
+def test_sans_constat_de_lautre_base_le_cas_reste_ambigu(session, tmp_path, peupler):
+    """Tant que l'autre base n'a pas été lue, le programme ne peut pas savoir."""
+    from backend.services.controle_koxo import controler_export_koxo
+
+    peupler([
+        ("eleve", "POULIQUEN", "Leelou", "lpouliquen", 92330),
+        ("eleve", "POULIQUEN", "Lilas", "lpouliquen2", 74180),
+    ])
+    f = _export(tmp_path, [
+        ["Elèves", "31", "", "POULIQUEN", "Lilas", "lpouliquen", "74180",
+         "Xxxxxx11", "x@y.fr"],
+    ], entetes=[
+        "Groupe primaire", "Groupe secondaire", "Titre", "Nom", "Prénom",
+        "Identifiant", "ID unique", "Mot de passe", "Email",
+    ])
+
+    r = controler_export_koxo(session, f, type_personne="eleve")
+    assert {e.genre for e in r.ecarts} >= {"rapprochement_ambigu"}

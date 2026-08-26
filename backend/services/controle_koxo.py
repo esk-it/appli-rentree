@@ -168,6 +168,7 @@ GENRES = (
     "badge_inconnu",
     "login_divergent",
     "rapprochement_ambigu",
+    "homonyme_autre_base",
     "absent_de_koxo",
 )
 
@@ -227,10 +228,12 @@ class RapportControle:
     def est_sain(self) -> bool:
         """Aucun écart pouvant faire échouer une reconnaissance.
 
-        `absent_de_koxo` n'en fait pas partie : un compte à créer est le
-        déroulement normal d'une rentrée, pas un défaut.
+        Ni `absent_de_koxo` — un compte à créer est le déroulement normal
+        d'une rentrée — ni `homonyme_autre_base`, qui constate une
+        cohabitation légitime entre deux serveurs KoXo.
         """
-        return not [e for e in self.ecarts if e.genre != "absent_de_koxo"]
+        sans_objet = ("absent_de_koxo", "homonyme_autre_base")
+        return not [e for e in self.ecarts if e.genre not in sans_objet]
 
 
 # ---------------------------------------------------------------------------
@@ -400,6 +403,15 @@ def controler_export_koxo(
     par_badge: dict[int, list[Personne]] = defaultdict(list)
     par_login: dict[str, list[Personne]] = defaultdict(list)
     par_nom: dict[str, list[Personne]] = defaultdict(list)
+    # Ce que les bases KoXo déjà lues détiennent : (identifiant, badge).
+    # C'est ce qui distingue un homonyme légitime d'une usurpation.
+    from backend.models import LoginReserve
+
+    constats = {
+        (r.login, r.badge)
+        for r in session.query(LoginReserve).all()
+        if r.badge is not None
+    }
     for p in tous:
         if p.badge is not None:
             par_badge[p.badge].append(p)
@@ -574,6 +586,41 @@ def controler_export_koxo(
         # pour ne plus commettre.
         if par_ident and all(p.id != personne.id for p in par_ident):
             autre = par_ident[0]
+
+            # L'établissement tient un serveur KoXo par site. Quand une
+            # autre base attribue déjà cet identifiant à la personne que le
+            # référentiel désigne, les deux sont légitimes chacun chez soi :
+            # ce sont des homonymes, souvent des fratries. Le référentiel
+            # n'en garde qu'un et suffixe l'autre. Rien à corriger — et
+            # l'afficher en rouge noierait le seul cas qui, lui, en demande.
+            if (l.login, autre.badge) in constats:
+                rapport.ecarts.append(
+                    Ecart(
+                        genre="homonyme_autre_base",
+                        qui=l.nom_complet,
+                        login=l.login,
+                        id_unique=l.id_unique,
+                        badge_referentiel=str(personne.badge),
+                        login_referentiel=personne.login or "",
+                        lignes=[l.ligne],
+                        explication=(
+                            f"« {l.login} » est aussi détenu par {autre.prenom} "
+                            f"{autre.nom} (badge {autre.badge}) dans une autre "
+                            "base KoXo. Les deux sont légitimes, chacun chez "
+                            "soi."
+                        ),
+                        consequence=(
+                            "Le référentiel ne garde qu'un identifiant par "
+                            f"personne : il a suffixé celui de {personne.prenom} "
+                            f"{personne.nom} en « {personne.login} ». La "
+                            "synchronisation reconnaîtra ce compte par son ID "
+                            "unique — rien à faire."
+                        ),
+                    )
+                )
+                rapport.nb_concordants += 1
+                continue
+
             rapport.ecarts.append(
                 Ecart(
                     genre="rapprochement_ambigu",

@@ -306,3 +306,21 @@ def test_fiche_ne_garde_quun_snapshot_par_annee(client, session, annee_factory,
 
 def test_fiche_personne_inexistante(client):
     assert client.get("/api/personnes/999999/fiche").status_code == 404
+
+
+def test_la_version_annoncee_suit_celle_de_lapplication():
+    """Elle était écrite en dur : l'écran a annoncé 0.75.1 huit versions durant.
+
+    Au point de faire douter du mécanisme de mise à jour, qui lui
+    fonctionnait — les publications étaient bien sur GitHub.
+    """
+    import json
+    from pathlib import Path
+
+    from backend.main import app
+
+    conf = json.loads(
+        (Path(__file__).resolve().parent.parent / "src-tauri" / "tauri.conf.json")
+        .read_text(encoding="utf-8")
+    )
+    assert app.version == conf["version"]

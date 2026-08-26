@@ -72,6 +72,11 @@
       quoi: "Aucune ligne de l'export ne s'adressera à ce compte.",
       ton: "ambre",
     },
+    homonyme_autre_base: {
+      titre: "Homonyme sur une autre base",
+      quoi: "Deux serveurs KoXo attribuent cet identifiant, chacun légitimement. Rien à faire.",
+      ton: "neutre",
+    },
     absent_de_koxo: {
       titre: "À créer dans KoXo",
       quoi: "Le déroulement normal d'une rentrée : la synchronisation créera le compte.",
@@ -174,8 +179,12 @@
   });
 
   /** Ce qui empêchera une reconnaissance — les créations n'en sont pas. */
+  const SANS_OBJET = ["absent_de_koxo", "homonyme_autre_base"];
+
   let nbBloquants = $derived(
-    rapport ? rapport.ecarts.filter((e) => e.genre !== "absent_de_koxo").length : 0,
+    rapport
+      ? rapport.ecarts.filter((e) => !SANS_OBJET.includes(e.genre)).length
+      : 0,
   );
 
   async function lancer() {
