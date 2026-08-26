@@ -232,7 +232,7 @@
   <EnTetePage
     icon={ShieldCheck}
     titre="Contrôle avant synchronisation KoXo"
-    description="Confronte un export KoXo au référentiel et signale ce qui empêchera la reconnaissance des comptes. Lecture seule : rien n'est écrit, ni ici ni dans KoXo."
+    description="Confronte un export KoXo au référentiel et signale ce qui empêchera la reconnaissance des comptes. Ne modifie ni le référentiel ni KoXo : il retient seulement quel identifiant chaque base détient, pour ne plus l'attribuer à quelqu'un d'autre."
   />
 
   <div class="card space-y-3 p-4">

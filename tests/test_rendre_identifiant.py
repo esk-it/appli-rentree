@@ -184,3 +184,48 @@ def test_lendpoint_refuse_avec_409_et_explique(session, client):
     })
     assert r.status_code == 409
     assert "adresse constatée" in r.json()["detail"]
+
+
+def test_un_identifiant_detenu_dans_deux_bases_koxo_nest_pas_rendu(session, tmp_path):
+    """Le cas qui aurait cassé un compte : deux serveurs, deux titulaires.
+
+    L'établissement tient un serveur KoXo par site. Un frère au lycée et
+    une sœur au collège portent légitimement `lpouliquen` chacun dans sa
+    base ; le référentiel n'en garde qu'un. Ce n'est pas une usurpation à
+    corriger — et la corriger romprait l'autre compte.
+    """
+    import io as _io
+
+    from backend.services.controle_koxo import retenir_identifiants_constates
+    from backend.services.rendre_identifiant import (
+        RenduImpossible,
+        rendre_identifiant,
+    )
+
+    _personne(session, "POULIQUEN", "Leelou", "lpouliquen", 92330)
+    _personne(session, "POULIQUEN", "Lilas", "lpouliquen2", 74180)
+
+    # La base du lycée détient `lpouliquen` pour Leelou.
+    export = tmp_path / "ndk.csv"
+    with _io.open(export, "w", encoding="cp1252", newline="") as f:
+        f.write("Groupe primaire;Nom;Prénom;Identifiant;ID unique\r\n")
+        f.write("Elèves;POULIQUEN;Leelou;lpouliquen;92330\r\n")
+    retenir_identifiants_constates(session, export)
+
+    with pytest.raises(RenduImpossible, match="Deux bases"):
+        rendre_identifiant(
+            session, login="lpouliquen", badge_titulaire=74180, mode="reel"
+        )
+
+
+def test_sans_constat_le_rendu_reste_possible(session, tmp_path):
+    """Le cas légitime ne doit pas être emporté par le garde-fou."""
+    from backend.services.rendre_identifiant import rendre_identifiant
+
+    _personne(session, "CUEFF", "Cedric", "ccueff", 99999)
+    _personne(session, "CUEFF", "Clemence", "ccueff2", 86440)
+
+    r = rendre_identifiant(
+        session, login="ccueff", badge_titulaire=86440, mode="reel"
+    )
+    assert r.titulaire == "Clemence CUEFF"

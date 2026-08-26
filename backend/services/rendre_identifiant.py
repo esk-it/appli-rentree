@@ -96,6 +96,25 @@ def rendre_identifiant(
         empeche.append(f"une adresse constatée ({porteur.email_constate})")
     if porteur.google_user_id:
         empeche.append("un compte Google")
+    # Un identifiant que sa propre source attribue au porteur actuel n'est
+    # pas usurpé : deux bases KoXo peuvent le détenir chacune pour
+    # quelqu'un. Le référentiel n'en garde qu'un, et c'est structurel.
+    from backend.models import LoginReserve
+
+    constat = (
+        session.query(LoginReserve)
+        .filter_by(login=login, badge=porteur.badge)
+        .one_or_none()
+    )
+    if constat is not None:
+        raise RenduImpossible(
+            f"« {login} » est aussi détenu par {porteur.prenom} {porteur.nom} "
+            f"dans une source KoXo (badge {porteur.badge}). Deux bases "
+            "distinctes peuvent l'attribuer chacune à quelqu'un ; le "
+            "référentiel n'en garde qu'un. Ce n'est pas une erreur à "
+            "corriger, et le rendre casserait l'autre compte."
+        )
+
     if empeche:
         raise RenduImpossible(
             f"{porteur.prenom} {porteur.nom} a déjà {' et '.join(empeche)} sous "

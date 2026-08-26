@@ -647,3 +647,55 @@ def controler_export_koxo(
             )
 
     return rapport
+
+
+def retenir_identifiants_constates(session: Session, chemin: str | Path) -> int:
+    """Retient les identifiants d'un export, avec l'ID unique qui va avec.
+
+    Le contrôle lui-même ne modifie rien. Ceci est autre chose : garder
+    trace de ce qu'une source **détient**, pour ne plus attribuer ces
+    identifiants à quelqu'un d'autre, et pour reconnaître le cas où deux
+    bases KoXo en attribuent un chacune de leur côté.
+
+    L'établissement tient un serveur KoXo par site. Un frère au lycée et
+    une sœur au collège portent légitimement `lbernard` chacun dans sa
+    base ; le référentiel n'en garde qu'un. Sans cette mémoire, le second
+    contrôle prend le premier pour une erreur à corriger — et la
+    correction casserait l'autre.
+
+    Renvoie le nombre d'identifiants retenus.
+    """
+    from backend.models import LoginReserve
+
+    lignes, _, _, _, _ = lire_export_brut(chemin)
+    # Un seul aller-retour pour l'existant : interroger ligne par ligne
+    # manquerait de toute façon les insertions encore en attente de flush,
+    # et deux exports partagent des identifiants.
+    deja = {(r.login, r.badge): r for r in session.query(LoginReserve).all()}
+    retenus = 0
+    for l in lignes:
+        if not l.login:
+            continue
+        badge = int(l.id_unique) if l.id_unique.isdigit() else None
+        if badge is None:
+            continue  # sans ID unique, la source ne dit pas de qui il s'agit
+        # On retient **toutes** les lignes, y compris celles qui concordent :
+        # c'est précisément le constat « cet identifiant appartient à ce
+        # badge dans cette base » qui permettra, en lisant l'autre base, de
+        # reconnaître un homonyme légitime plutôt qu'une usurpation.
+        existante = deja.get((l.login, badge))
+        if existante is None:
+            nouvelle = LoginReserve(
+                login=l.login, source="controle_koxo", badge=badge,
+                nom=l.nom, prenom=l.prenom,
+                motif="identifiant détenu dans un export KoXo",
+            )
+            session.add(nouvelle)
+            deja[(l.login, badge)] = nouvelle
+        else:
+            existante.nom, existante.prenom = l.nom, l.prenom
+            existante.source = "controle_koxo"
+        retenus += 1
+
+    session.flush()
+    return retenus

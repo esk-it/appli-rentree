@@ -182,7 +182,9 @@ def _reserver_login(session, login, nom, prenom, motif) -> None:
         return
     if session.query(Personne).filter_by(login=login).first() is not None:
         return  # quelqu'un le porte déjà : rien à réserver
-    existante = session.query(LoginReserve).filter_by(login=login).one_or_none()
+    existante = (
+        session.query(LoginReserve).filter_by(login=login, badge=None).one_or_none()
+    )
     if existante is not None:
         existante.motif = motif
         existante.nom, existante.prenom = nom, prenom
@@ -195,12 +197,23 @@ def _reserver_login(session, login, nom, prenom, motif) -> None:
 
 
 def _liberer_login(session, login) -> None:
-    """Lève la réservation : une Personne porte désormais cet identifiant."""
+    """Lève la réservation : une Personne porte désormais cet identifiant.
+
+    Seules les réservations **sans badge** sont levées : ce sont des
+    bouche-trous, posés quand la source n'a pas permis d'identifier le
+    titulaire. Une ligne portant un badge est un constat — « cet
+    identifiant appartient à ce badge dans cette base » — et ce fait reste
+    vrai même une fois la personne entrée au référentiel.
+    """
     from backend.models import LoginReserve
 
     if not login:
         return
-    r = session.query(LoginReserve).filter_by(login=login).one_or_none()
+    r = (
+        session.query(LoginReserve)
+        .filter_by(login=login, badge=None)
+        .one_or_none()
+    )
     if r is not None:
         session.delete(r)
 

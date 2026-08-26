@@ -18,7 +18,11 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
-from backend.services.controle_koxo import RapportControle, controler_export_koxo
+from backend.services.controle_koxo import (
+    RapportControle,
+    controler_export_koxo,
+    retenir_identifiants_constates,
+)
 from backend.services.rendre_identifiant import (
     RenduImpossible,
     rendre_identifiant,
@@ -97,6 +101,11 @@ def controler(
             site_id=payload.site_id,
             annee_id=payload.annee_id,
         )
+        # Le rapport ne modifie rien ; ceci garde trace de ce que l'export
+        # détient, pour que le contrôle de l'autre base ne prenne pas ces
+        # identifiants pour des erreurs à corriger.
+        retenir_identifiants_constates(session, chemin)
+        session.commit()
     except ValueError as e:
         raise HTTPException(400, str(e)) from None
     finally:

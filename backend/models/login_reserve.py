@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -47,11 +47,28 @@ class LoginReserve(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    login: Mapped[str] = mapped_column(String(50), unique=True, index=True)
-    """L'identifiant réservé. Unique : une seule raison suffit."""
+    login: Mapped[str] = mapped_column(String(50), index=True)
+    """L'identifiant retenu.
+
+    Pas unique : deux bases KoXo peuvent détenir le même identifiant pour
+    deux personnes. C'est `(login, badge)` qui l'est — un constat par
+    titulaire.
+    """
 
     source: Mapped[str] = mapped_column(String(30), default="amorcage_koxo")
-    """D'où il a été constaté. `amorcage_koxo` pour l'instant."""
+    """D'où il a été constaté : `amorcage_koxo`, `controle_koxo`."""
+
+    badge: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    """L'ID unique que la source associait à cet identifiant, quand elle en
+    donnait un d'exploitable.
+
+    C'est ce qui permet de distinguer deux situations que rien ne sépare
+    autrement : un identifiant orphelin, qu'on peut rendre — et un
+    identifiant que **deux bases KoXo distinctes** attribuent chacune à
+    quelqu'un. L'établissement tient un serveur par site ; un frère au
+    lycée et une sœur au collège portent légitimement `lbernard` chacun
+    dans sa base. Le référentiel, lui, n'en garde qu'un. Ce n'est pas un
+    défaut à corriger, et vouloir le corriger casserait l'autre."""
 
     nom: Mapped[str | None] = mapped_column(String(120), nullable=True)
     prenom: Mapped[str | None] = mapped_column(String(120), nullable=True)
@@ -61,6 +78,10 @@ class LoginReserve(Base):
     corriger dans la source pour lever la réservation proprement."""
 
     date_constat: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("login", "badge", name="uq_login_reserve_login_badge"),
+    )
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<LoginReserve {self.login} ({self.source})>"
