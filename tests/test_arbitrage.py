@@ -228,7 +228,7 @@ def test_ingestion_reelle_cree_arbitrages_collision(tmp_path, session, site_fact
 
     import json
     ctx = json.loads(arb.contexte_json)
-    assert ctx["login_attribue"] == "jdupont2"
+    assert ctx["login_attribue"] == "jdupont1"
     assert ctx["type_personne"] == "eleve"
 
 

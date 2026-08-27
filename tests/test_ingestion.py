@@ -248,7 +248,7 @@ class TestIngestionEleves:
         assert len(r.collisions_login) == 1
         collision = r.collisions_login[0]
         assert collision.login_base == "jbars"
-        assert collision.login_attribue == "jbars2"
+        assert collision.login_attribue == "jbars1"
         assert collision.personnes_deja_presentes[0]["cle_pivot"] == "A1"
 
     def test_homonymes_intra_export_detectes(

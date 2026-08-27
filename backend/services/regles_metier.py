@@ -211,6 +211,18 @@ def proposer_suffixe(
     ceux portés. C'est ici que la réservation agit : sans elle, un compte
     KoXo que l'amorçage a rejeté est invisible, et cette fonction attribue
     son identifiant au premier entrant du même nom.
+
+    ## Le suffixe commence à 1, et ne fait pas déborder la longueur
+
+    Deux règles apprises de KoXo, qui les applique en créant les comptes :
+
+    - **Il numérote à partir de 1.** Sur l'annuaire réel, 24 comptes portent
+      le suffixe `1` contre 7 le `2` : commencer à 2 fabriquait des
+      identifiants que KoXo n'aurait jamais choisis.
+    - **La base est raccourcie pour faire place au suffixe.** `nkerbiriou`
+      occupe déjà les dix caractères permis ; `nkerbiriou2` en fait onze, et
+      KoXo l'a refusé en créant le compte sous `nkerbiro1`. Deux élèves ont
+      ainsi été créés sous un nom que le référentiel ignorait.
     """
     from backend.models import LoginReserve, Personne
 
@@ -230,14 +242,19 @@ def proposer_suffixe(
         .all()
     }
 
-    for suffixe in range(1, max_essais + 1):
-        candidat = login_base if suffixe == 1 else f"{login_base}{suffixe}"
+    for suffixe in range(0, max_essais + 1):
+        if suffixe == 0:
+            candidat = login_base
+        else:
+            # La base cède la place au suffixe plutôt que de déborder.
+            marge = DEFAUT_LONGUEUR_MAX_LOGIN - len(str(suffixe))
+            candidat = f"{login_base[:marge]}{suffixe}"
         if candidat not in logins_pris:
             return PropositionLogin(
                 login_base=login_base,
                 login_propose=candidat,
-                suffixe_utilise=0 if suffixe == 1 else suffixe,
-                a_conflit=(suffixe > 1),
+                suffixe_utilise=suffixe,
+                a_conflit=(suffixe > 0),
                 personnes_en_conflit=[
                     _resumer_personne_pour_conflit(p)
                     for p in conflits

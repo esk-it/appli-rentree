@@ -41,18 +41,18 @@ class TestProposerSuffixe:
     def test_conflit_donne_suffixe_2(self, session, personne_factory):
         personne_factory(login="jdupont")
         r = proposer_suffixe(session, "jdupont")
-        assert r.login_propose == "jdupont2"
-        assert r.suffixe_utilise == 2
+        assert r.login_propose == "jdupont1"
+        assert r.suffixe_utilise == 1
         assert r.a_conflit is True
         assert len(r.personnes_en_conflit) == 1
         assert r.personnes_en_conflit[0].login == "jdupont"
 
-    def test_conflit_multiple_donne_suffixe_3(self, session, personne_factory):
+    def test_conflit_multiple_donne_le_suffixe_suivant(self, session, personne_factory):
         personne_factory(login="jdupont")
-        personne_factory(login="jdupont2")
+        personne_factory(login="jdupont1")
         r = proposer_suffixe(session, "jdupont")
-        assert r.login_propose == "jdupont3"
-        assert r.suffixe_utilise == 3
+        assert r.login_propose == "jdupont2"
+        assert r.suffixe_utilise == 2
 
     def test_login_libere_pas_recycle(self, session, personne_factory):
         """Prompt §6.2 : 'un login libéré n'est jamais recyclé'.
@@ -62,11 +62,14 @@ class TestProposerSuffixe:
         # Un nouvel arrivant du même login veut le prendre
         r = proposer_suffixe(session, "jdupont")
         assert r.login_propose != "jdupont"
-        assert r.login_propose == "jdupont2"
+        assert r.login_propose == "jdupont1"
 
     def test_max_suffixes_atteint_renvoie_none(self, session, personne_factory):
+        # La base plus les cinq premiers suffixes : plus rien de libre en
+        # dessous de la limite d'essais.
+        personne_factory(login="short")
         for i in range(1, 6):
-            personne_factory(login="short" if i == 1 else f"short{i}")
+            personne_factory(login=f"short{i}")
         r = proposer_suffixe(session, "short", max_essais=5)
         assert r is None
 
@@ -83,12 +86,12 @@ class TestProposerSuffixe:
         p2 = personne_factory(
             type="adulte",
             id_charlemagne=50,
-            login="pdupont2",
+            login="pdupont1",
             nom="DUPONT",
             prenom="Paul",
         )
         r = proposer_suffixe(session, "pdupont")
-        assert r.login_propose == "pdupont3"
+        assert r.login_propose == "pdupont2"
         # Les deux Pierre/Paul sont listés dans le conflit
         ids = {c.personne_id for c in r.personnes_en_conflit}
         assert ids == {p1.id, p2.id}
@@ -106,7 +109,7 @@ class TestProposerLoginPour:
     def test_conflit_apres_creation(self, session, personne_factory):
         personne_factory(login="lmartin")
         r = proposer_login_pour(session, "Léa", "MARTIN")
-        assert r.login_propose == "lmartin2"
+        assert r.login_propose == "lmartin1"
 
     def test_pas_de_nom_ni_prenom_renvoie_none(self, session):
         assert proposer_login_pour(session, "", "") is None
@@ -128,7 +131,7 @@ class TestScenariosPromptRefonte:
         )
         # Le prof arrive après
         r = proposer_login_pour(session, "Jean", "BARS")
-        assert r.login_propose == "jbars2"
+        assert r.login_propose == "jbars1"
         assert r.a_conflit is True
         # L'élève est bien listé comme conflictant
         assert eleve.id in {c.personne_id for c in r.personnes_en_conflit}
@@ -151,27 +154,27 @@ class TestScenariosPromptRefonte:
         # Le nouveau Pierre DUPONT (id_ch différent) demande un login
         r = proposer_login_pour(session, "Pierre", "DUPONT")
         # Doit obtenir un suffixe — pas le login de l'ancien
-        assert r.login_propose == "pdupont2"
+        assert r.login_propose == "pdupont1"
         assert r.login_propose != ancien.login
 
     def test_suffixe_reste_fige_apres_creation(self, session, personne_factory):
-        """§6.2 : 'pdupont2' reste 'pdupont2' même après le départ de 'pdupont'.
+        """§6.2 : 'pdupont1' reste 'pdupont1' même après le départ de 'pdupont'.
 
         L'ancien reste en base ; même si on ré-interroge, le suffixe attribué
         au nouveau ne bouge pas — c'est le rôle du figeage : le login est
         stocké dans Personne.login, jamais recalculé."""
         p1 = personne_factory(login="pdupont", nom="DUPONT", prenom="Pierre")
-        p2 = personne_factory(login="pdupont2", nom="DUPONT", prenom="Paul")
+        p2 = personne_factory(login="pdupont1", nom="DUPONT", prenom="Paul")
 
         # Simulate : p1 "part" — dans notre modèle, la Personne reste en base.
         # Le login de p2 reste inchangé — c'est le rôle du champ figé.
         session.refresh(p2)
-        assert p2.login == "pdupont2"
+        assert p2.login == "pdupont1"
 
         # Une nouvelle personne "Pierre DUPONT" arrive : elle ne récupère
-        # PAS pdupont (encore pris par p1 en base) ni pdupont2 (pris par p2)
+        # PAS pdupont (encore pris par p1 en base) ni pdupont1 (pris par p2)
         r = proposer_login_pour(session, "Pierre", "DUPONT")
-        assert r.login_propose == "pdupont3"
+        assert r.login_propose == "pdupont2"
 
     def test_changement_de_nom_ne_touche_pas_le_login(
         self, session, personne_factory
@@ -189,4 +192,4 @@ class TestScenariosPromptRefonte:
         # Une nouvelle Léa MARTIN qui arriverait est bien détectée en collision
         # sur le login (elle aurait aussi calculé "lmartin")
         r = proposer_login_pour(session, "Léa", "MARTIN")
-        assert r.login_propose == "lmartin2"
+        assert r.login_propose == "lmartin1"

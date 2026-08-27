@@ -23,6 +23,7 @@
   import Download from "@lucide/svelte/icons/download";
   import Wrench from "@lucide/svelte/icons/wrench";
   import Undo2 from "@lucide/svelte/icons/undo-2";
+  import ArrowLeftRight from "@lucide/svelte/icons/arrow-left-right";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
@@ -113,6 +114,57 @@
   let erreur = $state("");
   let deplie = $state(/** @type {string|null} */ (null));
   let renduEnCours = $state(/** @type {string|null} */ (null));
+  let alignementEnCours = $state(false);
+
+  /**
+   * Range le référentiel sur ce que KoXo a retenu.
+   *
+   * Le programme propose un identifiant, KoXo décide : il numérote les
+   * homonymes à partir de 1, plafonne à dix caractères, raccourcit la base
+   * pour faire place au suffixe. Deux élèves ont ainsi été créés sous un
+   * nom que le référentiel ignorait — et rien ne l'aurait signalé avant la
+   * rentrée suivante.
+   *
+   * À passer sur l'export pris **après** la synchronisation.
+   */
+  async function aligner() {
+    if (!fichier) return;
+    alignementEnCours = true;
+    try {
+      const site = listeSites.find((s) => s.id === siteId)?.nom ?? null;
+      const apercu = await koxo.aligner({ fichier, site });
+      if (apercu.nb_applicables === 0 && apercu.nb_bloques === 0) {
+        notify.succes(
+          `Rien à aligner : les ${apercu.nb_concordants} identifiants du `
+            + "fichier sont déjà ceux du référentiel.",
+        );
+        return;
+      }
+      const detail = apercu.alignements
+        .filter((a) => a.applicable)
+        .slice(0, 12)
+        .map((a) => `  ${a.prenom} ${a.nom} : ${a.login_referentiel} → ${a.login_koxo}`)
+        .join("\n");
+      const reste =
+        apercu.nb_applicables > 12
+          ? `\n  … et ${apercu.nb_applicables - 12} autres`
+          : "";
+      const bloques = apercu.nb_bloques
+        ? `\n\n${apercu.nb_bloques} refusé(s) — ils créeraient un doublon.`
+        : "";
+      const resume =
+        `${apercu.nb_applicables} identifiant(s) à aligner :\n\n`
+        + `${detail}${reste}${bloques}\n\nAppliquer ?`;
+      if (!confirm(resume)) return;
+      const fait = await koxo.aligner({ fichier, site, mode: "reel" });
+      notify.succes(`${fait.nb_applicables} identifiant(s) alignés sur KoXo`);
+      await lancer();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 14000 });
+    } finally {
+      alignementEnCours = false;
+    }
+  }
 
   /**
    * Rend un identifiant constaté à son détenteur.
@@ -294,6 +346,17 @@
 
       <Bouton variante="primary" occupe={chargement} disabled={!fichier} onclick={lancer}>
         Contrôler
+      </Bouton>
+      <!-- À passer sur l'export pris APRÈS la synchronisation : c'est là
+           que KoXo a nommé les comptes qu'il vient de créer. -->
+      <Bouton
+        icon={ArrowLeftRight}
+        occupe={alignementEnCours}
+        disabled={!fichier}
+        onclick={aligner}
+        title="Ranger le référentiel sur les identifiants que KoXo a retenus"
+      >
+        Aligner le référentiel
       </Bouton>
       {#if rapport}
         <Bouton icon={Download} classe="ml-auto" onclick={exporter}>Export CSV</Bouton>

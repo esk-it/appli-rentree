@@ -706,6 +706,28 @@ export const koxo = {
       }),
     );
   },
+  /** Range le référentiel sur les identifiants que KoXo a retenus. */
+  async aligner({ fichier, site = null, mode = "simulation" }) {
+    if (!fichier) throw new Error("Aucun fichier fourni");
+    const bytes = new Uint8Array(await fichier.arrayBuffer());
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, /** @type {any} */ (bytes.subarray(i, i + chunk)));
+    }
+    return jsonOrThrow(
+      await fetch(`${BASE}/koxo/aligner`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          fichier_base64: btoa(binary),
+          nom_fichier: fichier.name,
+          site,
+          mode,
+        }),
+      }),
+    );
+  },
   /** Rend un identifiant constaté à la personne qui le détient. */
   async rendreIdentifiant({ login, badgeTitulaire, mode = "simulation" }) {
     return jsonOrThrow(

@@ -23,6 +23,7 @@ from backend.services.controle_koxo import (
     controler_export_koxo,
     retenir_identifiants_constates,
 )
+from backend.services.aligner_sur_koxo import aligner_sur_koxo
 from backend.services.rendre_identifiant import (
     RenduImpossible,
     rendre_identifiant,
@@ -197,4 +198,102 @@ def rendre(
         echange=r.echange,
         mode=payload.mode,
         phrase=phrase,
+    )
+
+
+class AlignerPayload(BaseModel):
+    fichier_base64: str
+    nom_fichier: str
+    site: str | None = None
+    mode: str = "simulation"
+
+
+class AlignementOut(BaseModel):
+    personne_id: int
+    cle_pivot: str
+    nom: str
+    prenom: str
+    badge: int
+    login_referentiel: str
+    login_koxo: str
+    applicable: bool
+    motif: str
+
+
+class RapportAlignementOut(BaseModel):
+    fichier: str
+    site: str | None
+    mode: str
+    nb_lignes: int
+    nb_concordants: int
+    nb_applicables: int
+    nb_bloques: int
+    alignements: list[AlignementOut]
+    avertissements: list[str]
+
+
+@router.post("/aligner", response_model=RapportAlignementOut)
+def aligner(
+    payload: AlignerPayload, session: Session = Depends(db_session)
+) -> RapportAlignementOut:
+    """Range le référentiel sur les identifiants que KoXo a retenus.
+
+    À passer **après** une synchronisation : KoXo nomme les comptes qu'il
+    crée selon ses propres règles, et le référentiel doit apprendre ce
+    qu'il a décidé.
+    """
+    from dataclasses import asdict
+
+    if payload.mode not in ("simulation", "reel"):
+        raise HTTPException(400, f"mode invalide : {payload.mode!r}")
+
+    try:
+        contenu = base64.b64decode(payload.fichier_base64)
+    except Exception as e:
+        raise HTTPException(400, f"Base64 invalide : {e}") from e
+    if not contenu:
+        raise HTTPException(400, "Fichier vide")
+
+    suffixe = Path(payload.nom_fichier or "koxo.csv").suffix or ".csv"
+    with NamedTemporaryFile(suffix=suffixe, delete=False) as tmp:
+        tmp.write(contenu)
+        chemin = Path(tmp.name)
+
+    try:
+        r = aligner_sur_koxo(
+            session, chemin, site=payload.site, mode=payload.mode
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    finally:
+        try:
+            chemin.unlink()
+        except OSError:
+            pass
+
+    if payload.mode == "reel":
+        from backend.services.journal import journaliser
+
+        journaliser(
+            session,
+            type_operation="identifiant",
+            cible="personne",
+            mode="reel",
+            parametres={"fichier": payload.nom_fichier, "site": payload.site},
+            resultat={"nb_alignes": r.nb_applicables, "nb_bloques": r.nb_bloques},
+        )
+        session.commit()
+    else:
+        session.rollback()
+
+    return RapportAlignementOut(
+        fichier=payload.nom_fichier or r.fichier,
+        site=r.site,
+        mode=r.mode,
+        nb_lignes=r.nb_lignes,
+        nb_concordants=r.nb_concordants,
+        nb_applicables=r.nb_applicables,
+        nb_bloques=r.nb_bloques,
+        alignements=[AlignementOut(**asdict(a)) for a in r.alignements],
+        avertissements=r.avertissements,
     )
