@@ -502,3 +502,69 @@ def test_lendpoint_koxo_repond(session, site_factory, annee_factory, client):
     d = r.json()
     assert "avertissements" in d
     assert "groupe_secondaire_force" in d
+
+
+def test_lexport_porte_lidentifiant_que_la_base_detient(
+    session, site_factory, annee_factory, personne_factory, snap_factory, tmp_path
+):
+    """`Personne.login` est unique globalement ; les identifiants, non.
+
+    L'établissement tient une base KoXo par population — profs, élèves NDK,
+    élèves SU. `ccueff` y désigne légitimement un adulte dans l'une et une
+    élève dans l'autre. Le référentiel n'en garde qu'un et suffixe l'autre ;
+    écrire ce suffixe présenterait à KoXo un identifiant qu'il ne connaît
+    pas, et il renommerait le compte en le reconnaissant par son ID unique.
+    Sur l'instance réelle, 28 lignes de l'export SU étaient dans ce cas.
+    """
+    import io as _io
+
+    from backend.services.controle_koxo import retenir_identifiants_constates
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    site = site_factory("SU")
+    annee = annee_factory("2025-2026")
+    p = personne_factory(
+        site_id=site.id, nom="CUEFF", prenom="Clémence", login="ccueff3"
+    )
+    p.badge = 82840
+    session.commit()
+    snap_factory(p.id, annee.id, classe="31")
+
+    # La base des élèves SU la connaît sous « ccueff ».
+    f = tmp_path / "su.csv"
+    with _io.open(f, "w", encoding="cp1252", newline="") as fh:
+        fh.write("Groupe primaire;Nom;Prénom;Identifiant;ID unique\r\n")
+        fh.write("Elèves;CUEFF;Clémence;ccueff;82840\r\n")
+    retenir_identifiants_constates(session, f)
+
+    contenu, _ = generer_csv_koxo(
+        session=session, site_id=site.id, type_personne="eleve",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    ligne = _lire_csv_koxo(contenu)[0]
+    assert ligne["Identifiant"] == "ccueff", (
+        "l'identifiant constaté fait autorité, pas le suffixe du référentiel"
+    )
+    assert ligne["ID unique"] == "82840"
+
+
+def test_sans_constat_lexport_garde_le_login_du_referentiel(
+    session, site_factory, annee_factory, personne_factory, snap_factory
+):
+    """Tant qu'aucune base n'a été lue, le référentiel reste la seule source."""
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    site = site_factory("SU")
+    annee = annee_factory("2025-2026")
+    p = personne_factory(
+        site_id=site.id, nom="CUEFF", prenom="Clémence", login="ccueff3"
+    )
+    p.badge = 82840
+    session.commit()
+    snap_factory(p.id, annee.id, classe="31")
+
+    contenu, _ = generer_csv_koxo(
+        session=session, site_id=site.id, type_personne="eleve",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    assert _lire_csv_koxo(contenu)[0]["Identifiant"] == "ccueff3"

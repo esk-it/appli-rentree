@@ -253,7 +253,9 @@ def _lignes_tous(session: Session, ctx: ContexteExport) -> list[dict]:
             par_personne[p.id] = s
             personnes_index[p.id] = p
     return [
-        _formatter_ligne(personnes_index[pid], par_personne[pid], ctx.type_personne)
+        _formatter_ligne(
+            session, personnes_index[pid], par_personne[pid], ctx.type_personne
+        )
         for pid in par_personne
     ]
 
@@ -272,7 +274,9 @@ def _lignes_nouveaux(session: Session, ctx: ContexteExport) -> list[dict]:
     ids_nouveaux = set(snapshots_cible) - ids_source
     personnes = _charger_personnes(session, ids_nouveaux)
     return [
-        _formatter_ligne(personnes[pid], snapshots_cible[pid], ctx.type_personne)
+        _formatter_ligne(
+            session, personnes[pid], snapshots_cible[pid], ctx.type_personne
+        )
         for pid in ids_nouveaux
         if pid in personnes
     ]
@@ -291,7 +295,9 @@ def _lignes_anciens(session: Session, ctx: ContexteExport) -> list[dict]:
     ids_anciens = set(snapshots_source) - ids_cible
     personnes = _charger_personnes(session, ids_anciens)
     lignes = [
-        _formatter_ligne(personnes[pid], snapshots_source[pid], ctx.type_personne)
+        _formatter_ligne(
+            session, personnes[pid], snapshots_source[pid], ctx.type_personne
+        )
         for pid in ids_anciens
         if pid in personnes
     ]
@@ -369,7 +375,42 @@ def _charger_personnes(session: Session, ids: set[int]) -> dict[int, Personne]:
 # ---------------------------------------------------------------------------
 
 
-def _formatter_ligne(personne: Personne, snapshot: Snapshot, type_personne: str) -> dict:
+def _login_pour(session: Session, personne: Personne) -> str:
+    """L'identifiant à écrire : celui que la base détient, s'il est connu.
+
+    `Personne.login` est unique dans tout le référentiel. Les identifiants,
+    eux, vivent dans des espaces séparés : l'établissement tient une base
+    KoXo par population — profs, élèves NDK, élèves SU. `ccueff` y désigne
+    légitimement un adulte dans l'une et une élève dans l'autre.
+
+    Le référentiel n'en garde qu'un et suffixe les autres. Écrire ce
+    suffixe dans l'export présenterait à KoXo un identifiant qu'il ne
+    connaît pas : reconnaissant le compte par son ID unique, il pourrait le
+    **renommer**. Sur l'instance réelle, 28 lignes de l'export SU étaient
+    dans ce cas.
+
+    Un identifiant constaté fait autorité — c'est la règle du programme, et
+    elle s'applique ici : quand une source KoXo a été lue et qu'elle
+    attribue un identifiant à ce badge, c'est celui-là qu'on lui rend.
+    """
+    from backend.models import LoginReserve
+
+    if personne.badge is None:
+        return personne.login or ""
+    constat = (
+        session.query(LoginReserve)
+        .filter_by(badge=personne.badge)
+        .order_by(LoginReserve.date_constat.desc())
+        .first()
+    )
+    if constat is not None and constat.login:
+        return constat.login
+    return personne.login or ""
+
+
+def _formatter_ligne(
+    session: Session, personne: Personne, snapshot: Snapshot, type_personne: str
+) -> dict:
     """Construit une ligne au format KoXo. Le MDP est TOUJOURS vide (KoXo génère)."""
     groupe_primaire = "Elèves" if type_personne == "eleve" else "Professeurs"
 
@@ -387,7 +428,7 @@ def _formatter_ligne(personne: Personne, snapshot: Snapshot, type_personne: str)
         "Titre": "",
         "Nom": personne.nom or "",
         "Prénom": personne.prenom or "",
-        "Identifiant": personne.login or "",
+        "Identifiant": _login_pour(session, personne),
         "ID unique": str(personne.badge) if personne.badge else "",
         "Mot de passe": "",  # KoXo génère
         "Date de naissance": "",
