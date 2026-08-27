@@ -161,3 +161,48 @@ class TestSitePrefixeRacineOU:
         assert ndk.prefixe_racine_ou() == "/3. NDK"
         su = site_factory("SU")
         assert su.prefixe_racine_ou() == "/4. SU"
+
+
+def test_le_referentiel_montre_lidentifiant_que_koxo_detient(
+    session, site_factory, personne_factory, tmp_path
+):
+    """`login` est unique ici ; les identifiants vivent par base KoXo.
+
+    Quand deux personnes en produisent le même, le référentiel en suffixe
+    une — et affichait alors un identifiant que personne ne porte. Clémence
+    CUEFF apparaissait sous « ccueff3 » alors que la base des élèves SU la
+    connaît sous « ccueff », les formes intermédiaires étant prises par un
+    professeur et deux autres élèves.
+    """
+    import io as _io
+
+    from backend.routers.personnes import _constats_par_badge, _serialiser
+    from backend.services.controle_koxo import retenir_identifiants_constates
+
+    site = site_factory("SU")
+    p = personne_factory(
+        site_id=site.id, nom="CUEFF", prenom="Clémence", login="ccueff3"
+    )
+    p.badge = 82840
+    session.commit()
+
+    f = tmp_path / "su.csv"
+    with _io.open(f, "w", encoding="cp1252", newline="") as fh:
+        fh.write("Groupe primaire;Nom;Prénom;Identifiant;ID unique\r\n")
+        fh.write("Elèves;CUEFF;Clémence;ccueff;82840\r\n")
+    retenir_identifiants_constates(session, f)
+
+    out = _serialiser(p, {site.id: site}, _constats_par_badge(session))
+    assert out.login == "ccueff3", "le champ du référentiel est conservé tel quel"
+    assert out.login_constate == "ccueff", "et la source est dite à côté"
+
+
+def test_sans_constat_aucun_identifiant_nest_invente(
+    session, site_factory, personne_factory
+):
+    from backend.routers.personnes import _constats_par_badge, _serialiser
+
+    site = site_factory("SU")
+    p = personne_factory(site_id=site.id, nom="MARTIN", prenom="Paul", login="pmartin")
+    out = _serialiser(p, {site.id: site}, _constats_par_badge(session))
+    assert out.login_constate is None

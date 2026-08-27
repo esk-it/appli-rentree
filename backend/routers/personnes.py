@@ -25,6 +25,13 @@ class PersonneOut(BaseModel):
     type: str
     id_charlemagne: int
     cle_pivot: str
+    login_constate: str | None = None
+    """L'identifiant que KoXo détient réellement pour cette personne.
+
+    `login` est unique dans tout le référentiel ; les identifiants, eux,
+    vivent dans une base KoXo par population. Quand deux personnes en
+    produisent le même, le référentiel en suffixe une — et affiche alors un
+    identifiant que personne ne porte. Celui-ci vient de la source."""
     badge: int
     login: str
     email: str | None
@@ -47,7 +54,22 @@ class PersonneOut(BaseModel):
     date_derniere_maj: datetime
 
 
-def _serialiser(p: Personne, sites_par_id: dict[int, Site]) -> PersonneOut:
+def _constats_par_badge(session: Session) -> dict[int, str]:
+    """L'identifiant que chaque base KoXo lue détient, par badge."""
+    from backend.models import LoginReserve
+
+    return {
+        r.badge: r.login
+        for r in session.query(LoginReserve).all()
+        if r.badge is not None and r.login
+    }
+
+
+def _serialiser(
+    p: Personne,
+    sites_par_id: dict[int, Site],
+    constats: dict[int, str] | None = None,
+) -> PersonneOut:
     site = sites_par_id.get(p.site_id) if p.site_id else None
     # Recalcul local plutôt que `p.email` : la relation `p.site` déclencherait
     # une requête par personne alors que les sites sont déjà chargés ici.
@@ -62,6 +84,7 @@ def _serialiser(p: Personne, sites_par_id: dict[int, Site]) -> PersonneOut:
         type=p.type,
         id_charlemagne=p.id_charlemagne,
         cle_pivot=p.cle_pivot,
+        login_constate=(constats or {}).get(p.badge),
         badge=p.badge,
         login=p.login,
         email=email,
@@ -101,7 +124,8 @@ def lister_personnes(
             return []
         q = q.filter_by(site_id=site_obj.id)
     q = q.order_by(Personne.type, Personne.nom, Personne.prenom)
-    return [_serialiser(p, sites_par_id) for p in q.all()]
+    constats = _constats_par_badge(session)
+    return [_serialiser(p, sites_par_id, constats) for p in q.all()]
 
 
 class LigneMouvementOut(BaseModel):
@@ -187,7 +211,7 @@ def obtenir_personne(
     if p is None:
         raise HTTPException(404, f"Personne introuvable : {personne_id}")
     sites_par_id = {s.id: s for s in session.query(Site).all()}
-    return _serialiser(p, sites_par_id)
+    return _serialiser(p, sites_par_id, _constats_par_badge(session))
 
 
 @router.get("/par-cle-pivot/{cle}", response_model=PersonneOut)
@@ -210,7 +234,7 @@ def obtenir_par_cle_pivot(
     if p is None:
         raise HTTPException(404, f"Personne introuvable : {cle}")
     sites_par_id = {s.id: s for s in session.query(Site).all()}
-    return _serialiser(p, sites_par_id)
+    return _serialiser(p, sites_par_id, _constats_par_badge(session))
 
 
 class EmailPayload(BaseModel):
@@ -262,7 +286,7 @@ def definir_email_constate(
 
     session.commit()
     sites_par_id = {s.id: s for s in session.query(Site).all()}
-    return _serialiser(p, sites_par_id)
+    return _serialiser(p, sites_par_id, _constats_par_badge(session))
 
 class AnneeVecueOut(BaseModel):
     annee: str
@@ -346,7 +370,9 @@ def fiche(personne_id: int, session: Session = Depends(db_session)) -> FicheOut:
 
     sites_par_id = {s_.id: s_ for s_ in session.query(Site).all()}
     return FicheOut(
-        personne=_serialiser(personne, sites_par_id),
+        personne=_serialiser(
+            personne, sites_par_id, _constats_par_badge(session)
+        ),
         parcours=parcours,
         comptes=comptes,
     )

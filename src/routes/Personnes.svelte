@@ -184,7 +184,7 @@
     const q = recherche.trim().toLowerCase();
     if (q) {
       r = r.filter((p) =>
-        `${p.nom} ${p.prenom} ${p.login} ${p.cle_pivot} ${p.badge}`
+        `${p.nom} ${p.prenom} ${p.login} ${p.login_constate ?? ""} ${p.cle_pivot} ${p.badge}`
           .toLowerCase()
           .includes(q),
       );
@@ -490,8 +490,24 @@
                 </td>
                 <td class="whitespace-nowrap px-3 py-1.5 font-medium">{p.nom}</td>
                 <td class="whitespace-nowrap px-3 py-1.5">{p.prenom}</td>
+                <!-- L'identifiant détenu prime sur celui que le référentiel
+                     a calculé : `login` est unique ici alors que les
+                     identifiants vivent dans une base KoXo par population.
+                     Afficher le calculé faisait douter — à raison — de ce
+                     que le référentiel raconte. -->
                 <td class="whitespace-nowrap px-3 py-1.5">
-                  <CopiableTexte valeur={p.login} classe="font-mono text-xs" />
+                  <CopiableTexte
+                    valeur={p.login_constate ?? p.login}
+                    classe="font-mono text-xs"
+                  />
+                  {#if p.login_constate && p.login_constate !== p.login}
+                    <span
+                      class="ml-1 cursor-help text-[10px] text-amber-600 dark:text-amber-400"
+                      title={`Le référentiel avait calculé « ${p.login} », déjà pris chez lui. KoXo détient « ${p.login_constate} ».`}
+                    >
+                      constaté
+                    </span>
+                  {/if}
                 </td>
                 <td class="whitespace-nowrap px-3 py-1.5">
                   <div class="group/mail flex items-center gap-1.5">
@@ -574,10 +590,20 @@
                                 <div class="flex gap-2">
                                   <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Login</dt>
                                   <dd class="font-mono">
-                                    {fiche.personne.login}
-                                    <span class="ml-1 text-stone-400" title="Fixé pour toute la scolarité">
-                                      figé
-                                    </span>
+                                    {fiche.personne.login_constate ?? fiche.personne.login}
+                                    {#if fiche.personne.login_constate && fiche.personne.login_constate !== fiche.personne.login}
+                                      <span class="ml-1 text-amber-600 dark:text-amber-400">
+                                        constaté dans KoXo
+                                      </span>
+                                      <span class="ml-1 text-stone-400">
+                                        (le référentiel avait calculé « {fiche.personne.login} »,
+                                        déjà pris par quelqu'un d'autre chez lui)
+                                      </span>
+                                    {:else}
+                                      <span class="ml-1 text-stone-400" title="Fixé pour toute la scolarité">
+                                        figé
+                                      </span>
+                                    {/if}
                                   </dd>
                                 </div>
                                 {#if fiche.personne.date_entree}
