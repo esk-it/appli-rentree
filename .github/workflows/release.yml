@@ -124,3 +124,24 @@ jobs:
             "${NSIS_EXE}" \
             "${NSIS_ZIP}" \
             latest.json
+
+          # GitHub désigne « Latest » d'après la date de publication, pas
+          # d'après le numéro de version. Deux builds qui se chevauchent
+          # suffisent à laisser l'ancienne version en tête : la 0.86.0,
+          # plus longue à compiler, a été publiée après la 0.87.0 et l'a
+          # doublée. L'updater interroge `releases/latest` et servait donc
+          # le manifeste de la mauvaise version — deux fois de suite.
+          #
+          # On ne promeut cette release que si sa version est la plus haute.
+          ACTUELLE=$(gh release view --json tagName -q .tagName 2>/dev/null || echo "")
+          if [ -z "${ACTUELLE}" ]; then
+            gh release edit "${TAG}" --latest
+          else
+            PLUS_HAUTE=$( { echo "${TAG#v}"; echo "${ACTUELLE#v}"; } | sort -V | tail -1 )
+            if [ "${PLUS_HAUTE}" = "${TAG#v}" ]; then
+              gh release edit "${TAG}" --latest
+              echo "Release ${TAG} promue en Latest (precedente : ${ACTUELLE})"
+            else
+              echo "Release ${TAG} laissee en arriere : ${ACTUELLE} est plus recente"
+            fi
+          fi
