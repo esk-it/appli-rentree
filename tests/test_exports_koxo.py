@@ -535,7 +535,7 @@ def test_lexport_porte_lidentifiant_que_la_base_detient(
     with _io.open(f, "w", encoding="cp1252", newline="") as fh:
         fh.write("Groupe primaire;Nom;Prénom;Identifiant;ID unique\r\n")
         fh.write("Elèves;CUEFF;Clémence;ccueff;82840\r\n")
-    retenir_identifiants_constates(session, f)
+    retenir_identifiants_constates(session, f, site="SU")
 
     contenu, _ = generer_csv_koxo(
         session=session, site_id=site.id, type_personne="eleve",
@@ -568,3 +568,47 @@ def test_sans_constat_lexport_garde_le_login_du_referentiel(
         categorie="tous", annee_cible_id=annee.id,
     )
     assert _lire_csv_koxo(contenu)[0]["Identifiant"] == "ccueff3"
+
+
+def test_un_identifiant_constate_dans_une_autre_base_nest_pas_repris(
+    session, site_factory, annee_factory, personne_factory, snap_factory, tmp_path
+):
+    """L'erreur qui a fait échouer sept créations dans l'annuaire.
+
+    Lou-Ann BERNARD tient « lbernard » dans la base de SU. Montée au lycée,
+    elle figure dans l'export de NDK — où « lbernard » appartient à Liam
+    BERNARD. Reprendre son identifiant SU faisait refuser la création par
+    Active Directory. Hors de sa base, c'est l'identifiant du référentiel
+    qui vaut : il est unique, donc libre partout.
+    """
+    import io as _io
+
+    from backend.services.controle_koxo import retenir_identifiants_constates
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    site_factory("SU")
+    ndk = site_factory("NDK")
+    annee = annee_factory("2025-2026")
+
+    lou_ann = personne_factory(
+        site_id=ndk.id, nom="BERNARD", prenom="Lou-Ann", login="lbernard2"
+    )
+    lou_ann.badge = 73650
+    session.commit()
+    snap_factory(lou_ann.id, annee.id, classe="2_1")
+
+    # La base de SU la connaît sous « lbernard ».
+    f = tmp_path / "su.csv"
+    with _io.open(f, "w", encoding="cp1252", newline="") as fh:
+        fh.write("Groupe primaire;Nom;Prénom;Identifiant;ID unique\r\n")
+        fh.write("Elèves;BERNARD;Lou-Ann;lbernard;73650\r\n")
+    retenir_identifiants_constates(session, f, site="SU")
+
+    contenu, _ = generer_csv_koxo(
+        session=session, site_id=ndk.id, type_personne="eleve",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    ligne = _lire_csv_koxo(contenu)[0]
+    assert ligne["Identifiant"] == "lbernard2", (
+        "l'export de NDK ne reprend pas un identifiant constaté sur SU"
+    )

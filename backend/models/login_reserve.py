@@ -70,6 +70,18 @@ class LoginReserve(Base):
     dans sa base. Le référentiel, lui, n'en garde qu'un. Ce n'est pas un
     défaut à corriger, et vouloir le corriger casserait l'autre."""
 
+    site: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    """La base d'où vient le constat — le nom du site.
+
+    Sans elle, l'export reprenait un identifiant constaté sans regarder
+    d'où il venait. Lou-Ann BERNARD tient `lbernard` dans la base de SU ;
+    montée au lycée, elle figure dans l'export de NDK, où `lbernard`
+    appartient à Liam BERNARD. La création a échoué sur l'annuaire, sept
+    élèves dans ce cas — tous des montants de 3e en 2nde.
+
+    Un identifiant constaté ne fait autorité que **dans sa propre base**.
+    """
+
     nom: Mapped[str | None] = mapped_column(String(120), nullable=True)
     prenom: Mapped[str | None] = mapped_column(String(120), nullable=True)
 

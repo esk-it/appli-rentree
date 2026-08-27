@@ -254,7 +254,7 @@ def _lignes_tous(session: Session, ctx: ContexteExport) -> list[dict]:
             personnes_index[p.id] = p
     return [
         _formatter_ligne(
-            session, personnes_index[pid], par_personne[pid], ctx.type_personne
+            session, personnes_index[pid], par_personne[pid], ctx.type_personne, ctx.site.nom
         )
         for pid in par_personne
     ]
@@ -275,7 +275,7 @@ def _lignes_nouveaux(session: Session, ctx: ContexteExport) -> list[dict]:
     personnes = _charger_personnes(session, ids_nouveaux)
     return [
         _formatter_ligne(
-            session, personnes[pid], snapshots_cible[pid], ctx.type_personne
+            session, personnes[pid], snapshots_cible[pid], ctx.type_personne, ctx.site.nom
         )
         for pid in ids_nouveaux
         if pid in personnes
@@ -296,7 +296,7 @@ def _lignes_anciens(session: Session, ctx: ContexteExport) -> list[dict]:
     personnes = _charger_personnes(session, ids_anciens)
     lignes = [
         _formatter_ligne(
-            session, personnes[pid], snapshots_source[pid], ctx.type_personne
+            session, personnes[pid], snapshots_source[pid], ctx.type_personne, ctx.site.nom
         )
         for pid in ids_anciens
         if pid in personnes
@@ -375,7 +375,7 @@ def _charger_personnes(session: Session, ids: set[int]) -> dict[int, Personne]:
 # ---------------------------------------------------------------------------
 
 
-def _login_pour(session: Session, personne: Personne) -> str:
+def _login_pour(session: Session, personne: Personne, site: str | None) -> str:
     """L'identifiant à écrire : celui que la base détient, s'il est connu.
 
     `Personne.login` est unique dans tout le référentiel. Les identifiants,
@@ -389,17 +389,25 @@ def _login_pour(session: Session, personne: Personne) -> str:
     **renommer**. Sur l'instance réelle, 28 lignes de l'export SU étaient
     dans ce cas.
 
-    Un identifiant constaté fait autorité — c'est la règle du programme, et
-    elle s'applique ici : quand une source KoXo a été lue et qu'elle
-    attribue un identifiant à ce badge, c'est celui-là qu'on lui rend.
+    Un identifiant constaté fait autorité — c'est la règle du programme —
+    **mais seulement dans sa propre base**. Une première version reprenait
+    le constat sans regarder d'où il venait : Lou-Ann BERNARD, qui tient
+    `lbernard` dans la base de SU, monte au lycée et l'emportait dans
+    l'export de NDK, où `lbernard` appartient à Liam BERNARD. L'annuaire a
+    refusé la création — sept élèves, tous des montants de 3e en 2nde.
+
+    Hors de sa base, on garde donc l'identifiant du référentiel : unique,
+    et de ce fait libre partout.
     """
     from backend.models import LoginReserve
 
     if personne.badge is None:
         return personne.login or ""
+    if not site:
+        return personne.login or ""
     constat = (
         session.query(LoginReserve)
-        .filter_by(badge=personne.badge)
+        .filter_by(badge=personne.badge, site=site)
         .order_by(LoginReserve.date_constat.desc())
         .first()
     )
@@ -409,7 +417,11 @@ def _login_pour(session: Session, personne: Personne) -> str:
 
 
 def _formatter_ligne(
-    session: Session, personne: Personne, snapshot: Snapshot, type_personne: str
+    session: Session,
+    personne: Personne,
+    snapshot: Snapshot,
+    type_personne: str,
+    site: str | None = None,
 ) -> dict:
     """Construit une ligne au format KoXo. Le MDP est TOUJOURS vide (KoXo génère)."""
     groupe_primaire = "Elèves" if type_personne == "eleve" else "Professeurs"
@@ -428,7 +440,7 @@ def _formatter_ligne(
         "Titre": "",
         "Nom": personne.nom or "",
         "Prénom": personne.prenom or "",
-        "Identifiant": _login_pour(session, personne),
+        "Identifiant": _login_pour(session, personne, site),
         "ID unique": str(personne.badge) if personne.badge else "",
         "Mot de passe": "",  # KoXo génère
         "Date de naissance": "",

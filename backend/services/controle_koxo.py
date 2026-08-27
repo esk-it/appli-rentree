@@ -696,7 +696,9 @@ def controler_export_koxo(
     return rapport
 
 
-def retenir_identifiants_constates(session: Session, chemin: str | Path) -> int:
+def retenir_identifiants_constates(
+    session: Session, chemin: str | Path, site: str | None = None
+) -> int:
     """Retient les identifiants d'un export, avec l'ID unique qui va avec.
 
     Le contrôle lui-même ne modifie rien. Ceci est autre chose : garder
@@ -734,7 +736,7 @@ def retenir_identifiants_constates(session: Session, chemin: str | Path) -> int:
         if existante is None:
             nouvelle = LoginReserve(
                 login=l.login, source="controle_koxo", badge=badge,
-                nom=l.nom, prenom=l.prenom,
+                site=site, nom=l.nom, prenom=l.prenom,
                 motif="identifiant détenu dans un export KoXo",
             )
             session.add(nouvelle)
@@ -742,6 +744,7 @@ def retenir_identifiants_constates(session: Session, chemin: str | Path) -> int:
         else:
             existante.nom, existante.prenom = l.nom, l.prenom
             existante.source = "controle_koxo"
+            existante.site = site or existante.site
         retenus += 1
 
     session.flush()
