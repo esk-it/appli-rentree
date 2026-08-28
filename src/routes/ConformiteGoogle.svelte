@@ -462,6 +462,30 @@
             </div>
           {/if}
 
+          <!-- Le calcul renvoyait déjà cette liste ; l'écran ne l'affichait
+               pas. Deux classes de NDK — 61 élèves — n'avaient aucune adresse
+               de groupe, et rien ici ne le disait. Un groupe absent de Google
+               se voit ; une classe qui n'en déclare aucun ne se voit nulle
+               part. -->
+          {#if diffGroupes.classes_sans_groupe?.length}
+            <div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-900/20">
+              <p class="font-medium text-amber-900 dark:text-amber-200">
+                {diffGroupes.classes_sans_groupe.length} classe(s) ne déclarent
+                aucune adresse de groupe
+              </p>
+              <p class="mt-1 font-mono text-xs text-amber-900 dark:text-amber-200">
+                {diffGroupes.classes_sans_groupe.join(", ")}
+              </p>
+              <p class="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                Leurs élèves n'entreront dans aucune liste, et rien d'autre ne
+                le signalera : un groupe absent de Google se voit, une classe
+                qui n'en déclare aucun ne se voit nulle part. Renseigne la
+                colonne « Groupe Google » dans la
+                <strong>Table de correspondance</strong>.
+              </p>
+            </div>
+          {/if}
+
           {#if diffGroupes.groupes_absents.length}
             <div class="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-900/20">
               <p class="font-medium text-amber-900 dark:text-amber-200">

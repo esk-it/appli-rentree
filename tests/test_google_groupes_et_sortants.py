@@ -357,3 +357,33 @@ def test_export_tous_nest_pas_affecte(
     )
     rows = _lire(contenu)
     assert rows[0]["Org Unit Path [Required]"] == "/3. NDK/NDK2026/3B"
+
+
+
+def test_une_classe_sans_adresse_de_groupe_est_nommee(
+    session, site_factory, annee_factory, personne_factory, snap_factory,
+    tc_factory,
+):
+    """Ses élèves n'entreront dans aucune liste, et rien ne le dit ailleurs.
+
+    Un groupe déclaré mais absent de Google se voit — les ajouts échouent.
+    Une classe qui ne déclare aucun groupe ne se voit nulle part : le calcul
+    la saute en silence. Deux classes de NDK étaient dans ce cas, soit
+    soixante et un élèves.
+    """
+    from backend.services.groupes_google import calculer_diff_groupes
+
+    site = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    tc_factory(site.id, "1_ST2S1", groupe_google=None)
+    tc_factory(site.id, "1_STL", groupe_google="1ere-stl@lekreisker.fr")
+
+    for classe in ("1_ST2S1", "1_STL"):
+        p = personne_factory(site_id=site.id, login=f"eleve{classe}")
+        snap_factory(p.id, annee.id, classe=classe)
+
+    r = calculer_diff_groupes(
+        session, {"1ere-stl@lekreisker.fr": []}, annee_id=annee.id,
+    )
+    assert "1_ST2S1" in r.classes_sans_groupe
+    assert "1_STL" not in r.classes_sans_groupe
