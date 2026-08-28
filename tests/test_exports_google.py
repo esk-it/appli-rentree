@@ -227,7 +227,10 @@ def test_ou_nouveaux_utilise_ou_pre_rentree(
     )
     r = _lire_csv_google(contenu)[0]
     assert r["Org Unit Path [Required]"] == "/3. NDK/NDK2026"
-    assert r["Change Password at Next Sign-In"] == "True"
+    # KoXo est l'autorité du mot de passe : le faire personnaliser à la
+    # première connexion le ferait diverger de l'annuaire et de la fiche
+    # imprimée, sans moyen de les raccorder ensuite.
+    assert r["Change Password at Next Sign-In"] == "False"
 
 
 def test_ou_adultes_utilise_racine_site(
@@ -406,3 +409,52 @@ def test_export_tous_ne_previent_pas_du_mot_de_passe(
     )
 
     assert not any("Password" in a for a in r.avertissements)
+
+
+def test_aucun_export_ne_force_le_changement_de_mot_de_passe(
+    session, site_factory, annee_factory, personne_factory, snap_factory,
+    tc_factory,
+):
+    """Sur les trois catégories, et pour les deux populations.
+
+    Le mot de passe vient de KoXo, qui l'imprime sur la fiche remise à
+    l'élève. Google n'en reçoit qu'une copie ; le faire changer à la
+    première connexion romprait l'unique mot de passe que l'élève connaît.
+    """
+    from backend.services.exports_google import generer_csv_google
+
+    site = site_factory("NDK")
+    an_prec = annee_factory("2025-2026")
+    an_cour = annee_factory("2026-2027")
+    tc_factory(site.id, "6A", ou_pre_rentree="/3. NDK/NDK2027",
+               ou_definitive="/3. NDK/NDK2027/6A")
+
+    ancien = personne_factory(site_id=site.id, login="ancien")
+    snap_factory(ancien.id, an_prec.id, classe="6A")
+    snap_factory(ancien.id, an_cour.id, classe="6A")
+    neuf = personne_factory(site_id=site.id, login="neuf")
+    snap_factory(neuf.id, an_cour.id, classe="6A")
+    parti = personne_factory(site_id=site.id, login="parti")
+    snap_factory(parti.id, an_prec.id, classe="6A")
+
+    for categorie in ("tous", "nouveaux", "anciens"):
+        contenu, _ = generer_csv_google(
+            session=session, site_id=site.id, type_personne="eleve",
+            categorie=categorie, annee_cible_id=an_cour.id,
+            annee_source_id=an_prec.id,
+        )
+        lignes = _lire_csv_google(contenu)
+        assert lignes, f"aucune ligne pour {categorie}"
+        for l in lignes:
+            assert l["Change Password at Next Sign-In"] == "False", categorie
+
+
+def test_le_payload_api_ne_force_pas_non_plus():
+    """Les deux canaux doivent dire la même chose à Google."""
+    from backend.services.google_api import payload_creation_utilisateur
+
+    p = payload_creation_utilisateur(
+        email="jean.dupont@lekreisker.fr", prenom="Jean", nom="DUPONT",
+        mot_de_passe="Xxxxxx11", org_unit_path="/3. NDK/NDK2027",
+    )
+    assert p["changePasswordAtNextLogin"] is False

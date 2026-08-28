@@ -30,8 +30,10 @@ Catégories, comme pour KoXo :
 - **Org Unit Path** : arborescence OU (via TableCorrespondance).
 - **Employee ID** : `id_charlemagne` — clé stable pour futur rapprochement
   bidirectionnel Google ↔ nous.
-- **Change Password at Next Sign-In** : `True` pour les nouveaux (force
-  la personnalisation à la première connexion).
+- **Change Password at Next Sign-In** : `False`, toujours. Le mot de passe
+  vient de KoXo, pas de Google : forcer sa personnalisation le ferait
+  diverger de l'annuaire dès la première connexion, et de la fiche que
+  KoXo a imprimée pour l'élève.
 """
 from __future__ import annotations
 
@@ -334,9 +336,11 @@ def _formatter_ligne(
     ligne["Employee ID"] = str(personne.id_charlemagne)
     ligne["Employee Type"] = "Student" if ctx.type_personne == "eleve" else "Staff"
 
-    if ou_pre_rentree:
-        # Nouveaux comptes : force changement de MDP à la 1re connexion
-        ligne["Change Password at Next Sign-In"] = "True"
+    # Jamais de changement forcé : le mot de passe vient de KoXo, qui
+    # l'imprime sur la fiche remise à l'élève. Le personnaliser à la
+    # première connexion le ferait diverger de l'annuaire, et rien ne
+    # permettrait ensuite de les raccorder.
+    ligne["Change Password at Next Sign-In"] = "False"
 
     # Password reste vide au Lot 10a — sera injecté par la boucle de retour KoXo
     # (Lot 8b) puis regénéré avant envoi à Google, en mémoire uniquement.

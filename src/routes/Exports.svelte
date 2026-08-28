@@ -468,7 +468,7 @@
             {#if categorie === "tous"}
               <p>État complet visé — chaque personne est placée dans son OU définitive (via Table de correspondance).</p>
             {:else if categorie === "nouveaux"}
-              <p>Nouveaux comptes Google — placés dans l'<strong>OU pré-rentrée</strong>, mot de passe vide (sera rempli à partir de KoXo au Lot 8b), forçage du changement de MDP à la 1<sup>re</sup> connexion.</p>
+              <p>Nouveaux comptes Google — placés dans l'<strong>OU pré-rentrée</strong>, avec le mot de passe repris du fichier KoXo déposé ci-dessus. <strong>Aucun changement forcé à la première connexion</strong> : l'élève n'a qu'un mot de passe, celui de sa fiche KoXo, et Google doit garder le même.</p>
             {:else}
               <p>Sortants — à déplacer manuellement vers <code>/7. Sortis/…</code> (l'automatisation viendra plus tard).</p>
             {/if}

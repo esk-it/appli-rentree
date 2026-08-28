@@ -64,7 +64,10 @@ def test_payload_creation_structure():
     assert p["name"]["givenName"] == "Jean"
     assert p["name"]["familyName"] == "DUPONT"
     assert p["orgUnitPath"] == "/3. NDK/NDK2026"
-    assert p["changePasswordAtNextLogin"] is True
+    # KoXo genere le mot de passe et l'imprime sur la fiche de l'eleve ;
+    # Google n'en recoit qu'une copie. Le faire changer a la premiere
+    # connexion romprait le seul mot de passe que l'eleve connait.
+    assert p["changePasswordAtNextLogin"] is False
     assert p["externalIds"][0]["value"] == "5824"
 
 

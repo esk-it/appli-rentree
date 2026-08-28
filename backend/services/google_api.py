@@ -153,13 +153,29 @@ def payload_creation_utilisateur(
     mot_de_passe: str,
     id_charlemagne: int | None = None,
     type_personne: str = "eleve",
-    changer_mdp_a_la_connexion: bool = True,
+    changer_mdp_a_la_connexion: bool = False,
 ) -> dict[str, Any]:
     """Corps de requête pour `users.insert`.
 
     Le mot de passe est transmis en clair dans la requête HTTPS — c'est ce
     qu'attend l'API. Il ne doit jamais être conservé côté appelant après
     l'appel.
+
+    ## Pourquoi le changement à la première connexion est désactivé
+
+    Le mot de passe ne vient pas de Google : **KoXo le génère**, l'annuaire
+    le porte, et Google en reçoit une copie. C'est la règle du programme,
+    et c'est ce qui permet à l'élève de n'en connaître qu'un seul — celui
+    de la fiche que KoXo imprime.
+
+    Forcer le changement à la première connexion le fait diverger dès la
+    première session : l'élève se connecte à Google avec un mot de passe
+    que ni l'annuaire ni sa fiche ne connaissent, et le programme n'a plus
+    aucun moyen de les raccorder.
+
+    Empêcher un élève de changer son mot de passe est un réglage d'unité
+    d'organisation, dans la console d'administration — pas quelque chose
+    que cette requête décide.
     """
     payload: dict[str, Any] = {
         "primaryEmail": email,
