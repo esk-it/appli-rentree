@@ -1,8 +1,15 @@
 """Génération des exports CSV pour Google Workspace (bulk-import Admin).
 
-Format officiel : 40 colonnes, séparateur virgule, UTF-8 avec BOM (attendu
-par la console Google Admin). L'ordre exact des colonnes est respecté —
-Google refuse le CSV sinon.
+Format : séparateur virgule, UTF-8 avec BOM (attendu par la console Google
+Admin). Le fichier ne porte que les colonnes qu'il renseigne — l'import
+groupé accepte un sous-ensemble, du moment que les colonnes obligatoires
+s'y trouvent.
+
+Reprendre les quarante colonnes du modèle officiel paraissait plus fidèle ;
+c'était en fait une dépendance de plus. Le modèle varie selon les licences
+du domaine et suit les nouveautés de Google : la console a refusé un fichier
+entier sur une colonne devenue inconnue, sans qu'aucune donnée ne soit en
+cause.
 
 Catégories, comme pour KoXo :
 
@@ -60,43 +67,24 @@ COLONNES_GOOGLE = [
     "Last Name [Required]",
     "Email Address [Required]",
     "Password [Required]",
-    "Password Hash Function [UPLOAD ONLY]",
     "Org Unit Path [Required]",
-    "New Primary Email [UPLOAD ONLY]",
-    "Status [READ ONLY]",
-    "Last Sign In [READ ONLY]",
-    "Recovery Email",
-    "Home Secondary Email",
-    "Work Secondary Email",
-    "Recovery Phone [MUST BE IN THE E.164 FORMAT]",
-    "Work Phone",
-    "Home Phone",
-    "Mobile Phone",
-    "Work Address",
-    "Home Address",
     "Employee ID",
     "Employee Type",
-    "Employee Title",
-    "Manager Email",
-    "Department",
-    "Cost Center",
-    "Building ID",
-    "Floor Name",
-    "Floor Section",
     "Change Password at Next Sign-In",
-    "New Status [UPLOAD ONLY]",
-    "New Licenses [UPLOAD ONLY]",
-    "Advanced Protection Program enrollment",
-    "Gemini Enterprise",
-    "2sv Enrolled [READ ONLY]",
-    "2sv Enforced [READ ONLY]",
-    "Email Usage [READ ONLY]",
-    "Drive Usage [READ ONLY]",
-    "Photos Usage [READ ONLY]",
-    "Total Storage [READ ONLY]",
-    "Licenses [READ ONLY]",
-    "Storage Used [READ ONLY]",
 ]
+"""Les seules colonnes que l'export renseigne — et rien d'autre.
+
+Le fichier reprenait les quarante colonnes du modèle officiel, trente-deux
+d'entre elles toujours vides. C'était une fragilité pure : le modèle de
+Google dépend des licences du domaine et évolue avec ses fonctionnalités.
+La console a fini par refuser le fichier entier sur une colonne devenue
+inconnue chez l'établissement — « nom de colonne "Gemini Enterprise"
+inconnu » — sans qu'aucune donnée ne soit en cause.
+
+L'import groupé accepte un sous-ensemble : il suffit d'y trouver les
+colonnes obligatoires. En n'écrivant que ce qu'on remplit, le fichier
+cesse de dépendre de ce que Google ajoute ou retire de son modèle.
+"""
 
 # UTF-8 BOM — Google Admin exige le BOM pour reconnaître l'encodage
 BOM_UTF8 = b"\xef\xbb\xbf"

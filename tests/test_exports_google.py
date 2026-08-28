@@ -1,4 +1,4 @@
-"""Tests des exports Google Workspace (bulk-import Admin, 40 colonnes)."""
+"""Tests des exports Google Workspace (bulk-import Admin)."""
 from __future__ import annotations
 
 import csv
@@ -56,7 +56,7 @@ def _lire_csv_google(contenu: bytes) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def test_export_google_a_40_colonnes_officielles(
+def test_export_google_ne_porte_que_les_colonnes_remplies(
     session, site_factory, annee_factory, personne_factory, snap_factory, tc_factory
 ):
     from backend.services.exports_google import COLONNES_GOOGLE, generer_csv_google
@@ -73,8 +73,19 @@ def test_export_google_a_40_colonnes_officielles(
     )
     rows = _lire_csv_google(contenu)
 
-    assert len(COLONNES_GOOGLE) == 40
+    # Le fichier ne porte que ce qu'il renseigne : le modele officiel varie
+    # selon les licences du domaine, et la console a refuse un fichier entier
+    # sur une colonne devenue inconnue.
     assert list(rows[0].keys()) == COLONNES_GOOGLE
+    assert "Gemini Enterprise" not in COLONNES_GOOGLE
+    for c in COLONNES_GOOGLE:
+        assert "[READ ONLY]" not in c, c
+    for obligatoire in (
+        "First Name [Required]", "Last Name [Required]",
+        "Email Address [Required]", "Password [Required]",
+        "Org Unit Path [Required]",
+    ):
+        assert obligatoire in COLONNES_GOOGLE
 
 
 def test_export_google_bom_utf8_present(session, site_factory, annee_factory, personne_factory, snap_factory):
@@ -458,3 +469,30 @@ def test_le_payload_api_ne_force_pas_non_plus():
         mot_de_passe="Xxxxxx11", org_unit_path="/3. NDK/NDK2027",
     )
     assert p["changePasswordAtNextLogin"] is False
+
+
+def test_le_csv_de_bascule_porte_les_memes_colonnes(
+    session, site_factory, annee_factory, personne_factory, snap_factory,
+    tc_factory,
+):
+    """Les deux fichiers vont dans la même console : même gabarit.
+
+    Le CSV de bascule partage `COLONNES_GOOGLE`. Le réduire aux colonnes
+    remplies devait valoir pour lui aussi, sinon la console l'aurait refusé
+    à son tour sur une colonne inconnue.
+    """
+    from backend.services.bascule import generer_csv_bascule, planifier_bascule
+    from backend.services.exports_google import COLONNES_GOOGLE
+
+    site = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    tc_factory(site.id, "6A", ou_pre_rentree="/3. NDK/NDK2027",
+               ou_definitive="/3. NDK/NDK2027/6A")
+    p = personne_factory(site_id=site.id, login="jdupont",
+                         email_constate="jean.dupont@lekreisker.fr")
+    snap_factory(p.id, annee.id, classe="6A")
+
+    rapport = planifier_bascule(session, annee_id=annee.id, phase="pre_rentree")
+    contenu = generer_csv_bascule(rapport)
+    entete = contenu.decode("utf-8-sig").splitlines()[0]
+    assert entete.split(",") == COLONNES_GOOGLE
