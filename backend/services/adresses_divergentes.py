@@ -18,6 +18,13 @@ Les conséquences sont silencieuses et coûteuses :
   des partants — un élève inscrit s'est trouvé à un cheveu d'être
   suspendu.
 
+## Les alias comptent
+
+Un compte Google répond à son adresse principale et à chacun de ses
+alias. Une adresse d'alias enregistrée au référentiel désigne donc un
+compte qui existe, et n'a rien de divergent — l'écran la signalait
+pourtant, sans qu'aucune correction soit possible.
+
 ## La règle de rapprochement
 
 Une correction n'est proposée que si le nom et le prénom désignent
@@ -78,7 +85,13 @@ def detecter_divergences(
         annee_id: restreint aux personnes présentes cette année-là.
             `None` = l'année la plus récente, celle qu'on prépare.
     """
+    # Un compte répond à son adresse principale **et à ses alias**. Une
+    # adresse d'alias enregistrée au référentiel désigne donc un compte
+    # qui existe : la signaler comme divergente envoyait chercher une
+    # correction là où il n'y avait rien à corriger.
     adresses_google = {(u.get("email") or "").lower() for u in comptes_google}
+    for u in comptes_google:
+        adresses_google.update(a.lower() for a in (u.get("alias") or []) if a)
 
     # Les comptes sont indexés dans les **deux ordres**. Sur l'instance
     # réelle, 172 des 250 comptes d'un site portent le prénom dans le champ

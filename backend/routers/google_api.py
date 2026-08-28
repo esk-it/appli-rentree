@@ -1737,6 +1737,9 @@ def creer_groupes(
 
     class _Creation:
         def __init__(self, c):
+            # `action` est ce que le suivi affiche en face de chaque étape ;
+            # sans lui, la création échouait avant même d'appeler Google.
+            self.action = "creer_groupe"
             self.groupe = c.adresse
             self.email = c.adresse
             self.nom = c.nom

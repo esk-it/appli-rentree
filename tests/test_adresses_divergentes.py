@@ -192,3 +192,60 @@ def test_un_nom_egal_au_prenom_nest_pas_indexe_deux_fois(session, personne_facto
     ]
     r = detecter_divergences(session, comptes)
     assert r.divergences[0].resolvable is True
+
+
+# ---------------------------------------------------------------------------
+# Les alias
+# ---------------------------------------------------------------------------
+
+
+def test_une_adresse_dalias_ne_diverge_pas(session, inscrit):
+    """Un compte répond à ses alias : l'adresse existe, rien à corriger.
+
+    Le contrôle ne regardait que l'adresse principale. Une adresse d'alias
+    enregistrée au référentiel paraissait donc introuvable, et l'écran la
+    signalait sans qu'aucune correction soit possible — le compte est là.
+    """
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    inscrit("MARTIN", "Paul", "pmartin", "p.martin@lekreisker.fr")
+    compte = _u("paul.martin@lekreisker.fr", "MARTIN", "Paul")
+    compte["alias"] = ["p.martin@lekreisker.fr"]
+
+    r = detecter_divergences(session, [compte])
+    assert r.divergences == [], "l'alias désigne bien ce compte"
+
+
+def test_un_alias_dun_autre_compte_ne_couvre_pas_lecart(session, inscrit):
+    """Reconnaître les alias ne doit pas rendre le contrôle aveugle."""
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    inscrit("LE GALL", "Louis", "llegall", "louis.legall@lekreisker.fr")
+    autre = _u("paul.martin@lekreisker.fr", "MARTIN", "Paul")
+    autre["alias"] = ["p.martin@lekreisker.fr"]
+    vrai = _u("louis.le.gall@lekreisker.fr", "LE GALL", "Louis")
+
+    r = detecter_divergences(session, [autre, vrai])
+    assert r.nb_resolvables == 1
+    assert r.divergences[0].adresse_google == "louis.le.gall@lekreisker.fr"
+
+
+def test_la_casse_dun_alias_est_ignoree(session, inscrit):
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    inscrit("MARTIN", "Paul", "pmartin", "p.martin@lekreisker.fr")
+    compte = _u("paul.martin@lekreisker.fr", "MARTIN", "Paul")
+    compte["alias"] = ["P.Martin@LeKreisker.fr"]
+
+    assert detecter_divergences(session, [compte]).divergences == []
+
+
+def test_un_compte_sans_alias_reste_lu_normalement(session, inscrit):
+    """La clé peut être absente : les comptes n'ont pas tous des alias."""
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    inscrit("DUPONT", "Jean", "jdupont", "jean.dupont@lekreisker.fr")
+    r = detecter_divergences(
+        session, [_u("jean.dupont@lekreisker.fr", "DUPONT", "Jean")]
+    )
+    assert r.divergences == []

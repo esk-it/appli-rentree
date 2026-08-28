@@ -625,6 +625,18 @@ class ClientGoogle:
                 utilisateurs.append(
                     {
                         "email": (u.get("primaryEmail") or "").lower(),
+                        # Un compte répond aussi à ses alias. Sans eux, une
+                        # adresse d'alias enregistrée au référentiel passait
+                        # pour introuvable, et le contrôle la signalait comme
+                        # divergente alors que le compte existe bel et bien.
+                        "alias": sorted(
+                            {
+                                a.lower()
+                                for a in (u.get("aliases") or [])
+                                + (u.get("nonEditableAliases") or [])
+                                if a
+                            }
+                        ),
                         "ou": ou,
                         "suspendu": bool(u.get("suspended", False)),
                         "nom": (u.get("name") or {}).get("familyName") or "",
