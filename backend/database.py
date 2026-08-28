@@ -77,6 +77,7 @@ def _wipe_complet() -> None:
         compte_cible,
         etablissement,
         generation,
+        login_reserve,
         parametre,
         personne,
         site,
@@ -238,6 +239,36 @@ def _recreer_tables_vides_avec_drift() -> list[str]:
     return recreees
 
 
+def _reconstruire_login_reserve() -> bool:
+    """Rebâtit `login_reserve` quand sa clé d'unicité ignore encore le site.
+
+    La table a d'abord été unique sur `(login, badge)`. Un professeur
+    existant dans les deux bases KoXo n'y tenait donc qu'une ligne : lire le
+    second export écrasait le site du premier, et l'export ne retrouvait
+    plus le constat de la base qu'il visait.
+
+    SQLite ne sait pas modifier une contrainte en place. La table est
+    reconstruite plutôt que migrée, ce qui est sans dommage : **c'est un
+    cache**, entièrement redéduit d'un passage au Contrôle KoXo. Les
+    identifiants eux-mêmes vivent sur `Personne`, et ne sont pas touchés.
+    """
+    inspector = inspect(_engine)
+    if "login_reserve" not in set(inspector.get_table_names()):
+        return False
+
+    contraintes = inspector.get_unique_constraints("login_reserve")
+    a_jour = any(
+        "site" in (c.get("column_names") or []) for c in contraintes
+    )
+    if a_jour:
+        return False
+
+    table = Base.metadata.tables["login_reserve"]
+    table.drop(bind=_engine, checkfirst=True)
+    table.create(bind=_engine)
+    return True
+
+
 def init_db() -> None:
     """Crée les tables manquantes au démarrage.
 
@@ -285,6 +316,13 @@ def init_db() -> None:
     recreees = _recreer_tables_vides_avec_drift()
     for t in recreees:
         print(f"[DB] Table {t} recréée après drift structurel")
+
+    if _reconstruire_login_reserve():
+        print(
+            "[DB] Table login_reserve reconstruite : les constats sont "
+            "désormais tenus par base. Repasse tes exports KoXo au Contrôle "
+            "en désignant leur site."
+        )
 
 
 @contextmanager

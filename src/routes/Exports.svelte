@@ -31,6 +31,16 @@
   let siteId = $state(/** @type {null | number} */ (null));
   let typePersonne = $state(/** @type {"eleve"|"adulte"} */ ("eleve"));
   let categorie = $state(/** @type {"tous"|"nouveaux"|"anciens"} */ ("tous"));
+  /**
+   * La base KoXo qui recevra le fichier, quand ce n'est pas celle du site.
+   *
+   * Les professeurs vivent dans les deux serveurs, et chacun nomme ses
+   * groupes secondaires à sa façon — `DIRECTEUR` ici, `PHYSIQUE-CHIMIE`
+   * là. Le référentiel ne rattache un adulte qu'à un seul site : sans ce
+   * choix, le même fichier servi au second serveur y déplaçait
+   * vingt-quatre comptes qui n'avaient aucune raison de bouger.
+   */
+  let baseKoxo = $state(/** @type {string | null} */ (null));
 
   /**
    * Groupe secondaire imposé aux sortants KoXo.
@@ -186,6 +196,9 @@
       if (cible === "koxo" && categorie === "anciens") {
         params.groupeSecondaireForce = groupeSortants.trim() || null;
       }
+      if (cible === "koxo" && typePersonne === "adulte") {
+        params.baseKoxo = baseKoxo;
+      }
       let r;
       if (cible === "koxo") {
         r = await exportsCible.koxo(params);
@@ -323,6 +336,32 @@
     <!-- Sans destination, la ligne d'un sortant porte sa dernière classe :
          synchronisée, elle le remettrait au milieu de la promotion
          suivante. Un groupe dédié le range ailleurs, sans le supprimer. -->
+    <!-- Un prof existe dans les deux serveurs KoXo, et chacun range ses
+         groupes à sa manière. Le fichier doit porter les groupes de la base
+         qui va le recevoir, sinon la synchronisation déplace des comptes
+         qui n'ont pas changé de matière. -->
+    {#if cible === "koxo" && typePersonne === "adulte"}
+      <label class="block rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
+        <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">
+          Base KoXo qui recevra ce fichier
+        </span>
+        <select
+          bind:value={baseKoxo}
+          class="mt-1 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm dark:border-stone-600 dark:bg-stone-800"
+        >
+          <option value={null}>Celle du site choisi</option>
+          {#each listeSites as s (s.id)}<option value={s.nom}>{s.nom}</option>{/each}
+        </select>
+        <span class="mt-1 block text-xs text-stone-500 dark:text-stone-400">
+          Les professeurs existent dans les deux serveurs, qui ne nomment pas
+          leurs groupes secondaires pareil. Le fichier reprend les groupes que
+          <strong>cette base</strong> détient, pour ne déplacer personne. Il
+          faut d'abord avoir passé l'export de cette base au
+          <strong>Contrôle KoXo</strong>, site désigné.
+        </span>
+      </label>
+    {/if}
+
     {#if cible === "koxo" && categorie === "anciens"}
       <label class="block rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
         <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">

@@ -73,6 +73,26 @@ class ContexteExport:
     groupe_secondaire_force: str | None = None
     """Groupe secondaire imposé à toutes les lignes. Réservé aux sortants."""
 
+    base_koxo: str | None = None
+    """La base KoXo où ce fichier sera chargé, quand ce n'est pas celle du site.
+
+    Les professeurs existent dans **les deux serveurs**, et chacun nomme ses
+    groupes à sa façon : `DIRECTEUR` d'un côté, `PHYSIQUE-CHIMIE` de
+    l'autre ; `DDFPT` ici, `Mathematiques` là. Le référentiel, lui, ne
+    rattache un adulte qu'à un seul site — en pratique tous à NDK, parce
+    que l'amorçage a lu cette base en premier.
+
+    Sans ce paramètre, le même fichier servi aux deux serveurs déplaçait
+    vingt-quatre comptes sur le second : il portait les groupes constatés
+    dans la base de l'autre. On désigne donc la base visée, et les constats
+    de celle-là font autorité.
+    """
+
+    @property
+    def base(self) -> str:
+        """La base dont les constats font autorité pour ce fichier."""
+        return self.base_koxo or self.site.nom
+
 
 @dataclass
 class RapportExportKoxo:
@@ -102,6 +122,7 @@ def generer_csv_koxo(
     annee_cible_id: int,
     annee_source_id: int | None = None,
     groupe_secondaire_force: str | None = None,
+    base_koxo: str | None = None,
 ) -> tuple[bytes, RapportExportKoxo]:
     """Génère un CSV KoXo pour une catégorie donnée.
 
@@ -117,6 +138,10 @@ def generer_csv_koxo(
             lignes. Réservé à `anciens` : il sert à rassembler les sortants
             dans un groupe dédié plutôt que de les laisser porter leur
             dernière classe.
+        base_koxo: nom du site dont la base KoXo recevra ce fichier, quand
+            ce n'est pas celle du site choisi. Sert à reprendre les groupes
+            secondaires que **cette** base détient. Sans effet sur les
+            élèves, dont la classe vient toujours de Charlemagne.
 
     Returns:
         Tuple (contenu CSV en bytes cp1252, rapport typé).
@@ -152,6 +177,7 @@ def generer_csv_koxo(
         annee_cible_id=annee_cible_id,
         annee_source_id=annee_source_id,
         groupe_secondaire_force=(groupe_secondaire_force or "").strip() or None,
+        base_koxo=(base_koxo or "").strip() or None,
     )
 
     if categorie == "tous":
@@ -169,9 +195,52 @@ def generer_csv_koxo(
         nb_lignes=len(lignes),
         nom_fichier_suggere=_nom_fichier(site.nom, type_personne, categorie),
         groupe_secondaire_force=ctx.groupe_secondaire_force,
-        avertissements=_relire(lignes, ctx),
+        avertissements=_relire(lignes, ctx)
+        + _adultes_sans_site(session, ctx),
     )
     return contenu, rapport
+
+
+def _adultes_sans_site(session: Session, ctx: ContexteExport) -> list[str]:
+    """Les adultes qu'aucun export ne montrera, faute de rattachement.
+
+    Un adulte est rattaché par `Personne.site_id`, et l'ingestion
+    Charlemagne ne le renseigne pas : elle déduit le site de la classe, et
+    un adulte n'en a pas. Un professeur arrivé par Charlemagne n'appartient
+    donc à aucun site — et disparaît de **tous** les exports sans que rien
+    ne le signale.
+
+    Pour un élève, le programme préfère le montrer dans un export imparfait
+    plutôt que le faire disparaître de tous. Pour un adulte, on ne peut pas
+    en faire autant : on ignore quelle base viser, et les exports
+    Charlemagne charrient des lignes de service — « RPP », « CNED », « VIE
+    SCOLAIRE » — qu'il ne faut créer nulle part. On les nomme donc, et
+    l'arbitrage reste humain.
+    """
+    if ctx.type_personne != "adulte":
+        return []
+
+    orphelins = (
+        session.query(Personne)
+        .join(Snapshot, Snapshot.personne_id == Personne.id)
+        .filter(
+            Personne.type == "adulte",
+            Personne.site_id.is_(None),
+            Snapshot.annee_scolaire_id == ctx.annee_cible_id,
+        )
+        .distinct()
+        .all()
+    )
+    if not orphelins:
+        return []
+
+    qui = ", ".join(f"{p.prenom} {p.nom}" for p in orphelins[:6])
+    return [
+        f"{len(orphelins)} adulte(s) ne sont rattachés à aucun site et "
+        f"n'apparaissent donc dans aucun export — {qui}"
+        + (", …" if len(orphelins) > 6 else "")
+        + ". Rattache ceux qui doivent avoir un compte."
+    ]
 
 
 def _relire(lignes: list[dict], ctx: ContexteExport) -> list[str]:
@@ -254,7 +323,7 @@ def _lignes_tous(session: Session, ctx: ContexteExport) -> list[dict]:
             personnes_index[p.id] = p
     return [
         _formatter_ligne(
-            session, personnes_index[pid], par_personne[pid], ctx.type_personne, ctx.site.nom
+            session, personnes_index[pid], par_personne[pid], ctx.type_personne, ctx.base
         )
         for pid in par_personne
     ]
@@ -275,7 +344,7 @@ def _lignes_nouveaux(session: Session, ctx: ContexteExport) -> list[dict]:
     personnes = _charger_personnes(session, ids_nouveaux)
     return [
         _formatter_ligne(
-            session, personnes[pid], snapshots_cible[pid], ctx.type_personne, ctx.site.nom
+            session, personnes[pid], snapshots_cible[pid], ctx.type_personne, ctx.base
         )
         for pid in ids_nouveaux
         if pid in personnes
@@ -296,7 +365,7 @@ def _lignes_anciens(session: Session, ctx: ContexteExport) -> list[dict]:
     personnes = _charger_personnes(session, ids_anciens)
     lignes = [
         _formatter_ligne(
-            session, personnes[pid], snapshots_source[pid], ctx.type_personne, ctx.site.nom
+            session, personnes[pid], snapshots_source[pid], ctx.type_personne, ctx.base
         )
         for pid in ids_anciens
         if pid in personnes
@@ -416,6 +485,63 @@ def _login_pour(session: Session, personne: Personne, site: str | None) -> str:
     return personne.login or ""
 
 
+def _groupe_pour(
+    session: Session,
+    personne: Personne,
+    snapshot: Snapshot,
+    type_personne: str,
+    site: str | None,
+) -> str:
+    """Le groupe secondaire à écrire : celui que la base tient, pour un adulte.
+
+    Les deux populations n'obéissent pas à la même règle, et les confondre
+    casse l'une ou l'autre.
+
+    Pour un **élève**, le groupe secondaire est sa classe. Elle change
+    chaque année, c'est tout l'objet de la rentrée, et elle vient de
+    Charlemagne. Rien à préserver.
+
+    Pour un **adulte**, c'est sa matière ou son service — une organisation
+    tenue à la main dans KoXo, que Charlemagne ne décrit pas fidèlement.
+    Trois directrices adjointes y sont rangées sous leur fonction bien
+    qu'elles enseignent aussi ; un directeur sous « DIRECTEUR » plutôt que
+    sous « PHYSIQUE-CHIMIE » ; le personnel administratif sous un unique
+    « ADMINISTRATIF » là où Charlemagne détaille sept postes.
+
+    Écrire la matière par-dessus déplaçait vingt-trois comptes qui
+    n'avaient aucune raison de bouger — et un enseignant ne change pas de
+    matière d'une année sur l'autre. Le groupe secondaire commande
+    l'accès au répertoire partagé de la discipline : le déplacer sans
+    raison coûte un accès.
+
+    Un compte qui n'existe pas encore n'a rien à préserver : il prend sa
+    matière Charlemagne, et c'est bien ce qu'on veut pour un entrant.
+
+    Comme pour l'identifiant, **le constat ne vaut que dans sa propre
+    base** : il faut donc avoir passé l'export de cette base au contrôle,
+    site désigné, pour que le programme sache ce qu'elle détient.
+    """
+    if type_personne == "eleve":
+        return snapshot.classe or ""
+
+    charlemagne = (snapshot.matieres or snapshot.poste_occupe or "").split(";")[0].strip()
+
+    if personne.badge is None or not site:
+        return charlemagne
+
+    from backend.models import LoginReserve
+
+    constat = (
+        session.query(LoginReserve)
+        .filter_by(badge=personne.badge, site=site)
+        .order_by(LoginReserve.date_constat.desc())
+        .first()
+    )
+    if constat is not None and (constat.groupe_secondaire or "").strip():
+        return constat.groupe_secondaire.strip()
+    return charlemagne
+
+
 def _formatter_ligne(
     session: Session,
     personne: Personne,
@@ -425,12 +551,9 @@ def _formatter_ligne(
 ) -> dict:
     """Construit une ligne au format KoXo. Le MDP est TOUJOURS vide (KoXo génère)."""
     groupe_primaire = "Elèves" if type_personne == "eleve" else "Professeurs"
-
-    if type_personne == "eleve":
-        groupe_secondaire = snapshot.classe or ""
-    else:
-        # Adultes : matière enseignée, ou service pour non-profs
-        groupe_secondaire = (snapshot.matieres or snapshot.poste_occupe or "").split(";")[0].strip()
+    groupe_secondaire = _groupe_pour(
+        session, personne, snapshot, type_personne, site
+    )
 
     email = personne.email or ""
 

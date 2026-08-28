@@ -612,3 +612,295 @@ def test_un_identifiant_constate_dans_une_autre_base_nest_pas_repris(
     assert ligne["Identifiant"] == "lbernard2", (
         "l'export de NDK ne reprend pas un identifiant constaté sur SU"
     )
+
+
+def test_un_adulte_sans_site_est_nomme_plutot_que_tu(session, site_factory):
+    """Il ne sort dans aucun export : autant que l'écran le dise.
+
+    L'ingestion Charlemagne déduit le site de la classe, et un adulte n'en
+    a pas. Quinze professeurs entrants sont arrivés ainsi, absents de tous
+    les exports, et rien ne l'annonçait — la synchronisation KoXo affichait
+    « Créer 0 » sans expliquer pourquoi.
+    """
+    from backend.models import AnneeScolaire, Personne, Snapshot
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    ndk = site_factory("NDK")
+    annee = AnneeScolaire(libelle="2026-2027")
+    session.add(annee)
+    session.commit()
+
+    for prenom, badge, site_id in (("Rattachee", 1001, ndk.id),
+                                   ("Orpheline", 1002, None)):
+        p = Personne(
+            type="adulte", nom="MARTIN", prenom=prenom, login=prenom.lower(),
+            badge=badge, id_charlemagne=badge, site_id=site_id,
+        )
+        session.add(p)
+        session.flush()
+        session.add(Snapshot(
+            personne_id=p.id, annee_scolaire_id=annee.id,
+            nom="MARTIN", prenom=prenom, matieres="ANGLAIS",
+        ))
+    session.commit()
+
+    _, rapport = generer_csv_koxo(
+        session, site_id=ndk.id, type_personne="adulte",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    assert rapport.nb_lignes == 1, "l'orpheline ne sort pas"
+    assert any("aucun site" in a and "Orpheline MARTIN" in a
+               for a in rapport.avertissements)
+
+
+def test_les_eleves_ne_declenchent_pas_cet_avertissement(session, site_factory):
+    from backend.models import AnneeScolaire, Personne, Snapshot
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    ndk = site_factory("NDK")
+    annee = AnneeScolaire(libelle="2026-2027")
+    session.add(annee)
+    session.commit()
+    p = Personne(type="eleve", nom="DUPONT", prenom="Jean", login="jdupont",
+                 badge=4242, id_charlemagne=4242, site_id=None)
+    session.add(p)
+    session.flush()
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=annee.id,
+                         nom="DUPONT", prenom="Jean", classe="6A"))
+    session.commit()
+
+    _, rapport = generer_csv_koxo(
+        session, site_id=ndk.id, type_personne="eleve",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    assert not any("aucun site" in a for a in rapport.avertissements)
+
+
+# ---------------------------------------------------------------------------
+# Le groupe secondaire d'un adulte appartient à la base, pas à Charlemagne
+# ---------------------------------------------------------------------------
+
+
+def _base_koxo(tmp_path, lignes, nom="koxo.csv"):
+    import io as _io
+
+    chemin = tmp_path / nom
+    with _io.open(chemin, "w", encoding="cp1252", newline="") as f:
+        f.write("Groupe primaire;Groupe secondaire;Nom;Prénom;Identifiant;"
+                "ID unique\r\n")
+        for l in lignes:
+            f.write(";".join(str(c) for c in l) + "\r\n")
+    return chemin
+
+
+def _adulte(session, site, nom, prenom, login, badge, matieres, poste=None):
+    from backend.models import Personne
+
+    p = Personne(
+        type="adulte", nom=nom, prenom=prenom, login=login, badge=badge,
+        id_charlemagne=badge, site_id=site.id, matieres=matieres,
+        poste_occupe=poste,
+    )
+    session.add(p)
+    session.flush()
+    return p
+
+
+def _annee_et_snapshot(session, personne, libelle, matieres, poste=None):
+    from backend.models import AnneeScolaire, Snapshot
+
+    annee = session.query(AnneeScolaire).filter_by(libelle=libelle).one_or_none()
+    if annee is None:
+        annee = AnneeScolaire(libelle=libelle)
+        session.add(annee)
+        session.flush()
+    session.add(Snapshot(
+        personne_id=personne.id, annee_scolaire_id=annee.id,
+        nom=personne.nom, prenom=personne.prenom,
+        matieres=matieres, poste_occupe=poste,
+    ))
+    session.commit()
+    return annee
+
+
+def test_un_prof_deja_en_place_garde_le_groupe_que_koxo_lui_donne(
+    session, site_factory, tmp_path
+):
+    """Le cas réel : trois directrices adjointes rangées sous leur fonction.
+
+    Charlemagne les décrit par la matière qu'elles enseignent aussi. Écrire
+    cette matière les sortait de `DIRECTRICE ADJOINTE` — vingt-trois comptes
+    déplacés sans qu'aucun n'ait changé de poste, et autant d'accès au
+    répertoire partagé de la discipline remis en jeu.
+    """
+    from backend.services.controle_koxo import retenir_identifiants_constates
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    ndk = site_factory("NDK")
+    p = _adulte(session, ndk, "GUIVARCH", "Katell", "kguivarc", 54, "ANGLAIS")
+    annee = _annee_et_snapshot(session, p, "2026-2027", "ANGLAIS")
+
+    f = _base_koxo(tmp_path, [
+        ["Professeurs", "DIRECTRICE ADJOINTE", "GUIVARCH", "Katell",
+         "kguivarc", 54],
+    ])
+    retenir_identifiants_constates(session, f, site="NDK")
+    session.commit()
+
+    contenu, _ = generer_csv_koxo(
+        session, site_id=ndk.id, type_personne="adulte",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    ligne = _lire_csv_koxo(contenu)[0]
+    assert ligne["Groupe secondaire"] == "DIRECTRICE ADJOINTE"
+
+
+def test_un_entrant_prend_bien_sa_matiere_charlemagne(
+    session, site_factory, tmp_path
+):
+    """Un compte qui n'existe pas encore n'a rien à préserver."""
+    from backend.services.controle_koxo import retenir_identifiants_constates
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    ndk = site_factory("NDK")
+    ancien = _adulte(session, ndk, "GUIVARCH", "Katell", "kguivarc", 54, "ANGLAIS")
+    annee = _annee_et_snapshot(session, ancien, "2026-2027", "ANGLAIS")
+    entrant = _adulte(session, ndk, "TEXIER", "Pierre", "ptexier", 679,
+                      "HISTOIRE-GEOGRAPHIE")
+    _annee_et_snapshot(session, entrant, "2026-2027", "HISTOIRE-GEOGRAPHIE")
+
+    f = _base_koxo(tmp_path, [
+        ["Professeurs", "DIRECTRICE ADJOINTE", "GUIVARCH", "Katell",
+         "kguivarc", 54],
+    ])
+    retenir_identifiants_constates(session, f, site="NDK")
+    session.commit()
+
+    contenu, _ = generer_csv_koxo(
+        session, site_id=ndk.id, type_personne="adulte",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    par_nom = {l["Nom"]: l for l in _lire_csv_koxo(contenu)}
+    assert par_nom["GUIVARCH"]["Groupe secondaire"] == "DIRECTRICE ADJOINTE"
+    assert par_nom["TEXIER"]["Groupe secondaire"] == "HISTOIRE-GEOGRAPHIE"
+
+
+def test_un_eleve_suit_sa_classe_et_ne_preserve_rien(
+    session, site_factory, tmp_path
+):
+    """La classe change chaque année : c'est tout l'objet de la rentrée."""
+    from backend.models import AnneeScolaire, Personne, Snapshot
+    from backend.services.controle_koxo import retenir_identifiants_constates
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    ndk = site_factory("NDK")
+    p = Personne(type="eleve", nom="DUPONT", prenom="Jean", login="jdupont",
+                 badge=91000, id_charlemagne=91000, site_id=ndk.id, classe="2NDA")
+    session.add(p)
+    session.flush()
+    annee = AnneeScolaire(libelle="2026-2027")
+    session.add(annee)
+    session.flush()
+    session.add(Snapshot(personne_id=p.id, annee_scolaire_id=annee.id,
+                         nom="DUPONT", prenom="Jean", classe="2NDA"))
+    session.commit()
+
+    f = _base_koxo(tmp_path, [
+        ["Elèves", "3EMEB", "DUPONT", "Jean", "jdupont", 91000],
+    ])
+    retenir_identifiants_constates(session, f, site="NDK")
+    session.commit()
+
+    contenu, _ = generer_csv_koxo(
+        session, site_id=ndk.id, type_personne="eleve",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    assert _lire_csv_koxo(contenu)[0]["Groupe secondaire"] == "2NDA", "la classe suit Charlemagne"
+
+
+def test_un_constat_dune_autre_base_ne_sapplique_pas(
+    session, site_factory, tmp_path
+):
+    """Le groupe constaté ne vaut que dans la base d'où il vient."""
+    from backend.services.controle_koxo import retenir_identifiants_constates
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    ndk = site_factory("NDK")
+    site_factory("SU")
+    p = _adulte(session, ndk, "GUIVARCH", "Katell", "kguivarc", 54, "ANGLAIS")
+    annee = _annee_et_snapshot(session, p, "2026-2027", "ANGLAIS")
+
+    f = _base_koxo(tmp_path, [
+        ["Professeurs", "DIRECTRICE ADJOINTE", "GUIVARCH", "Katell",
+         "kguivarc", 54],
+    ])
+    retenir_identifiants_constates(session, f, site="SU")
+    session.commit()
+
+    contenu, _ = generer_csv_koxo(
+        session, site_id=ndk.id, type_personne="adulte",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    assert _lire_csv_koxo(contenu)[0]["Groupe secondaire"] == "ANGLAIS"
+
+
+def test_le_fichier_porte_les_groupes_de_la_base_visee(
+    session, site_factory, tmp_path
+):
+    """Le même fichier sert deux serveurs qui ne nomment pas pareil.
+
+    Nicolas GUILLOU est rangé sous `DIRECTEUR` dans la base de NDK et sous
+    `PHYSIQUE-CHIMIE` dans celle de SU. Le référentiel ne le rattache qu'à
+    NDK : sans désigner la base visée, le fichier servi à SU y déplaçait
+    vingt-quatre comptes.
+    """
+    from backend.services.controle_koxo import retenir_identifiants_constates
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    ndk = site_factory("NDK")
+    site_factory("SU")
+    p = _adulte(session, ndk, "GUILLOU", "Nicolas", "nguillou", 77,
+                "PHYSIQUE-CHIMIE")
+    annee = _annee_et_snapshot(session, p, "2026-2027", "PHYSIQUE-CHIMIE")
+
+    retenir_identifiants_constates(session, _base_koxo(tmp_path, [
+        ["Professeurs", "DIRECTEUR", "GUILLOU", "Nicolas", "nguillou", 77],
+    ], nom="ndk.csv"), site="NDK")
+    retenir_identifiants_constates(session, _base_koxo(tmp_path, [
+        ["Professeurs", "PHYSIQUE-CHIMIE", "GUILLOU", "Nicolas", "nguillou", 77],
+    ], nom="su.csv"), site="SU")
+    session.commit()
+
+    def groupe(base):
+        contenu, _ = generer_csv_koxo(
+            session, site_id=ndk.id, type_personne="adulte",
+            categorie="tous", annee_cible_id=annee.id, base_koxo=base,
+        )
+        return _lire_csv_koxo(contenu)[0]["Groupe secondaire"]
+
+    assert groupe(None) == "DIRECTEUR", "par défaut, la base du site"
+    assert groupe("NDK") == "DIRECTEUR"
+    assert groupe("SU") == "PHYSIQUE-CHIMIE"
+
+
+def test_les_deux_bases_tiennent_chacune_leur_constat(session, tmp_path):
+    """La clé d'unicité porte le site : lire SU n'écrase plus NDK.
+
+    Elle a d'abord été unique sur `(login, badge)`. Sur l'instance réelle,
+    176 constats sur 181 se sont retrouvés marqués « SU » après lecture du
+    second export, et l'export de NDK ne retrouvait plus rien.
+    """
+    from backend.models import LoginReserve
+    from backend.services.controle_koxo import retenir_identifiants_constates
+
+    for base, groupe in (("NDK", "DIRECTEUR"), ("SU", "PHYSIQUE-CHIMIE")):
+        retenir_identifiants_constates(session, _base_koxo(tmp_path, [
+            ["Professeurs", groupe, "GUILLOU", "Nicolas", "nguillou", 77],
+        ], nom=f"{base}.csv"), site=base)
+    session.commit()
+
+    constats = session.query(LoginReserve).filter_by(login="nguillou").all()
+    assert {c.site for c in constats} == {"NDK", "SU"}
+    assert {c.groupe_secondaire for c in constats} == {
+        "DIRECTEUR", "PHYSIQUE-CHIMIE",
+    }

@@ -720,7 +720,11 @@ def retenir_identifiants_constates(
     # Un seul aller-retour pour l'existant : interroger ligne par ligne
     # manquerait de toute façon les insertions encore en attente de flush,
     # et deux exports partagent des identifiants.
-    deja = {(r.login, r.badge): r for r in session.query(LoginReserve).all()}
+    # La clé porte le site : les professeurs existent dans les deux bases,
+    # et chacune doit pouvoir tenir son propre constat.
+    deja = {
+        (r.login, r.badge, r.site): r for r in session.query(LoginReserve).all()
+    }
     retenus = 0
     for l in lignes:
         if not l.login:
@@ -732,19 +736,22 @@ def retenir_identifiants_constates(
         # c'est précisément le constat « cet identifiant appartient à ce
         # badge dans cette base » qui permettra, en lisant l'autre base, de
         # reconnaître un homonyme légitime plutôt qu'une usurpation.
-        existante = deja.get((l.login, badge))
+        existante = deja.get((l.login, badge, site))
         if existante is None:
             nouvelle = LoginReserve(
                 login=l.login, source="controle_koxo", badge=badge,
                 site=site, nom=l.nom, prenom=l.prenom,
+                groupe_secondaire=l.groupe_secondaire or None,
                 motif="identifiant détenu dans un export KoXo",
             )
             session.add(nouvelle)
-            deja[(l.login, badge)] = nouvelle
+            deja[(l.login, badge, site)] = nouvelle
         else:
             existante.nom, existante.prenom = l.nom, l.prenom
             existante.source = "controle_koxo"
-            existante.site = site or existante.site
+            existante.groupe_secondaire = (
+                l.groupe_secondaire or existante.groupe_secondaire
+            )
         retenus += 1
 
     session.flush()

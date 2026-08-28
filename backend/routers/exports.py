@@ -141,6 +141,11 @@ class ExportKoxoPayload(BaseModel):
     il sert à les rassembler dans un groupe dédié plutôt que de les laisser
     porter leur dernière classe."""
 
+    base_koxo: str | None = None
+    """Nom du site dont la base KoXo recevra ce fichier, s'il diffère du site
+    choisi. Les professeurs vivent dans les deux serveurs, qui nomment leurs
+    groupes différemment ; c'est la base visée qui fait autorité."""
+
 
 class ExportKoxoReponse(BaseModel):
     site_nom: str
@@ -170,6 +175,7 @@ def exporter_koxo(
             annee_cible_id=payload.annee_cible_id,
             annee_source_id=payload.annee_source_id,
             groupe_secondaire_force=payload.groupe_secondaire_force,
+            base_koxo=payload.base_koxo,
         )
         nb_prevus = _enregistrer_si_demande(
             session,

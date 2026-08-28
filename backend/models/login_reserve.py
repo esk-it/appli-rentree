@@ -82,6 +82,22 @@ class LoginReserve(Base):
     Un identifiant constaté ne fait autorité que **dans sa propre base**.
     """
 
+    groupe_secondaire: Mapped[str | None] = mapped_column(
+        String(120), nullable=True
+    )
+    """Le groupe secondaire que la base range en face de cet identifiant.
+
+    Pour un élève, c'est sa classe : elle change chaque année et doit
+    suivre Charlemagne. Pour un adulte, c'est sa matière ou son service —
+    une organisation tenue à la main dans KoXo, où les directrices
+    adjointes sont rangées sous leur fonction plutôt que sous la matière
+    qu'elles enseignent aussi.
+
+    Écrire la matière Charlemagne par-dessus déplaçait vingt-trois
+    comptes qui n'avaient aucune raison de bouger, et dissolvait ces
+    regroupements. On garde donc ce que la base détient.
+    """
+
     nom: Mapped[str | None] = mapped_column(String(120), nullable=True)
     prenom: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
@@ -92,8 +108,21 @@ class LoginReserve(Base):
     date_constat: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
-        UniqueConstraint("login", "badge", name="uq_login_reserve_login_badge"),
+        UniqueConstraint(
+            "login", "badge", "site", name="uq_login_reserve_login_badge_site"
+        ),
     )
+    """Un constat par identifiant, par titulaire et **par base**.
+
+    Sans le site dans la clé, une seule ligne existait pour `(login,
+    badge)` : lire la base de SU après celle de NDK écrasait le site du
+    constat, et l'export de NDK ne retrouvait plus rien. Sur l'instance
+    réelle, 176 constats sur 181 se sont retrouvés marqués « SU » alors
+    que les deux bases les détenaient.
+
+    Les professeurs existent dans les deux bases : il faut donc pouvoir
+    tenir deux constats pour la même personne, un par serveur.
+    """
 
     def __repr__(self) -> str:  # pragma: no cover
         return f"<LoginReserve {self.login} ({self.source})>"

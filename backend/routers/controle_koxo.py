@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
+from backend.models import Site
 from backend.services.controle_koxo import (
     RapportControle,
     controler_export_koxo,
@@ -105,7 +106,19 @@ def controler(
         # Le rapport ne modifie rien ; ceci garde trace de ce que l'export
         # détient, pour que le contrôle de l'autre base ne prenne pas ces
         # identifiants pour des erreurs à corriger.
-        retenir_identifiants_constates(session, chemin)
+        #
+        # Le site voyage avec le constat, et ce n'est pas un ornement : un
+        # identifiant constaté ne fait autorité que **dans sa propre base**.
+        # Sans lui, l'export ne retrouve aucun constat et retombe en silence
+        # sur le référentiel — la protection existe, elle ne sert à rien.
+        site = (
+            session.query(Site).filter_by(id=payload.site_id).one_or_none()
+            if payload.site_id
+            else None
+        )
+        retenir_identifiants_constates(
+            session, chemin, site=site.nom if site else None
+        )
         session.commit()
     except ValueError as e:
         raise HTTPException(400, str(e)) from None
@@ -119,6 +132,14 @@ def controler(
 
     # Le nom du fichier déposé remplace celui du temporaire.
     rapport.fichier = payload.nom_fichier or rapport.fichier
+
+    if payload.site_id is None:
+        rapport.avertissements.append(
+            "Aucun site n'a été choisi : les identifiants relevés sont retenus "
+            "sans leur base. Ils ne protégeront pas les exports, où un "
+            "identifiant constaté ne fait autorité que dans la base d'où il "
+            "vient. Refais le contrôle en désignant le site de ce fichier."
+        )
     return _to_out(rapport)
 
 

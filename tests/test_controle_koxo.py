@@ -502,3 +502,67 @@ def test_sans_constat_de_lautre_base_le_cas_reste_ambigu(session, tmp_path, peup
 
     r = controler_export_koxo(session, f, type_personne="eleve")
     assert {e.genre for e in r.ecarts} >= {"rapprochement_ambigu"}
+
+
+# ---------------------------------------------------------------------------
+# Le site voyage avec le constat
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def client(tmp_db_path):
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    with TestClient(app) as c:
+        yield c
+
+
+def _poster(client, chemin, **extra):
+    import base64
+
+    charge = {
+        "fichier_base64": base64.b64encode(chemin.read_bytes()).decode(),
+        "nom_fichier": chemin.name,
+        "type_personne": "adulte",
+    }
+    charge.update(extra)
+    return client.post("/api/koxo/controle", json=charge)
+
+
+def test_le_constat_retient_la_base_dont_il_vient(
+    session, client, tmp_path, site_factory, peupler
+):
+    """Sans le site, l'export ne retrouve aucun constat et n'en profite pas.
+
+    La protection existait — un identifiant constaté ne fait autorité que
+    dans sa propre base — mais l'endpoint appelait la fonction sans lui
+    dire de quelle base venait le fichier. Les 2299 constats de l'instance
+    réelle étaient tous sans site, donc sans effet.
+    """
+    from backend.models import LoginReserve
+
+    ndk = site_factory("NDK")
+    peupler([("adulte", "CUEFF", "Cedric", "ccueff", 228)])
+    f = _export(tmp_path, [_prof("CUEFF", "Cedric", "ccueff", 228)])
+
+    r = _poster(client, f, site_id=ndk.id)
+    assert r.status_code == 200, r.text
+
+    constat = session.query(LoginReserve).filter_by(login="ccueff").one()
+    assert constat.site == "NDK"
+
+
+def test_un_controle_sans_site_le_dit(session, client, tmp_path, peupler):
+    """Le constat est gardé, mais il ne protégera rien : autant l'annoncer."""
+    from backend.models import LoginReserve
+
+    peupler([("adulte", "CUEFF", "Cedric", "ccueff", 228)])
+    f = _export(tmp_path, [_prof("CUEFF", "Cedric", "ccueff", 228)])
+
+    r = _poster(client, f)
+    assert r.status_code == 200, r.text
+    assert any("Aucun site" in a for a in r.json()["avertissements"])
+
+    assert session.query(LoginReserve).filter_by(login="ccueff").one().site is None
