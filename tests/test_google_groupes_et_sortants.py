@@ -387,3 +387,69 @@ def test_une_classe_sans_adresse_de_groupe_est_nommee(
     )
     assert "1_ST2S1" in r.classes_sans_groupe
     assert "1_STL" not in r.classes_sans_groupe
+
+
+def test_un_site_sans_eleve_charge_ne_perd_pas_ses_membres(
+    session, site_factory, annee_factory, personne_factory, snap_factory,
+    tc_factory,
+):
+    """L'écran l'annonçait déjà ; rien ne le faisait.
+
+    NDE n'était pas encore ingéré au moment de préparer NDK et SU. Ses
+    groupes montraient des sortants, et la synchronisation les aurait
+    retirés — sur la foi d'un export Charlemagne pas encore lu. Un site
+    vide n'est pas un site qui s'est vidé.
+    """
+    from backend.services.groupes_google import calculer_diff_groupes
+
+    ndk = site_factory("NDK")
+    nde = site_factory("NDE")
+    annee = annee_factory("2026-2027")
+    tc_factory(ndk.id, "6A", groupe_google="6eme-a@lekreisker.fr")
+    tc_factory(nde.id, "6V", groupe_google="6eme-verte@lekreisker.fr")
+
+    # NDK est chargé, NDE ne l'est pas.
+    p = personne_factory(site_id=ndk.id, login="present",
+                         email_constate="present@lekreisker.fr")
+    snap_factory(p.id, annee.id, classe="6A")
+    # Une élève de NDE, connue du référentiel mais sans photographie 2026-2027.
+    personne_factory(site_id=nde.id, login="nde1",
+                     email_constate="eleve.nde@lekreisker.fr")
+
+    r = calculer_diff_groupes(session, {
+        "6eme-a@lekreisker.fr": [],
+        "6eme-verte@lekreisker.fr": ["eleve.nde@lekreisker.fr"],
+    }, annee_id=annee.id)
+
+    assert r.sites_sans_eleve == ["NDE"]
+    nde_diff = next(d for d in r.diffs if d.site == "NDE")
+    assert nde_diff.a_retirer == [], "aucun retrait sur un site non chargé"
+    assert nde_diff.retraits_suspendus == ["eleve.nde@lekreisker.fr"]
+    assert any("suspendus" in a for a in r.avertissements)
+
+
+def test_un_site_charge_retire_normalement(
+    session, site_factory, annee_factory, personne_factory, snap_factory,
+    tc_factory,
+):
+    """La suspension ne doit valoir que pour un site entièrement absent."""
+    from backend.services.groupes_google import calculer_diff_groupes
+
+    ndk = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    tc_factory(ndk.id, "6A", groupe_google="6eme-a@lekreisker.fr")
+
+    reste = personne_factory(site_id=ndk.id, login="reste",
+                             email_constate="reste@lekreisker.fr")
+    snap_factory(reste.id, annee.id, classe="6A")
+    personne_factory(site_id=ndk.id, login="parti",
+                     email_constate="parti@lekreisker.fr")
+
+    r = calculer_diff_groupes(session, {
+        "6eme-a@lekreisker.fr": ["reste@lekreisker.fr", "parti@lekreisker.fr"],
+    }, annee_id=annee.id)
+
+    assert r.sites_sans_eleve == []
+    d = r.diffs[0]
+    assert d.a_retirer == ["parti@lekreisker.fr"]
+    assert d.retraits_suspendus == []

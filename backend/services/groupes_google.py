@@ -75,6 +75,13 @@ class DiffGroupe:
     """Faux si Google ne connaît pas ce groupe. Ses ajouts sont retenus."""
     retenus: list[str] = field(default_factory=list)
     """Ajouts qui auraient eu lieu si le groupe existait."""
+    retraits_suspendus: list[str] = field(default_factory=list)
+    """Retraits écartés parce que le site n'a aucun élève chargé.
+
+    Ils ne se déduisent alors pas d'un départ mais d'une donnée absente :
+    l'export Charlemagne du site n'a pas été ingéré. Les appliquer viderait
+    les groupes d'un site entier sur la foi d'un fichier qu'on n'a pas
+    encore lu."""
 
     @property
     def nb_mouvements(self) -> int:
@@ -290,14 +297,34 @@ def calculer_diff_groupes(
         )
     rapport.sites_sans_eleve = sorted(n for n, ok in peuples.items() if not ok)
 
+    # Un site sans un seul élève n'est pas un site qui s'est vidé : c'est un
+    # site dont l'export n'a pas été chargé. Retirer ses membres reviendrait
+    # à conclure d'une absence de donnée — exactement ce que le programme
+    # s'interdit ailleurs. Les retraits y sont donc suspendus, et l'écran le
+    # disait déjà : rien ne le faisait.
+    nb_retraits_suspendus = 0
+    if rapport.sites_sans_eleve:
+        sans = set(rapport.sites_sans_eleve)
+        for d in rapport.diffs:
+            if d.site in sans and d.a_retirer:
+                nb_retraits_suspendus += len(d.a_retirer)
+                d.retraits_suspendus = d.a_retirer
+                d.a_retirer = []
+
     rapport.diffs.sort(key=lambda d: (d.site or "", d.classe))
     if rapport.sites_sans_eleve:
-        rapport.avertissements.append(
+        message = (
             "Aucun élève pour l'année préparée sur : "
             + ", ".join(rapport.sites_sans_eleve)
             + ". Leurs groupes ne seront pas touchés — l'export Charlemagne de "
             "ce ou ces sites n'a probablement pas été chargé."
         )
+        if nb_retraits_suspendus:
+            message += (
+                f" {nb_retraits_suspendus} retrait(s) y sont suspendus : ils "
+                "seraient déduits d'une donnée manquante, pas d'un départ."
+            )
+        rapport.avertissements.append(message)
     if absents := rapport.groupes_absents:
         rapport.avertissements.append(
             f"{len(absents)} groupe(s) déclarés dans la Table n'existent pas "
