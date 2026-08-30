@@ -588,6 +588,26 @@ export const simulation = {
 // ---------------------------------------------------------------------------
 // Exports vers les cibles (KoXo, Google, PMB, JPM…)
 // ---------------------------------------------------------------------------
+/** Où en est la rentrée, étape par étape. */
+export const parcoursApi = {
+  /** Ce qui se lit sans réseau. Rejoué à chaque navigation. */
+  async avancement(anneeId) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parcours/avancement?annee_id=${anneeId}`),
+    );
+  },
+  /** Le même rapport, Google interrogé. Geste délibéré : plusieurs appels. */
+  async avancementGoogle({ anneeId, siteId = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parcours/avancement/google`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ annee_id: anneeId, site_id: siteId }),
+      }),
+    );
+  },
+};
+
 export const exportsCible = {
   async koxo({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null, enregistrerPrevus = false, groupeSecondaireForce = null, baseKoxo = null }) {
     return jsonOrThrow(

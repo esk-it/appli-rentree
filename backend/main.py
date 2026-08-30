@@ -40,6 +40,7 @@ from backend.routers import (
     statistiques as statistiques_router,
     suivi as suivi_router,
     table_correspondance,
+    parcours as parcours_router,
 )
 
 
@@ -247,3 +248,4 @@ app.include_router(google_api.router)
 app.include_router(nouveaux.router)
 app.include_router(bascule.router)
 app.include_router(sortants_router.router)
+app.include_router(parcours_router.router)

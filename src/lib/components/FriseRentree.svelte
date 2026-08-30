@@ -32,7 +32,7 @@
    *   dans le référentiel. Les autres n'en ont pas : une case qui ne se
    *   coche jamais serait fausse autant que décourageante.
    */
-  let { page, onNaviguer, faites = {} } = $props();
+  let { page, onNaviguer, faites = {}, etats = {} } = $props();
 
   // On travaille la rentrée sur plusieurs jours, en fermant l'application
   // entre deux. Retrouver l'étape où l'on s'était arrêté vaut mieux que de
@@ -75,6 +75,11 @@
     if (faites[e.id]) return "faite";
     return "attente";
   }
+
+  // Ce que le programme a constaté pour l'étape ouverte. « Inconnu » n'est
+  // pas « à faire » : une case vide faute d'avoir regardé mentirait autant
+  // qu'une case cochée à tort, et découragerait pour rien.
+  let constat = $derived(etape ? etats[etape.id] : null);
 
   function aller(e) {
     idCourant = e.id;
@@ -195,6 +200,18 @@
                 </span>
               {/if}
             </p>
+            {#if constat}
+              <p class="mt-1 text-[12.5px] leading-snug"
+                 class:text-emerald-700={constat.etat === "faite"}
+                 class:dark:text-emerald-400={constat.etat === "faite"}
+                 class:text-amber-700={constat.etat === "a_faire"}
+                 class:dark:text-amber-400={constat.etat === "a_faire"}
+                 class:text-stone-500={constat.etat === "inconnu"}
+                 class:dark:text-stone-400={constat.etat === "inconnu"}>
+                {#if constat.etat === "faite"}✓{:else if constat.etat === "a_faire"}○{:else}?{/if}
+                {constat.detail}
+              </p>
+            {/if}
           </div>
 
           <div class="flex shrink-0 items-center gap-1">

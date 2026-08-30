@@ -43,7 +43,7 @@
   import Exports from "./routes/Exports.svelte";
   import Suivi from "./routes/Suivi.svelte";
   import Statistiques from "./routes/Statistiques.svelte";
-  import { annees as anneesApi, arbitrages, statistiques } from "$lib/api.js";
+  import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
   import Aide from "./routes/Aide.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
@@ -144,36 +144,43 @@
   let rotationDemandee = $state(/** @type {any} */ (null));
 
   /**
-   * Ce que le référentiel permet de conclure sur les étapes de préparation.
+   * L'état de chaque étape du parcours, tel que le backend le calcule.
    *
-   * Les étapes de bascule n'y figurent pas : elles se constatent dans
-   * Google, pas ici, et une case qui ne se coche jamais serait fausse
-   * autant que décourageante.
+   * Il portait autrefois cinq étapes sur quinze, déduites ici à la main :
+   * toute la partie Google restait muette, et c'est justement là qu'on se
+   * perd. Le calcul est passé au backend, qui lit aussi la rotation de la
+   * Table, les constats KoXo et les OU qu'il a lui-même appliquées.
+   *
+   * Cinq étapes ne se constatent que dans Google. Elles restent à
+   * `inconnu` — distinct de « à faire » — jusqu'à ce qu'on les demande
+   * explicitement : les relire à chaque navigation coûterait plusieurs
+   * appels réseau pour rien.
    */
-  let etapesFaites = $state(/** @type {Record<string, boolean>} */ ({}));
+  let etapesEtats = $state(/** @type {Record<string, any>} */ ({}));
+  let etapesFaites = $derived(
+    Object.fromEntries(
+      Object.entries(etapesEtats).map(([id, e]) => [id, e.etat === "faite"]),
+    ),
+  );
 
   async function relireAvancement() {
     try {
-      const [ref, anomalies, annees] = await Promise.all([
-        statistiques.referentiel(),
-        statistiques.anomalies(),
-        anneesApi.lister(),
-      ]);
-      const horsTable = (anomalies?.anomalies ?? []).some(
-        (a) => a.type === "classe_hors_table",
-      );
-      etapesFaites = {
-        sites: (ref?.nb_sites ?? 0) > 0,
-        table: (ref?.nb_classes_table ?? 0) > 0 && !horsTable,
-        amorcage: (ref?.nb_personnes_total ?? 0) > 0,
-        ingestion: annees.length > 0,
-        arbitrage:
-          annees.length > 0 && (ref?.nb_arbitrages_en_attente ?? 0) === 0,
-      };
+      const annees = await anneesApi.lister();
+      if (!annees.length) {
+        etapesEtats = {};
+        return;
+      }
+      // L'année préparée est la plus récente : les libellés `AAAA-AAAA`
+      // s'ordonnent alphabétiquement.
+      const annee = [...annees].sort((a, b) =>
+        a.libelle.localeCompare(b.libelle),
+      ).at(-1);
+      const r = await parcoursApi.avancement(annee.id);
+      etapesEtats = Object.fromEntries(r.etapes.map((e) => [e.id, e]));
     } catch {
       // Le backend n'est pas encore prêt : la frise reste neutre plutôt
       // que d'annoncer des étapes non faites qui le sont peut-être.
-      etapesFaites = {};
+      etapesEtats = {};
     }
   }
 
@@ -502,7 +509,8 @@
     <!-- La frise reste hors du bloc `{#key}` : la rejouer à chaque
          navigation la ferait clignoter, alors qu'elle est justement le
          repère fixe pendant qu'on avance. -->
-    <FriseRentree {page} faites={etapesFaites} onNaviguer={(p) => (page = p)} />
+    <FriseRentree {page} faites={etapesFaites} etats={etapesEtats}
+                  onNaviguer={(p) => (page = p)} />
 
     <!-- `{#key}` reconstruit le bloc à chaque navigation, ce qui relance
          l'animation d'apparition — sinon Svelte réutilise le nœud et rien
