@@ -1,6 +1,7 @@
 <script>
   import { onMount } from "svelte";
   import GraduationCap from "@lucide/svelte/icons/graduation-cap";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import Home from "@lucide/svelte/icons/home";
   import Database from "@lucide/svelte/icons/database";
   import Users2 from "@lucide/svelte/icons/users-2";
@@ -263,43 +264,64 @@
    * pour en trouver une. Les sections suivent l'ordre réel du travail :
    * on configure une fois, on traite à chaque campagne, on surveille ensuite.
    */
+  /**
+   * Le menu, rangé par usage plutôt que par module.
+   *
+   * Vingt entrées alignées demandaient de toutes les lire pour en trouver
+   * une, et surtout : elles laissaient croire que naviguer était la façon
+   * de travailler. Ce n'en est pas une. Une rentrée se conduit par le
+   * parcours, qui donne l'ordre et l'état de chaque étape ; le menu ne
+   * sert qu'à revenir sur un écran précis.
+   *
+   * Les onze écrans qui sont des **étapes** du parcours sont donc repliés :
+   * on y arrive depuis la frise, qui sait où l'on en est. Restent dépliés
+   * ceux qu'on consulte à tout moment, sans qu'ils appartiennent à une
+   * étape.
+   *
+   * `repliable` n'est pas `caché` : un groupe replié s'ouvre d'un clic, et
+   * son état se retient. Rien n'a été retiré.
+   */
   const sections = [
     {
       titre: null, // le tableau de bord n'appartient à aucun groupe
       items: [{ id: "accueil", label: "Tableau de bord", icon: Home }],
     },
     {
-      titre: "Configuration",
+      id: "parcours",
+      titre: "Parcours de rentrée",
+      repliable: true,
       items: [
         { id: "sites", label: "Sites", icon: Building2 },
         { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon },
         { id: "amorcage", label: "Amorçage KoXo", icon: Rocket },
-        { id: "controle_koxo", label: "Contrôle KoXo", icon: ShieldCheck },
-      ],
-    },
-    {
-      titre: "Traitement",
-      items: [
         { id: "snapshots", label: "Snapshots d'années", icon: Database },
-        { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
-        { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
-        // Vérifier avant d'agir : Conformité précède les écrans qui écrivent.
-        { id: "conformite_google", label: "Conformité Google", icon: ShieldCheck },
-        { id: "sortants", label: "Sortants", icon: LogOut },
-        { id: "bascule", label: "Bascule des OU", icon: FolderTree },
-        { id: "chromebooks", label: "Chromebooks", icon: Laptop },
         {
           id: "arbitrage",
           label: "Arbitrage",
           icon: Scale,
           badge: () => nbArbitragesEnAttente,
         },
-        { id: "simulation", label: "Simulation", icon: Zap },
+        { id: "sortants", label: "Sortants", icon: LogOut },
+        { id: "controle_koxo", label: "Contrôle KoXo", icon: ShieldCheck },
         { id: "exports", label: "Exports", icon: FileDown },
+        // Vérifier avant d'agir : Conformité précède les écrans qui écrivent.
+        { id: "conformite_google", label: "Conformité Google", icon: ShieldCheck },
+        { id: "bascule", label: "Bascule des OU", icon: FolderTree },
+        { id: "chromebooks", label: "Chromebooks", icon: Laptop },
       ],
     },
     {
-      titre: "Consultation",
+      id: "outils",
+      titre: "Outils",
+      repliable: true,
+      items: [
+        { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
+        { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
+        { id: "simulation", label: "Simulation", icon: Zap },
+      ],
+    },
+    {
+      titre: "Consulter",
       items: [
         { id: "personnes", label: "Référentiel", icon: Users2 },
         { id: "suivi", label: "Suivi", icon: Activity },
@@ -314,6 +336,45 @@
       ],
     },
   ];
+
+  /**
+   * Quels groupes sont ouverts. Retenu d'une session à l'autre : refermer
+   * à chaque démarrage ce qu'on vient d'ouvrir serait une brimade.
+   */
+  const MEMOIRE_GROUPES = "menu.groupes.ouverts";
+  let groupesOuverts = $state(
+    /** @type {Record<string, boolean>} */ (
+      (() => {
+        try {
+          return JSON.parse(localStorage.getItem(MEMOIRE_GROUPES) ?? "{}");
+        } catch {
+          return {};
+        }
+      })()
+    ),
+  );
+
+  $effect(() => {
+    try {
+      localStorage.setItem(MEMOIRE_GROUPES, JSON.stringify(groupesOuverts));
+    } catch {
+      // Le stockage peut être refusé : le menu marche sans mémoire.
+    }
+  });
+
+  // Un groupe replié qui contient l'écran courant s'ouvre de lui-même :
+  // arriver quelque part sans voir où l'on est serait désorientant.
+  let sectionsAffichees = $derived(
+    sections.map((s) => ({
+      ...s,
+      ouvert:
+        !s.repliable ||
+        groupesOuverts[s.id] === true ||
+        s.items.some((i) => i.id === page),
+      alerte: s.items.some((i) => i.badge && i.badge() > 0),
+    })),
+  );
+
 </script>
 
 {#if backendOk === null}
@@ -440,16 +501,36 @@
     </div>
 
     <nav class="flex-1 overflow-y-auto px-3 py-2">
-      {#each sections as section, iSection (iSection)}
+      {#each sectionsAffichees as section, iSection (iSection)}
         <div class={section.titre ? "mt-4 first:mt-0" : "mt-2 first:mt-0"}>
-          {#if section.titre}
+          {#if section.titre && section.repliable}
+            <!-- Un groupe replié s'ouvre d'un clic : rien n'a été retiré du
+                 menu, seulement mis à distance de la main. -->
+            <button
+              class="mb-1 flex w-full items-center gap-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-stone-400 transition hover:text-stone-600 dark:text-stone-500 dark:hover:text-stone-300"
+              onclick={() => (groupesOuverts[section.id] = !section.ouvert)}
+            >
+              <ChevronRight
+                class="h-3 w-3 shrink-0 transition-transform duration-150 {section.ouvert ? 'rotate-90' : ''}"
+              />
+              <span class="flex-1 text-left">{section.titre}</span>
+              {#if !section.ouvert}
+                <span class="font-normal normal-case tracking-normal text-stone-400 dark:text-stone-500">
+                  {section.items.length}
+                </span>
+              {/if}
+              {#if section.alerte && !section.ouvert}
+                <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"></span>
+              {/if}
+            </button>
+          {:else if section.titre}
             <p
               class="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-stone-400 dark:text-stone-500"
             >
               {section.titre}
             </p>
           {/if}
-          <div class="space-y-0.5">
+          <div class="space-y-0.5" class:hidden={!section.ouvert}>
             {#each section.items as item (item.id)}
               {@const actif = page === item.id}
               <button
@@ -572,6 +653,11 @@
 </div>
 </div>
 
-<CommandPalette bind:ouvert={paletteOuverte} onFermer={() => (paletteOuverte = false)} />
+<CommandPalette
+  bind:ouvert={paletteOuverte}
+  onFermer={() => (paletteOuverte = false)}
+  ecrans={sections.flatMap((s) => s.items)}
+  onAller={(id) => (page = id)}
+/>
 <ToasterContainer />
 {/if}

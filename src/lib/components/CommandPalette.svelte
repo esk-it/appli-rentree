@@ -1,5 +1,6 @@
 <script>
   import Search from "@lucide/svelte/icons/search";
+  import CornerDownLeft from "@lucide/svelte/icons/corner-down-left";
   import X from "@lucide/svelte/icons/x";
   import User from "@lucide/svelte/icons/user";
   import UserCog from "@lucide/svelte/icons/user-cog";
@@ -9,9 +10,14 @@
    * @typedef {Object} Props
    * @property {boolean} ouvert
    * @property {() => void} onFermer
+   * @property {{id: string, label: string}[]} [ecrans] - les écrans
+   *   atteignables. La palette est devenue le chemin le plus court vers
+   *   eux depuis que le menu replie ceux du parcours : les y chercher doit
+   *   marcher, sinon replier revient à cacher.
+   * @property {(id: string) => void} [onAller]
    */
   /** @type {Props} */
-  let { ouvert = $bindable(), onFermer } = $props();
+  let { ouvert = $bindable(), onFermer, ecrans = [], onAller = null } = $props();
 
   let terme = $state("");
   let toutes = $state(/** @type {any[]} */ ([]));
@@ -43,15 +49,25 @@
     }
   });
 
+  // Sans accents ni casse : « conformite » doit trouver « Conformité ».
+  function aplatir(t) {
+    return (t ?? "")
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase();
+  }
+
   let resultats = $derived.by(() => {
     const q = terme.trim().toLowerCase();
-    if (!q) return { eleves: [], adultes: [], nb: 0 };
+    if (!q) return { ecrans: [], eleves: [], adultes: [], nb: 0 };
+    const qa = aplatir(q);
+    const pages = ecrans.filter((e) => aplatir(e.label).includes(qa));
     const filtree = toutes.filter((p) =>
       `${p.nom} ${p.prenom} ${p.login} ${p.cle_pivot} ${p.badge}`.toLowerCase().includes(q),
     );
     const eleves = filtree.filter((p) => p.type === "eleve").slice(0, 30);
     const adultes = filtree.filter((p) => p.type === "adulte").slice(0, 30);
-    return { eleves, adultes, nb: filtree.length };
+    return { ecrans: pages, eleves, adultes, nb: filtree.length + pages.length };
   });
 
   function gererTouche(e) {
@@ -99,7 +115,7 @@
           <div class="p-4 text-center text-sm text-stone-500 dark:text-stone-400">Chargement du référentiel…</div>
         {:else if !terme.trim()}
           <div class="p-6 text-center text-sm text-stone-500 dark:text-stone-400">
-            <p>Tape au moins 1 caractère pour chercher dans le référentiel.</p>
+            <p>Tape au moins 1 caractère pour chercher un écran ou une personne.</p>
             <p class="mt-2 text-xs text-stone-400 dark:text-stone-500">
               Recherche dans les <strong>{toutes.length}</strong> personne(s) actuellement en base.
             </p>
@@ -109,6 +125,29 @@
             Aucun résultat.
           </div>
         {:else}
+          {#if resultats.ecrans.length > 0}
+            <p class="bg-stone-50 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-stone-600 dark:bg-stone-900 dark:text-stone-400">
+              Écrans ({resultats.ecrans.length})
+            </p>
+            <ul class="divide-y divide-stone-100 dark:divide-stone-700">
+              {#each resultats.ecrans as e (e.id)}
+                <li>
+                  <button
+                    class="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-stone-50 dark:hover:bg-stone-700/50"
+                    onclick={() => {
+                      onAller?.(e.id);
+                      onFermer();
+                    }}
+                  >
+                    <CornerDownLeft class="h-4 w-4 shrink-0 text-stone-400" />
+                    <span class="text-sm font-medium text-stone-900 dark:text-stone-100">
+                      {e.label}
+                    </span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+          {/if}
           {#if resultats.eleves.length > 0}
             <p class="bg-stone-50 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-stone-600 dark:bg-stone-900 dark:text-stone-400">
               Élèves ({resultats.eleves.length})
