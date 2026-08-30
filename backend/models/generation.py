@@ -36,6 +36,10 @@ TYPES_OPERATION = (
     # Toucher à un identifiant est assez rare, et assez lourd de
     # conséquences, pour mériter sa propre famille dans le journal.
     "identifiant",
+    # Un mouvement d'élève en cours d'année n'a pas de campagne pour
+    # l'expliquer. En août prochain, quand le référentiel ne collera pas à
+    # Charlemagne, c'est le journal qui dira pourquoi.
+    "mouvement",
 )
 
 
