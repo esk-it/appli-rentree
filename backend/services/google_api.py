@@ -319,7 +319,7 @@ def construire_plan(
     site_id: int,
     type_personne: str,
     annee_cible_id: int,
-    annee_source_id: int,
+    annee_source_id: int | None = None,
     mots_de_passe: dict[str, str] | None = None,
     phase: str = "pre_rentree",
 ) -> PlanGoogle:
@@ -330,6 +330,13 @@ def construire_plan(
     autre canal.
 
     Args:
+        annee_source_id: année précédente, nécessaire pour savoir qui entre
+            et qui sort. **Facultative** : sans elle, le plan se limite aux
+            déplacements d'unité d'organisation, qui n'en dépendent pas.
+            C'est ce que demande l'écran de bascule, dont c'est tout l'objet
+            — et y ajouter des suspensions sur la foi d'une année déduite
+            serait une surprise désagréable derrière un bouton qui annonce
+            un placement.
         mots_de_passe: `{login: mdp}` issu de la boucle KoXo, en mémoire.
             Un nouveau compte sans mot de passe disponible est signalé en
             avertissement et **exclu du plan** — créer un compte sans mot
@@ -361,15 +368,23 @@ def construire_plan(
         for tc in session.query(TableCorrespondance).filter_by(site_id=site.id).all()
     }
 
-    rapport = reconcilier(
-        session, annee_source_id, annee_cible_id, type_personne=type_personne
-    )
+    if annee_source_id is None:
+        rapport = None
+        plan.avertissements.append(
+            "Aucune année de référence : ce plan ne porte que les "
+            "déplacements. Les créations et les suspensions demandent de "
+            "savoir qui entre et qui sort, ce qui suppose l'année précédente."
+        )
+    else:
+        rapport = reconcilier(
+            session, annee_source_id, annee_cible_id, type_personne=type_personne
+        )
 
     def personne(pid: int) -> Personne | None:
         return session.query(Personne).filter_by(id=pid).one_or_none()
 
     # Créations
-    for entree in rapport.nouveaux:
+    for entree in (rapport.nouveaux if rapport else []):
         if entree.site_id != site.id:
             continue
         p = personne(entree.personne_id)
@@ -448,7 +463,7 @@ def construire_plan(
 
     # Sortants — suspension + déplacement en OU d'archivage, jamais suppression
     ou_sortants = calculer_ou_sortants(session, site=site)
-    for entree in rapport.sortants:
+    for entree in (rapport.sortants if rapport else []):
         if entree.site_id != site.id:
             continue
         p = personne(entree.personne_id)

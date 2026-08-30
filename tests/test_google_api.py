@@ -454,3 +454,55 @@ def test_client_refuse_config_incomplete(session):
 
     with pytest.raises(ValueError):
         ClientGoogle(charger_config(session))
+
+
+# ---------------------------------------------------------------------------
+# Plan sans année de référence — le cas de l'écran de bascule
+# ---------------------------------------------------------------------------
+
+
+def test_un_plan_sans_annee_source_ne_porte_que_les_deplacements(
+    session, site_factory, annee_factory, personne_factory, snap_factory,
+    tc_factory,
+):
+    """L'écran de bascule n'a pas d'année source à donner, et n'en veut pas.
+
+    Il envoyait `annee_source_id: null` ; l'endpoint l'exigeait entier et
+    répondait 422. Le bouton API n'avait donc jamais pu servir. Un placement
+    de pré-rentrée n'a besoin que des déplacements — y glisser des
+    suspensions déduites d'une année devinée serait une surprise derrière un
+    bouton qui annonce autre chose.
+    """
+    from backend.services.google_api import construire_plan
+
+    site = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    tc_factory(site.id, "6A")
+    p = personne_factory(site_id=site.id, login="jdupont",
+                         email_constate="jean.dupont@lekreisker.fr")
+    snap_factory(p.id, annee.id, classe="6A")
+
+    plan = construire_plan(
+        session, site_id=site.id, type_personne="eleve",
+        annee_cible_id=annee.id, phase="pre_rentree",
+    )
+    actions = {o.action for o in plan.operations}
+    assert actions <= {"deplacer"}, actions
+    assert any("que les déplacements" in a for a in plan.avertissements)
+
+
+def test_lendpoint_accepte_un_plan_sans_annee_source(session, site_factory,
+                                                     annee_factory):
+    """Le 422 venait du schéma, pas du calcul : il faut le couvrir aussi."""
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    site = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    with TestClient(app) as client:
+        r = client.post("/api/google/plan", json={
+            "site_id": site.id, "type_personne": "eleve",
+            "annee_cible_id": annee.id, "phase": "pre_rentree",
+        })
+    assert r.status_code != 422, r.text

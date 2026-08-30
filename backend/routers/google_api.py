@@ -80,7 +80,9 @@ class PlanPayload(BaseModel):
     site_id: int
     type_personne: Literal["eleve", "adulte"]
     annee_cible_id: int
-    annee_source_id: int
+    annee_source_id: int | None = None
+    """Facultative. Sans elle, le plan se limite aux déplacements — l'écran
+    de bascule ne demande que cela, et n'a pas d'année source à donner."""
     csv_koxo_base64: str | None = None
     """CSV KoXo enrichi — fournit les mots de passe des nouveaux comptes.
     Transite en mémoire, n'est jamais persisté."""
