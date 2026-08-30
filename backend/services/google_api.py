@@ -625,6 +625,47 @@ class ClientGoogle:
             suspendu=bool(u.get("suspended", False)),
         )
 
+    def lire_utilisateurs(self, adresses: list[str]) -> dict[str, dict | None]:
+        """Décrit quelques comptes, un appel par adresse. Lecture seule.
+
+        Sert à vérifier ce qu'un import a réellement produit : l'unité
+        d'organisation atteinte, l'état du compte, et si Google réclamera un
+        changement de mot de passe — que `lister_utilisateurs` ne rapporte
+        pas, parce qu'il n'en a pas besoin pour ses parcours de branche.
+
+        Une adresse inconnue vaut `None` plutôt qu'une erreur : c'est un
+        résultat, et c'est même celui qu'on redoute.
+        """
+        from googleapiclient.errors import HttpError
+
+        resultats: dict[str, dict | None] = {}
+        for adresse in adresses:
+            cle = (adresse or "").strip().lower()
+            if not cle:
+                continue
+            try:
+                u = reessayer(
+                    lambda: self._service.users().get(userKey=cle).execute()
+                )
+            except HttpError as e:
+                if getattr(e, "status_code", None) == 404 or "404" in str(e):
+                    resultats[cle] = None
+                    continue
+                raise
+            resultats[cle] = {
+                "email": (u.get("primaryEmail") or "").lower(),
+                "ou": u.get("orgUnitPath") or "",
+                "suspendu": bool(u.get("suspended", False)),
+                "changement_mdp_exige": bool(
+                    u.get("changePasswordAtNextLogin", False)
+                ),
+                "nom": (u.get("name") or {}).get("familyName") or "",
+                "prenom": (u.get("name") or {}).get("givenName") or "",
+                "date_creation": u.get("creationTime"),
+                "derniere_connexion": u.get("lastLoginTime"),
+            }
+        return resultats
+
     def lister_utilisateurs(self, prefixe_ou: str | None = None) -> list[dict]:
         """Tous les comptes du domaine, filtrés sur un préfixe d'OU.
 

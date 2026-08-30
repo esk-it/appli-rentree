@@ -1701,6 +1701,104 @@ def lister_groupes_a_creer(
     )
 
 
+class VerifierComptesPayload(BaseModel):
+    annee_id: int
+    adresses: list[str] | None = None
+    """Les adresses à examiner. `None` = un échantillon choisi par le
+    programme, parmi les comptes que l'import vient de créer."""
+    site_id: int | None = None
+    par_site: int = 2
+
+
+class CompteVerifieOut(BaseModel):
+    adresse: str
+    trouve: bool
+    nom: str
+    prenom: str
+    classe: str | None
+    login: str | None
+    ou_google: str | None
+    ou_attendue_pre_rentree: str | None
+    ou_attendue_definitive: str | None
+    ou_reconnue: str | None
+    suspendu: bool | None
+    changement_mdp_exige: bool | None
+    date_creation: str | None
+    derniere_connexion: str | None
+    anomalies: list[str]
+    est_conforme: bool
+
+
+class VerificationOut(BaseModel):
+    annee_libelle: str
+    nb_verifies: int
+    nb_conformes: int
+    nb_introuvables: int
+    tout_va_bien: bool
+    comptes: list[CompteVerifieOut]
+    avertissements: list[str]
+
+
+@router.post("/verifier-comptes", response_model=VerificationOut)
+def verifier_comptes_endpoint(
+    payload: VerifierComptesPayload, session: Session = Depends(db_session)
+) -> VerificationOut:
+    """Lit quelques comptes dans Google et les confronte au référentiel.
+
+    Lecture seule, de bout en bout. Le mot de passe n'y figure pas :
+    l'API d'administration ne le lit pas, et prétendre le contrôler ici
+    laisserait croire qu'un compte « conforme » est utilisable.
+    """
+    from dataclasses import asdict
+
+    from backend.services.verification_comptes import (
+        choisir_echantillon,
+        verifier_comptes,
+    )
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    adresses = payload.adresses
+    if not adresses:
+        try:
+            adresses = choisir_echantillon(
+                session,
+                annee_id=payload.annee_id,
+                par_site=payload.par_site,
+                site_id=payload.site_id,
+            )
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+    if not adresses:
+        raise HTTPException(
+            400,
+            "Aucun compte à vérifier : aucun élève chargé pour cette année.",
+        )
+
+    try:
+        bruts = client.lire_utilisateurs(adresses)
+        rapport = verifier_comptes(session, bruts, annee_id=payload.annee_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    return VerificationOut(
+        annee_libelle=rapport.annee_libelle,
+        nb_verifies=rapport.nb_verifies,
+        nb_conformes=rapport.nb_conformes,
+        nb_introuvables=rapport.nb_introuvables,
+        tout_va_bien=rapport.tout_va_bien,
+        comptes=[
+            CompteVerifieOut(**asdict(c), est_conforme=c.est_conforme)
+            for c in rapport.comptes
+        ],
+        avertissements=rapport.avertissements,
+    )
+
+
 class CreerGroupesPayload(BaseModel):
     annee_id: int
     site_id: int | None = None

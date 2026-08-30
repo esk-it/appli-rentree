@@ -468,6 +468,24 @@ export const googleApi = {
       }),
     );
   },
+  /**
+   * Lit quelques comptes dans Google et les confronte au référentiel.
+   *
+   * Lecture seule. Le mot de passe n'en fait pas partie : l'API
+   * d'administration ne le lit pas, et le laisser croire rendrait le mot
+   * « conforme » trompeur.
+   */
+  async verifierComptes({ anneeId, adresses = null, siteId = null, parSite = 2 }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/verifier-comptes`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          annee_id: anneeId, adresses, site_id: siteId, par_site: parSite,
+        }),
+      }),
+    );
+  },
   /** La flotte croisée au tableau déjà conservé — sans redemander le fichier. */
   async flotteEnregistree() {
     return jsonOrThrow(await fetch(`${BASE}/google/chromebooks`));

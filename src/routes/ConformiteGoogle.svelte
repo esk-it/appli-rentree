@@ -25,6 +25,11 @@
   let anneeId = $state(/** @type {number | null} */ (null));
 
   let volet = $state("arborescence");
+
+  // Vérification de comptes — lecture seule, après un import.
+  let verification = $state(/** @type {any} */ (null));
+  let verificationEnCours = $state(false);
+  let adressesSaisies = $state("");
   let job = $state(/** @type {any} */ (null));
   let sondage = /** @type {any} */ (null);
 
@@ -158,6 +163,41 @@
     }
   }
 
+  /**
+   * Confronte quelques comptes Google au référentiel.
+   *
+   * Sans adresse saisie, le programme choisit lui-même : deux par site,
+   * pris parmi les entrants — un compte ancien n'apprend rien sur l'import
+   * du jour.
+   */
+  async function verifierComptes() {
+    if (!anneeId) return;
+    verificationEnCours = true;
+    try {
+      const adresses = adressesSaisies
+        .split(/[\s,;]+/)
+        .map((a) => a.trim())
+        .filter(Boolean);
+      verification = await googleApi.verifierComptes({
+        anneeId,
+        adresses: adresses.length ? adresses : null,
+      });
+      if (verification.tout_va_bien) {
+        notify.succes(
+          `${verification.nb_conformes} compte(s) conformes sur ${verification.nb_verifies}`,
+        );
+      } else {
+        notify.avertissement(
+          `${verification.nb_verifies - verification.nb_conformes} compte(s) à regarder`,
+        );
+      }
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      verificationEnCours = false;
+    }
+  }
+
   async function synchroniserGroupes() {
     chargeGrp = true;
     try {
@@ -248,6 +288,7 @@
           { id: "arborescence", label: "Arborescence" },
           { id: "adresses", label: "Adresses" },
           { id: "groupes", label: "Groupes" },
+          { id: "comptes", label: "Comptes" },
         ]}
       />
     </div>
@@ -407,7 +448,7 @@
         {/if}
       </div>
 
-    {:else}
+    {:else if volet === "groupes"}
       <div class="card p-4 space-y-3">
         <h2 class="titre-section flex items-center gap-2">
           <UsersRound class="h-4 w-4" /> Groupes de classe
@@ -592,6 +633,100 @@
               </tbody>
             </table>
           </div>
+        {/if}
+      </div>
+    {:else if volet === "comptes"}
+      <!-- Un import de masse repond « 238 creations reussies » et s'arrete la.
+           Il ne dit pas ou les comptes ont atterri, ni s'ils sont actifs, ni
+           si Google reclamera un changement de mot de passe. Ces trois-la
+           decident pourtant si l'eleve pourra se connecter le jour J. -->
+      <div class="card space-y-3 p-4">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
+          Vérifier des comptes
+        </h2>
+        <p class="text-sm text-stone-600 dark:text-stone-400">
+          Lit dans Google ce qu'un import a réellement produit, et le compare
+          au référentiel. <strong>Lecture seule.</strong> Deux comptes par site
+          suffisent : ils naissent du même fichier, d'un seul geste.
+        </p>
+
+        <label class="block">
+          <span class="libelle-champ">Adresses (facultatif)</span>
+          <input
+            class="champ w-full font-mono text-sm"
+            bind:value={adressesSaisies}
+            placeholder="Laisse vide pour un échantillon d'entrants, deux par site"
+          />
+        </label>
+
+        <div>
+          <Bouton
+            variante="primary"
+            occupe={verificationEnCours}
+            disabled={!apiUtilisable || !anneeId}
+            onclick={verifierComptes}
+          >
+            Vérifier
+          </Bouton>
+        </div>
+
+        {#if verification}
+          <p class="text-sm">
+            <strong class:text-emerald-700={verification.tout_va_bien}
+                    class:dark:text-emerald-400={verification.tout_va_bien}>
+              {verification.nb_conformes} / {verification.nb_verifies}
+            </strong>
+            conforme(s)
+            {#if verification.nb_introuvables}
+              · <strong class="text-red-700 dark:text-red-400">
+                {verification.nb_introuvables} sans compte Google
+              </strong>
+            {/if}
+          </p>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="text-xs uppercase text-stone-500 dark:text-stone-400">
+                <tr>
+                  <th class="py-1 pr-3">Compte</th>
+                  <th class="py-1 pr-3">Classe</th>
+                  <th class="py-1 pr-3">Unité d'organisation</th>
+                  <th class="py-1">État</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each verification.comptes as c (c.adresse)}
+                  <tr class="border-t border-stone-200 align-top dark:border-stone-700">
+                    <td class="py-1.5 pr-3 font-mono text-xs">{c.adresse}</td>
+                    <td class="py-1.5 pr-3">{c.classe ?? "—"}</td>
+                    <td class="py-1.5 pr-3 font-mono text-xs">
+                      {c.ou_google ?? "—"}
+                      {#if c.ou_reconnue === "pre_rentree"}
+                        <span class="ml-1 text-xs text-stone-500">(OU d'attente)</span>
+                      {:else if c.ou_reconnue === "definitive"}
+                        <span class="ml-1 text-xs text-stone-500">(OU de classe)</span>
+                      {/if}
+                    </td>
+                    <td class="py-1.5">
+                      {#if c.est_conforme}
+                        <span class="text-emerald-700 dark:text-emerald-400">conforme</span>
+                      {:else}
+                        <ul class="space-y-0.5 text-xs text-red-700 dark:text-red-400">
+                          {#each c.anomalies as a}<li>• {a}</li>{/each}
+                        </ul>
+                      {/if}
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+
+          {#each verification.avertissements as a}
+            <p class="rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs text-stone-700 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-300">
+              {a}
+            </p>
+          {/each}
         {/if}
       </div>
     {/if}
