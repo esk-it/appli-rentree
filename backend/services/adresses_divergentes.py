@@ -18,6 +18,17 @@ Les conséquences sont silencieuses et coûteuses :
   des partants — un élève inscrit s'est trouvé à un cheveu d'être
   suspendu.
 
+## L'adresse calculée compte autant que l'adresse constatée
+
+Le contrôle ne regardait que les personnes dont l'adresse avait déjà été
+constatée dans Google. C'était l'angle mort : une personne fraîchement
+ingérée n'en a pas, son adresse est **déduite d'une règle** — et c'est
+justement là que la règle peut se tromper.
+
+Un entrant dont aucun compte ne porte le nom n'est pas un écart pour
+autant : son compte reste à créer, et le signaler noierait les vrais
+écarts sous les arrivées de l'année.
+
 ## Les alias comptent
 
 Un compte Google répond à son adresse principale et à chacun de ses
@@ -77,6 +88,7 @@ def detecter_divergences(
     comptes_google: list[dict],
     *,
     annee_id: int | None = None,
+    site_id: int | None = None,
 ) -> RapportDivergences:
     """Repère les personnes dont l'adresse enregistrée n'existe pas dans Google.
 
@@ -114,7 +126,17 @@ def detecter_divergences(
         annees = session.query(AnneeScolaire).all()
         annee_id = max(annees, key=lambda a: a.libelle).id if annees else None
 
-    q = session.query(Personne).filter(Personne.email_constate.isnot(None))
+    # On examine aussi ceux dont l'adresse est **calculée**, et pas
+    # seulement constatée. C'était l'angle mort : une personne fraîchement
+    # ingérée n'a pas d'adresse constatée, son adresse est déduite d'une
+    # règle — et c'est précisément là que la règle peut se tromper. Sur les
+    # 127 élèves de NDE, six portaient une adresse calculée qui ne
+    # désignait pas leur compte : `alice.le.gall` contre `alice.legall`,
+    # `lilou.dubois.cuiec` contre `lilou.dubois-cuiec`. L'écran n'en
+    # montrait aucune, et l'export en aurait fait six doublons.
+    q = session.query(Personne)
+    if site_id is not None:
+        q = q.filter(Personne.site_id == site_id)
     if annee_id is not None:
         ids = {
             pid
@@ -134,13 +156,22 @@ def detecter_divergences(
 
     rapport = RapportDivergences()
     for p in q.all():
+        enregistree = (p.email or "").strip().lower()
+        if not enregistree:
+            continue
         rapport.nb_examines += 1
-        enregistree = p.email_constate.strip().lower()
         if enregistree in adresses_google:
             continue
 
         cle = (normaliser_nom(p.nom), normaliser_nom(p.prenom))
         candidats = par_nom_google.get(cle, [])
+
+        # Une adresse calculée qui ne désigne aucun compte, pour quelqu'un
+        # dont aucun compte ne porte le nom, n'est pas un écart : c'est un
+        # entrant, et son compte reste à créer. Le signaler noierait les
+        # vrais écarts sous les arrivées de l'année.
+        if not candidats and not p.email_constate:
+            continue
 
         if len(candidats) == 1 and homonymes_referentiel.get(cle, 0) == 1:
             u = candidats[0]

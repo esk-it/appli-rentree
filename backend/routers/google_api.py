@@ -1451,7 +1451,7 @@ class DivergencesOut(BaseModel):
     divergences: list[DivergenceOut]
 
 
-def _detecter_divergences(session: Session, annee_id):
+def _detecter_divergences(session: Session, annee_id, site_id=None):
     from backend.services.adresses_divergentes import detecter_divergences
 
     config = charger_config(session)
@@ -1463,19 +1463,23 @@ def _detecter_divergences(session: Session, annee_id):
         comptes = client.lister_utilisateurs()
     except Exception as e:
         raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
-    return detecter_divergences(session, comptes, annee_id=annee_id)
+    return detecter_divergences(
+        session, comptes, annee_id=annee_id, site_id=site_id
+    )
 
 
 @router.get("/adresses/divergences", response_model=DivergencesOut)
 def divergences_adresses(
-    annee_id: int | None = Query(None), session: Session = Depends(db_session)
+    annee_id: int | None = Query(None),
+    site_id: int | None = Query(None),
+    session: Session = Depends(db_session),
 ) -> DivergencesOut:
     """Personnes dont l'adresse enregistrée n'existe pas dans Google.
 
     Ces écarts font échouer les déplacements un par un et poussent l'export
     des nouveaux à créer un doublon. Lecture seule.
     """
-    r = _detecter_divergences(session, annee_id)
+    r = _detecter_divergences(session, annee_id, site_id)
     return DivergencesOut(
         nb_examines=r.nb_examines,
         nb_resolvables=r.nb_resolvables,
@@ -1486,6 +1490,9 @@ def divergences_adresses(
 
 class CorrigerPayload(BaseModel):
     annee_id: int | None = None
+    site_id: int | None = None
+    """Chaque site a ses conventions d'adresse : on veut pouvoir les
+    traiter l'un après l'autre plutôt que tout d'un coup."""
     mode: str = "simulation"
 
 
@@ -1507,7 +1514,7 @@ def corriger_adresses(
 
     if payload.mode not in ("simulation", "reel"):
         raise HTTPException(400, f"mode invalide : {payload.mode!r}")
-    r = _detecter_divergences(session, payload.annee_id)
+    r = _detecter_divergences(session, payload.annee_id, payload.site_id)
     n = appliquer_corrections(session, r, mode=payload.mode)
     return CorrectionOut(nb_corrigees=n, mode=payload.mode)
 

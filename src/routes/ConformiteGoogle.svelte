@@ -26,6 +26,16 @@
 
   let volet = $state("arborescence");
 
+  /**
+   * Le site dont on examine les adresses.
+   *
+   * Chaque site a ses conventions, héritées de la façon dont ses comptes
+   * ont été créés : NDE colle les particules (`alice.legall`) et garde le
+   * trait d'union des noms composés, là où la règle du programme met un
+   * point partout. Les traiter l'un après l'autre rend les écarts lisibles.
+   */
+  let siteAdr = $state(/** @type {number | null} */ (null));
+
   // Vérification de comptes — lecture seule, après un import.
   let verification = $state(/** @type {any} */ (null));
   let verificationEnCours = $state(false);
@@ -83,7 +93,7 @@
   async function analyserAdresses() {
     chargeAdr = true;
     try {
-      divergences = await googleApi.divergences({ anneeId });
+      divergences = await googleApi.divergences({ anneeId, siteId: siteAdr });
     } catch (e) {
       notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
     } finally {
@@ -94,7 +104,9 @@
   async function corrigerAdresses() {
     chargeAdr = true;
     try {
-      const r = await googleApi.corrigerAdresses({ anneeId, mode: "reel" });
+      const r = await googleApi.corrigerAdresses({
+        anneeId, siteId: siteAdr, mode: "reel",
+      });
       notify.succes(`${r.nb_corrigees} adresse(s) alignée(s) sur Google`);
       await analyserAdresses();
     } catch (e) {
@@ -397,6 +409,14 @@
         </p>
 
         <div class="flex flex-wrap items-end gap-3">
+          <label class="block">
+            <span class="libelle-champ">Site</span>
+            <select class="champ w-40" bind:value={siteAdr}
+                    onchange={() => (divergences = null)}>
+              <option value={null}>Tous</option>
+              {#each listeSites as s (s.id)}<option value={s.id}>{s.nom}</option>{/each}
+            </select>
+          </label>
           <Bouton icon={Search} occupe={chargeAdr} onclick={analyserAdresses}>
             Analyser
           </Bouton>

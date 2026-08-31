@@ -249,3 +249,91 @@ def test_un_compte_sans_alias_reste_lu_normalement(session, inscrit):
         session, [_u("jean.dupont@lekreisker.fr", "DUPONT", "Jean")]
     )
     assert r.divergences == []
+
+
+# ---------------------------------------------------------------------------
+# L'adresse calculée — l'angle mort
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def inscrit_sans_compte(session, site_factory, annee_factory, personne_factory):
+    """Une personne fraîchement ingérée : aucune adresse constatée."""
+    from backend.models import Snapshot
+
+    # NDE a basculé sur le domaine commun : la fixture du dépôt garde
+    # encore l'ancien, et l'adresse calculée en dépend directement.
+    site = site_factory("NDE", domaine_mail="lekreisker.fr")
+    annee = annee_factory("2026-2027")
+
+    def _creer(nom, prenom, login):
+        p = personne_factory(nom=nom, prenom=prenom, login=login, site_id=site.id)
+        session.add(Snapshot(personne_id=p.id, annee_scolaire_id=annee.id,
+                             nom=nom, prenom=prenom, classe="6B"))
+        session.commit()
+        return p
+
+    return _creer
+
+
+def test_une_adresse_calculee_fausse_est_vue(session, inscrit_sans_compte):
+    """Le cas réel : `alice.le.gall` calculé, `alice.legall` dans Google.
+
+    Six élèves de NDE étaient dans ce cas. L'écran n'en montrait aucun, et
+    l'export en aurait fait six doublons à côté des vrais comptes.
+    """
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    p = inscrit_sans_compte("LE GALL", "Alice", "alegall")
+    assert p.email == "alice.le.gall@lekreisker.fr", "l'adresse est calculée"
+
+    r = detecter_divergences(
+        session, [_u("alice.legall@lekreisker.fr", "LE GALL", "Alice")]
+    )
+    assert r.nb_resolvables == 1
+    assert r.divergences[0].adresse_google == "alice.legall@lekreisker.fr"
+
+
+def test_un_entrant_sans_compte_nest_pas_un_ecart(session, inscrit_sans_compte):
+    """Son compte reste à créer : le signaler noierait les vrais écarts."""
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    inscrit_sans_compte("ARGOUARCH", "Jade", "jargouarch")
+
+    r = detecter_divergences(session, [])
+    assert r.divergences == []
+    assert r.nb_examines == 1, "elle est bien examinée, mais rien à signaler"
+
+
+def test_une_adresse_calculee_juste_ne_dit_rien(session, inscrit_sans_compte):
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    inscrit_sans_compte("GUILLOU", "Manon", "mguillou")
+
+    r = detecter_divergences(
+        session, [_u("manon.guillou@lekreisker.fr", "GUILLOU", "Manon")]
+    )
+    assert r.divergences == []
+
+
+def test_le_filtre_de_site_restreint_lexamen(
+    session, site_factory, annee_factory, personne_factory
+):
+    """Chaque site a ses conventions d'adresse : on veut les traiter à part."""
+    from backend.models import Snapshot
+    from backend.services.adresses_divergentes import detecter_divergences
+
+    nde = site_factory("NDE", domaine_mail="lekreisker.fr")
+    ndk = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    for site in (nde, ndk):
+        p = personne_factory(nom="MARTIN", prenom=f"P{site.nom}",
+                             login=f"p{site.nom}".lower(), site_id=site.id)
+        session.add(Snapshot(personne_id=p.id, annee_scolaire_id=annee.id,
+                             nom="MARTIN", prenom=f"P{site.nom}", classe="6B"))
+    session.commit()
+
+    tous = detecter_divergences(session, [])
+    un_seul = detecter_divergences(session, [], site_id=nde.id)
+    assert tous.nb_examines == 2
+    assert un_seul.nb_examines == 1

@@ -420,16 +420,19 @@ export const googleApi = {
     );
   },
   /** Personnes dont l'adresse enregistrée n'existe pas dans Google. */
-  async divergences({ anneeId = null } = {}) {
-    const q = anneeId ? `?annee_id=${anneeId}` : "";
+  async divergences({ anneeId = null, siteId = null } = {}) {
+    const p = new URLSearchParams();
+    if (anneeId) p.set("annee_id", anneeId);
+    if (siteId) p.set("site_id", siteId);
+    const q = p.toString() ? `?${p}` : "";
     return jsonOrThrow(await fetch(`${BASE}/google/adresses/divergences${q}`));
   },
-  async corrigerAdresses({ anneeId = null, mode = "simulation" }) {
+  async corrigerAdresses({ anneeId = null, siteId = null, mode = "simulation" }) {
     return jsonOrThrow(
       await fetch(`${BASE}/google/adresses/corriger`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ annee_id: anneeId, mode }),
+        body: JSON.stringify({ annee_id: anneeId, site_id: siteId, mode }),
       }),
     );
   },
