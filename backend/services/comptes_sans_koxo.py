@@ -69,6 +69,7 @@ def preparer_comptes(
     annee_cible_id: int,
     annee_source_id: int | None = None,
     categorie: str = "nouveaux",
+    organisation: str | None = None,
 ) -> tuple[bytes, bytes, RapportGeneration]:
     """Fabrique les mots de passe, les range, et rend les deux fichiers.
 
@@ -77,13 +78,16 @@ def preparer_comptes(
             n'est pas rangé est un mot de passe perdu.
 
     Returns:
-        `(csv_google, csv_fiches, rapport)`. Le premier s'importe dans la
-        console d'administration ; le second s'imprime et se distribue.
+        `(csv_google, etiquettes_html, rapport)`. Le premier s'importe dans
+        la console d'administration ; le second s'imprime et se distribue,
+        à la présentation des étiquettes que KoXo produit pour les deux
+        autres sites — un élève de NDE reçoit la même chose que celui de
+        NDK.
 
     Raises:
         GenerationImpossible: site inconnu, ou site qui a déjà un KoXo.
     """
-    from backend.models import Site
+    from backend.models import AnneeScolaire, Site
     from backend.services.exports_google import BOM_UTF8, generer_csv_google
 
     if not cle:
@@ -110,7 +114,7 @@ def preparer_comptes(
         site_nom=site.nom,
         nb_lignes=rapport_base.nb_lignes,
         nom_fichier_csv=f"Google_{site.nom}_eleves_avec_mdp.csv",
-        nom_fichier_fiches=f"Fiches_{site.nom}_par_classe.csv",
+        nom_fichier_fiches=f"Etiquettes_{site.nom}_par_classe.html",
     )
     if not rapport_base.nb_lignes:
         rapport.avertissements.append(
@@ -159,21 +163,26 @@ def preparer_comptes(
             rapport.nb_generes += 1
 
         ligne["Password [Required]"] = mdp
+        classe = classes.get(personne.id) or ""
         fiches.append(
             {
-                "Classe": classes.get(personne.id) or "",
-                "Nom": personne.nom or "",
-                "Prénom": personne.prenom or "",
-                "Adresse": email,
-                "Mot de passe": mdp,
+                "classe": classe,
+                "nom": personne.nom or "",
+                "prenom": personne.prenom or "",
+                # KoXo affiche « groupe primaire / groupe secondaire ».
+                "groupe": f"Elèves / {classe}" if classe else "Elèves",
+                "login": personne.login or "",
+                "mot_de_passe": mdp,
             }
         )
 
+    annee = session.query(AnneeScolaire).filter_by(id=annee_cible_id).one_or_none()
     return (
         _encoder(colonnes, lignes),
-        _encoder(
-            ["Classe", "Nom", "Prénom", "Adresse", "Mot de passe"],
-            sorted(fiches, key=lambda f: (f["Classe"], f["Nom"], f["Prénom"])),
+        fiches_html(
+            fiches,
+            organisation=organisation or site.nom_complet or site.nom,
+            annee=annee.libelle if annee else "",
         ),
         rapport,
     )
@@ -228,3 +237,198 @@ def _secrets_existants(session: Session, cle: bytes, site_nom: str) -> dict[int,
     ):
         trouves[s.personne_id] = _dechiffrer(cle, s)
     return trouves
+
+
+# ---------------------------------------------------------------------------
+# Les étiquettes, à la présentation de KoXo
+# ---------------------------------------------------------------------------
+
+# Cotes relevées dans un PDF d'étiquettes produit par KoXo, en points
+# PostScript. Les reprendre telles quelles n'est pas du zèle : l'élève de
+# NDE recevra la même étiquette que celui de NDK, et le professeur qui les
+# distribue n'a pas à apprendre deux présentations.
+CARTE_L, CARTE_H = 173.55, 125.34
+BANDEAU_H = 18.72
+CHAMP_L, CHAMP_H = 92.44, 18.72
+MARGE_G, MARGE_H = 23.25, 29.76
+COLONNES, RANGEES = 3, 6
+# Les gouttières se déduisent des pas relevés entre étiquettes voisines :
+# 187.2 pt d'une colonne à la suivante pour une carte de 173.55, et 132.2 pt
+# d'une rangée à l'autre pour une carte de 125.34. Une seule étiquette ne
+# les révélait pas — il a fallu une planche complète pour les voir.
+GOUTTIERE_H = 187.2 - CARTE_L
+GOUTTIERE_V = 132.2 - CARTE_H
+
+BLEU = "#1e8ce0"
+FOND = "#d9e8f7"
+
+
+def _echapper(t: str) -> str:
+    return (
+        (t or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def fiches_html(
+    etiquettes: list[dict],
+    *,
+    organisation: str,
+    annee: str,
+) -> bytes:
+    """Les étiquettes de comptes, à imprimer — présentation de KoXo.
+
+    KoXo imprime une étiquette par élève : bandeau bleu à l'en-tête, nom,
+    groupe, puis l'identifiant et le mot de passe dans deux cartouches
+    blancs. NDE n'a pas de KoXo et n'aurait donc rien à distribuer.
+
+    Le format est du HTML plutôt qu'un PDF : aucune dépendance à ajouter,
+    et l'impression depuis le navigateur donne le même résultat — avec la
+    possibilité d'ajuster, ce qu'un PDF figé n'offre pas.
+
+    ## Une classe par planche
+
+    Les étiquettes se distribuent classe par classe : mélanger deux classes
+    sur une même feuille obligerait à découper puis retrier. Chaque classe
+    commence donc sur une nouvelle page, et en occupe autant qu'il faut.
+
+    Args:
+        etiquettes: dicts portant `nom`, `prenom`, `classe`, `groupe`,
+            `login`, `mot_de_passe`.
+        organisation: ce qu'affiche le bandeau — chez KoXo, le nom de
+            l'organisation de l'annuaire.
+    """
+    par_classe: dict[str, list[dict]] = {}
+    for e in etiquettes:
+        par_classe.setdefault(e.get("classe") or "", []).append(e)
+
+    def carte(e: dict) -> str:
+        return (
+            f'''<div class="etiquette">
+  <div class="bandeau">{_echapper(organisation)}</div>
+  <p class="identite">{_echapper(e.get("prenom", ""))} {_echapper(e.get("nom", ""))}</p>
+  <p class="groupe">{_echapper(e.get("groupe", ""))}</p>
+  <div class="champ">{_echapper(e.get("login", ""))}</div>
+  <div class="champ">{_echapper(e.get("mot_de_passe", ""))}</div>
+  <p class="pied"><span>Appli Rentrée</span><span>Année {_echapper(annee)}</span></p>
+</div>'''
+        )
+
+    planches = []
+    for classe in sorted(par_classe):
+        eleves = sorted(
+            par_classe[classe],
+            key=lambda e: (e.get("nom") or "", e.get("prenom") or ""),
+        )
+        planches.append(
+            '<div class="planche">\n'
+            + "\n".join(carte(e) for e in eleves)
+            + "\n</div>"
+        )
+
+    page = f"""<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Étiquettes de comptes — {_echapper(annee)}</title>
+<style>
+  @page {{ size: A4; margin: {MARGE_H}pt {MARGE_G}pt; }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    color: #000;
+    background: #fff;
+  }}
+  .planche {{
+    display: grid;
+    grid-template-columns: repeat({COLONNES}, {CARTE_L}pt);
+    grid-auto-rows: {CARTE_H}pt;
+    gap: {GOUTTIERE_V:.2f}pt {GOUTTIERE_H:.2f}pt;
+  }}
+  /* Une classe par planche, une planche par feuille — au moins. Mélanger
+     deux classes obligerait à découper puis retrier. */
+  .planche + .planche {{ break-before: page; }}
+  .etiquette {{
+    width: {CARTE_L}pt;
+    height: {CARTE_H}pt;
+    background: {FOND};
+    border: 0.28pt solid #000;
+    padding: 0 2.84pt;
+    position: relative;
+    overflow: hidden;
+    /* Une étiquette coupée en deux par un saut de page serait inutilisable. */
+    break-inside: avoid;
+  }}
+  .bandeau {{
+    height: {BANDEAU_H}pt;
+    margin: 0 -2.84pt 0;
+    background: {BLEU};
+    border-bottom: 0.28pt solid #000;
+    color: #fff;
+    font-size: 11.91pt;
+    line-height: {BANDEAU_H}pt;
+    padding-left: 2.84pt;
+    white-space: nowrap;
+    overflow: hidden;
+  }}
+  .identite {{
+    margin: 4.5pt 0 0;
+    font-size: 11.91pt;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+  }}
+  .groupe {{
+    margin: 2pt 0 0;
+    font-size: 9.07pt;
+    line-height: 1.1;
+    /* KoXo condense légèrement cette ligne pour la faire tenir. */
+    transform: scaleX(0.975);
+    transform-origin: left;
+    white-space: nowrap;
+    overflow: hidden;
+  }}
+  .champ {{
+    width: {CHAMP_L}pt;
+    height: {CHAMP_H}pt;
+    margin: 4.4pt 0 0 2.83pt;
+    background: #fff;
+    border: 0.28pt solid #000;
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 11.91pt;
+    line-height: {CHAMP_H}pt;
+    padding-left: 5.7pt;
+    white-space: nowrap;
+    overflow: hidden;
+  }}
+  .pied {{
+    position: absolute;
+    left: 2.84pt;
+    right: 2.84pt;
+    bottom: 2.2pt;
+    margin: 0;
+    display: flex;
+    justify-content: space-between;
+    font-size: 5.1pt;
+  }}
+  @media screen {{
+    body {{ background: #eef1f4; padding: 12pt; }}
+    .planche {{
+      background: #fff;
+      padding: {MARGE_H}pt {MARGE_G}pt;
+      width: max-content;
+      margin-bottom: 12pt;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+    }}
+  }}
+</style>
+</head>
+<body>
+{chr(10).join(planches)}
+</body>
+</html>
+"""
+    return page.encode("utf-8")

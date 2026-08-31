@@ -203,7 +203,7 @@ def test_relancer_ne_change_pas_les_mots_de_passe_distribues(session, nde):
 # ---------------------------------------------------------------------------
 
 
-def test_les_fiches_portent_classe_identite_et_mot_de_passe(session, nde):
+def test_les_etiquettes_portent_identite_identifiant_et_mot_de_passe(session, nde):
     """C'est le seul endroit où l'élève lira son mot de passe."""
     from backend.services.coffre import chercher, initialiser
     from backend.services.comptes_sans_koxo import (
@@ -220,23 +220,19 @@ def test_les_fiches_portent_classe_identite_et_mot_de_passe(session, nde):
     )
     session.commit()
 
-    lignes = _lire(fiches)
-    assert len(lignes) == 3
-    assert set(lignes[0]) == {"Classe", "Nom", "Prénom", "Adresse", "Mot de passe"}
-    assert all(l["Classe"] == "6B" for l in lignes)
+    page = fiches.decode("utf-8")
+    assert page.count('class="etiquette"') == 3
+    assert "Elèves / 6B" in page
 
-    # Les deux fichiers disent la même chose : une fiche qui ne
-    # correspondrait pas au compte créé serait pire que pas de fiche.
-    par_adresse = {l["Email Address [Required]"]: l["Password [Required]"]
-                   for l in _lire(csv_google)}
-    for l in lignes:
-        assert par_adresse[l["Adresse"]] == l["Mot de passe"]
+    # Les deux fichiers disent la même chose : une étiquette qui ne
+    # correspondrait pas au compte créé serait pire que pas d'étiquette.
+    for mdp in (l["Password [Required]"] for l in _lire(csv_google)):
+        assert mdp in page
 
 
-def test_les_fiches_sont_rangees_par_classe(session, site_factory,
-                                            annee_factory, personne_factory,
-                                            snap_factory, tc_factory):
-    """On les imprime pour les distribuer classe par classe."""
+def test_une_planche_par_classe(session, site_factory, annee_factory,
+                                personne_factory, snap_factory, tc_factory):
+    """Mélanger deux classes obligerait à découper puis retrier."""
     from backend.services.coffre import chercher, initialiser
     from backend.services.comptes_sans_koxo import (
         GenerationImpossible,
@@ -259,8 +255,11 @@ def test_les_fiches_sont_rangees_par_classe(session, site_factory,
     )
     session.commit()
 
-    classes = [l["Classe"] for l in _lire(fiches)]
-    assert classes == sorted(classes)
+    page = fiches.decode("utf-8")
+    assert page.count('class="planche"') == 2, "une planche par classe"
+    assert page.count('class="etiquette"') == 3
+    # 6V vient après 6B : les planches sont dans l'ordre des classes.
+    assert page.index("Elèves / 6B") < page.index("Elèves / 6V")
 
 
 def test_un_site_sans_eleve_ne_produit_rien_et_le_dit(session, site_factory,
@@ -281,3 +280,53 @@ def test_un_site_sans_eleve_ne_produit_rien_et_le_dit(session, site_factory,
     )
     assert rapport.nb_generes == 0
     assert any("Aucune ligne" in a for a in rapport.avertissements)
+
+
+def test_la_planche_reprend_les_cotes_relevees_chez_koxo(session):
+    """Un élève de NDE doit recevoir la même étiquette que celui de NDK.
+
+    Les cotes viennent d'un PDF d'étiquettes produit par KoXo. Les
+    gouttières, elles, ne se voyaient pas sur une étiquette seule : il a
+    fallu une planche complète pour relever le pas d'une carte à l'autre —
+    187.2 pt en largeur pour une carte de 173.55, 132.2 en hauteur pour
+    125.34.
+    """
+    from backend.services.comptes_sans_koxo import (
+        CARTE_H,
+        CARTE_L,
+        COLONNES,
+        GOUTTIERE_H,
+        GOUTTIERE_V,
+        fiches_html,
+    )
+
+    assert (CARTE_L, CARTE_H) == (173.55, 125.34)
+    assert round(GOUTTIERE_H, 2) == 13.65
+    assert round(GOUTTIERE_V, 2) == 6.86
+    assert COLONNES == 3
+
+    page = fiches_html(
+        [{"nom": "CORVEZ", "prenom": "Noë", "classe": "6B",
+          "groupe": "Elèves / 6B", "login": "ncorvez",
+          "mot_de_passe": "Vikuge90"}],
+        organisation="OGEC PAUL AURELIEN",
+        annee="2026-2027",
+    ).decode("utf-8")
+
+    assert "gap: 6.86pt 13.65pt" in page
+    assert "size: A4" in page
+    for attendu in ("OGEC PAUL AURELIEN", "Noë CORVEZ", "Elèves / 6B",
+                    "ncorvez", "Vikuge90", "Année 2026-2027"):
+        assert attendu in page, attendu
+
+
+def test_une_etiquette_ne_se_coupe_pas_entre_deux_pages(session):
+    """Coupée en deux, elle serait inutilisable."""
+    from backend.services.comptes_sans_koxo import fiches_html
+
+    page = fiches_html(
+        [{"nom": "X", "prenom": "Y", "classe": "6B", "groupe": "Elèves / 6B",
+          "login": "x", "mot_de_passe": "Z"}],
+        organisation="O", annee="2026-2027",
+    ).decode("utf-8")
+    assert "break-inside: avoid" in page
