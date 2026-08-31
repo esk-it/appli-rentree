@@ -181,7 +181,12 @@ def preparer_comptes(
         _encoder(colonnes, lignes),
         fiches_html(
             fiches,
-            organisation=organisation or site.nom_complet or site.nom,
+            organisation=(
+                organisation
+                or site.organisation_etiquettes
+                or site.nom_complet
+                or site.nom
+            ),
             annee=annee.libelle if annee else "",
         ),
         rapport,
@@ -263,6 +268,20 @@ BLEU = "#1e8ce0"
 FOND = "#d9e8f7"
 
 
+LOGO_GOOGLE = """<svg class="logo" viewBox="0 0 48 48" role="img" aria-label="Google">
+<path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/>
+<path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"/>
+<path fill="#FBBC05" d="M11.69 28.18C11.25 26.86 11 25.45 11 24s.25-2.86.69-4.18v-5.7H4.34C2.85 17.09 2 20.45 2 24s.85 6.91 2.34 9.88l7.35-5.7z"/>
+<path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/>
+</svg>"""
+"""Le logo Google, dessine en SVG plutot que charge.
+
+Le fichier doit rester autonome : une image distante ne s'imprimerait pas
+sans reseau, et une image encodee alourdirait chaque etiquette. Il dit a
+l'eleve de quel service ces identifiants ouvrent la porte — pour NDE,
+c'est le seul compte qu'il possede."""
+
+
 def _echapper(t: str) -> str:
     return (
         (t or "")
@@ -300,6 +319,15 @@ def fiches_html(
         organisation: ce qu'affiche le bandeau — chez KoXo, le nom de
             l'organisation de l'annuaire.
     """
+    # Le bandeau de KoXo porte « OGEC PAUL AURELIEN », dix-huit caractères,
+    # qui tiennent tout juste à 11.91 pt. « OGEC NOTRE DAME D ESPERANCE » en
+    # fait vingt-sept et débordait — tronqué, un nom d'organisation ne veut
+    # plus rien dire. On réduit le corps à proportion plutôt que de couper.
+    REPERE = 18
+    taille_bandeau = 11.91
+    if len(organisation) > REPERE:
+        taille_bandeau = round(11.91 * REPERE / len(organisation), 2)
+
     par_classe: dict[str, list[dict]] = {}
     for e in etiquettes:
         par_classe.setdefault(e.get("classe") or "", []).append(e)
@@ -312,6 +340,7 @@ def fiches_html(
   <p class="groupe">{_echapper(e.get("groupe", ""))}</p>
   <div class="champ">{_echapper(e.get("login", ""))}</div>
   <div class="champ">{_echapper(e.get("mot_de_passe", ""))}</div>
+  {LOGO_GOOGLE}
   <p class="pied"><span>Appli Rentrée</span><span>Année {_echapper(annee)}</span></p>
 </div>'''
         )
@@ -380,7 +409,7 @@ def fiches_html(
     print-color-adjust: exact;
     border-bottom: 0.28pt solid #000;
     color: #fff;
-    font-size: 11.91pt;
+    font-size: {taille_bandeau}pt;
     line-height: {BANDEAU_H}pt;
     padding-left: 2.84pt;
     white-space: nowrap;
@@ -415,6 +444,15 @@ def fiches_html(
     padding-left: 5.7pt;
     white-space: nowrap;
     overflow: hidden;
+  }}
+  /* Le carre libre a droite des cartouches : KoXo y place ses propres
+     images, on y met celle du service dont ce compte ouvre la porte. */
+  .logo {{
+    position: absolute;
+    right: 12pt;
+    top: 68pt;
+    width: 34pt;
+    height: 34pt;
   }}
   .pied {{
     position: absolute;

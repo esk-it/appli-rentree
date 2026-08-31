@@ -352,3 +352,64 @@ def test_les_fonds_sont_imposes_a_limpression(session):
     assert "-webkit-print-color-adjust: exact" in page
     # Le fond gris de l'écran, lui, ne doit pas partir à l'impression.
     assert "@media print" in page
+
+
+def test_le_bandeau_se_reduit_pour_un_nom_long(session):
+    """Tronquer un nom d'organisation le rendrait méconnaissable.
+
+    « OGEC PAUL AURELIEN » tient tout juste à 11.91 pt, la taille de KoXo.
+    « OGEC NOTRE DAME D ESPERANCE » en fait neuf de plus et débordait.
+    """
+    from backend.services.comptes_sans_koxo import fiches_html
+
+    e = [{"nom": "X", "prenom": "Y", "classe": "6B", "groupe": "Elèves / 6B",
+          "login": "x", "mot_de_passe": "Z"}]
+
+    court = fiches_html(e, organisation="OGEC PAUL AURELIEN",
+                        annee="2026-2027").decode("utf-8")
+    long = fiches_html(e, organisation="OGEC NOTRE DAME D ESPERANCE",
+                       annee="2026-2027").decode("utf-8")
+
+    assert "font-size: 11.91pt" in court
+    assert "font-size: 7.94pt" in long
+    # Le nom entier figure dans les deux : on réduit, on ne coupe pas.
+    assert "OGEC NOTRE DAME D ESPERANCE" in long
+
+
+def test_letiquette_porte_le_logo_du_service(session):
+    """L'élève de NDE n'a que ce compte : autant dire lequel."""
+    from backend.services.comptes_sans_koxo import fiches_html
+
+    page = fiches_html(
+        [{"nom": "X", "prenom": "Y", "classe": "6B", "groupe": "Elèves / 6B",
+          "login": "x", "mot_de_passe": "Z"}],
+        organisation="O", annee="2026-2027",
+    ).decode("utf-8")
+
+    assert 'aria-label="Google"' in page
+    # Dessiné, pas chargé : le fichier doit s'imprimer sans réseau.
+    assert "<svg" in page and "http" not in page.split("<svg")[1].split("</svg>")[0]
+    for couleur in ("#4285F4", "#34A853", "#FBBC05", "#EA4335"):
+        assert couleur in page
+
+
+def test_lorganisation_du_site_est_reprise(session, site_factory, annee_factory,
+                                           personne_factory, snap_factory,
+                                           tc_factory):
+    """Elle vit dans les données, pas dans un script."""
+    from backend.services.comptes_sans_koxo import preparer_comptes
+    from backend.services.coffre import initialiser
+
+    site = site_factory("NDE", domaine_mail="lekreisker.fr")
+    site.organisation_etiquettes = "OGEC NOTRE DAME D ESPERANCE"
+    annee = annee_factory("2026-2027")
+    tc_factory(site.id, "6B")
+    p = personne_factory(site_id=site.id, login="eleve1", id_charlemagne=701)
+    snap_factory(p.id, annee.id, classe="6B")
+    session.commit()
+
+    cle = initialiser(session, "sardine-clavier-molybdene-1789")
+    _, etiquettes, _ = preparer_comptes(
+        session, cle, site_id=site.id, annee_cible_id=annee.id, categorie="tous",
+    )
+    assert "OGEC NOTRE DAME D ESPERANCE" in etiquettes.decode("utf-8")

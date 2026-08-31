@@ -43,6 +43,16 @@ class Site(Base):
     prefixe_annee_ou: Mapped[str] = mapped_column(String(20))
     """Préfixe utilisé dans le nom des OU annuelles : NDE (donne NDE2026), NDK, SU."""
 
+    organisation_etiquettes: Mapped[str | None] = mapped_column(
+        String(150), nullable=True
+    )
+    """Ce qu'affiche le bandeau des étiquettes de comptes.
+
+    KoXo y met le nom de l'organisation de son annuaire — « OGEC PAUL
+    AURELIEN » pour NDK et SU. NDE n'a pas d'annuaire, mais son étiquette
+    doit porter le sien : « OGEC NOTRE DAME D ESPERANCE ». Ce n'est ni le
+    nom court du site ni son nom complet, d'où sa propre colonne."""
+
     base_koxo: Mapped[str | None] = mapped_column(String(20), nullable=True)
     """Le serveur KoXo où les élèves de ce site ont un compte. `None` quand
     le site n'en a pas.
