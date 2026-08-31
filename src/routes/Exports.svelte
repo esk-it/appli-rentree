@@ -4,6 +4,7 @@
   import FileDown from "@lucide/svelte/icons/file-down";
   import Upload from "@lucide/svelte/icons/upload";
   import Info from "@lucide/svelte/icons/info";
+  import KeyRound from "@lucide/svelte/icons/key-round";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import Cloud from "@lucide/svelte/icons/cloud";
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
@@ -13,6 +14,7 @@
     annees,
     exportsCible,
     googleApi,
+    coffreApi,
     sites as sitesApi,
     enregistrerFichierBase64,
   } from "$lib/api.js";
@@ -41,6 +43,19 @@
    * vingt-quatre comptes qui n'avaient aucune raison de bouger.
    */
   let baseKoxo = $state(/** @type {string | null} */ (null));
+
+  /**
+   * Le site choisi a-t-il un serveur KoXo ?
+   *
+   * S'il n'en a pas, personne ne fabrique les mots de passe de ses élèves
+   * et personne ne les imprime. Le programme doit s'en charger — et c'est
+   * un autre geste que l'export ordinaire, puisqu'il écrit au coffre.
+   */
+  let siteChoisi = $derived(listeSites.find((s) => s.id === siteId) ?? null);
+  let siteSansKoxo = $derived(
+    Boolean(siteChoisi) && !(siteChoisi.base_koxo ?? "").trim(),
+  );
+  let generationEnCours = $state(false);
 
   /**
    * Groupe secondaire imposé aux sortants KoXo.
@@ -109,6 +124,54 @@
       notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 12000 });
     } finally {
       testEnCours = false;
+    }
+  }
+
+  /**
+   * Fabrique les comptes d'un site sans KoXo, et les étiquettes qui vont
+   * avec.
+   *
+   * Deux fichiers, demandés l'un après l'autre : le CSV pour la console,
+   * les étiquettes pour la classe. Les mots de passe sont rangés au coffre
+   * dans le même geste — sans quoi ils seraient perdus.
+   */
+  async function genererComptesSansKoxo() {
+    if (!siteId || !anneeCibleId) return;
+    generationEnCours = true;
+    try {
+      const r = await coffreApi.comptesSansKoxo({
+        siteId,
+        anneeCibleId,
+        anneeSourceId: anneeSourceId ?? null,
+        categorie: anneeSourceId ? "nouveaux" : "tous",
+      });
+      dernierRapport = { ...r, cible: "google (comptes fabriqués)" };
+
+      const csv = await enregistrerFichierBase64(
+        r.nom_fichier_csv, r.csv_base64, "text/csv",
+      );
+      if (csv.annule) return;
+      const fiches = await enregistrerFichierBase64(
+        r.nom_fichier_fiches, r.etiquettes_base64, "text/html",
+      );
+
+      notify.succes(
+        `${r.nb_lignes} compte(s) — ${r.nb_generes} mot(s) de passe fabriqué(s), `
+          + `${r.nb_deja_au_coffre} repris du coffre`,
+        { duree: 9000 },
+      );
+      if (!fiches.annule) {
+        notify.info(
+          "Imprime les étiquettes avant d'importer : c'est le seul endroit "
+            + "où l'élève lira son mot de passe.",
+          { duree: 12000 },
+        );
+      }
+    } catch (e) {
+      erreur = String(e).replace(/^Error:\s*/, "");
+      notify.erreur(erreur, { duree: 12000 });
+    } finally {
+      generationEnCours = false;
     }
   }
 
@@ -340,6 +403,42 @@
          groupes à sa manière. Le fichier doit porter les groupes de la base
          qui va le recevoir, sinon la synchronisation déplace des comptes
          qui n'ont pas changé de matière. -->
+    <!-- Un site sans serveur KoXo n'a personne pour fabriquer les mots de
+         passe de ses élèves, ni pour les imprimer. Le programme s'en charge,
+         et range au coffre dans le même geste. -->
+    {#if cible === "google" && typePersonne === "eleve" && siteSansKoxo}
+      <div class="rounded-lg border-2 border-dashed border-sky-300 bg-sky-50/40 p-3 dark:border-sky-700 dark:bg-sky-900/10">
+        <p class="mb-2 text-xs font-medium text-sky-900 dark:text-sky-200">
+          {siteChoisi.nom} n'a pas de serveur KoXo
+        </p>
+        <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
+          Personne n'y fabrique les mots de passe de ses élèves, ni ne les
+          imprime. Le programme le fait — à la forme de ceux de KoXo — et
+          les range au <strong>coffre</strong> dans le même geste : un mot
+          de passe fabriqué et non rangé serait perdu, et il faudrait
+          réinitialiser chaque compte.
+        </p>
+        <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
+          Deux fichiers en sortent : le CSV pour la console, et les
+          <strong>étiquettes par classe</strong> à imprimer — le seul
+          endroit où l'élève lira son mot de passe.
+        </p>
+        <Bouton
+          variante="primary"
+          icon={KeyRound}
+          occupe={generationEnCours}
+          disabled={!anneeCibleId}
+          onclick={genererComptesSansKoxo}
+        >
+          Fabriquer les comptes et les étiquettes
+        </Bouton>
+        <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
+          Le coffre doit être ouvert. Relancer ne change aucun mot de passe
+          déjà distribué.
+        </p>
+      </div>
+    {/if}
+
     {#if cible === "koxo" && typePersonne === "adulte"}
       <label class="block rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
         <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">

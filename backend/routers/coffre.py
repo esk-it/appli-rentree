@@ -178,6 +178,73 @@ class VersementOut(BaseModel):
     resume: str
 
 
+class ComptesSansKoxoPayload(BaseModel):
+    site_id: int
+    annee_cible_id: int
+    annee_source_id: int | None = None
+    categorie: str = "nouveaux"
+
+
+class ComptesSansKoxoOut(BaseModel):
+    site_nom: str
+    nb_lignes: int
+    nb_generes: int
+    nb_deja_au_coffre: int
+    avertissements: list[str]
+    nom_fichier_csv: str
+    nom_fichier_fiches: str
+    csv_base64: str
+    """Le fichier à importer dans la console d'administration."""
+    etiquettes_base64: str
+    """Les étiquettes à imprimer — le seul endroit où l'élève lira son mot
+    de passe. Le coffre le garde, mais lui n'y a pas accès."""
+
+
+@router.post("/comptes-sans-koxo", response_model=ComptesSansKoxoOut)
+def comptes_sans_koxo(
+    payload: ComptesSansKoxoPayload, session: Session = Depends(db_session)
+) -> ComptesSansKoxoOut:
+    """Fabrique les comptes d'un site qui n'a pas de serveur KoXo.
+
+    L'endpoint vit ici, avec le coffre, et non dans les exports : générer
+    un mot de passe et le ranger sont **le même geste**. Un mot de passe
+    fabriqué et non rangé serait perdu, et il faudrait réinitialiser chaque
+    compte — d'où l'exigence d'un coffre ouvert.
+    """
+    from backend.services.comptes_sans_koxo import (
+        GenerationImpossible,
+        preparer_comptes,
+    )
+
+    cle = _cle_courante()
+    try:
+        csv_google, etiquettes, rapport = preparer_comptes(
+            session,
+            cle,
+            site_id=payload.site_id,
+            annee_cible_id=payload.annee_cible_id,
+            annee_source_id=payload.annee_source_id,
+            categorie=payload.categorie,
+        )
+    except GenerationImpossible as e:
+        raise HTTPException(409, str(e)) from None
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    session.commit()
+    return ComptesSansKoxoOut(
+        site_nom=rapport.site_nom,
+        nb_lignes=rapport.nb_lignes,
+        nb_generes=rapport.nb_generes,
+        nb_deja_au_coffre=rapport.nb_deja_au_coffre,
+        avertissements=rapport.avertissements,
+        nom_fichier_csv=rapport.nom_fichier_csv,
+        nom_fichier_fiches=rapport.nom_fichier_fiches,
+        csv_base64=base64.b64encode(csv_google).decode(),
+        etiquettes_base64=base64.b64encode(etiquettes).decode(),
+    )
+
+
 @router.post("/verser", response_model=VersementOut)
 def verser(
     payload: VersementPayload, session: Session = Depends(db_session)

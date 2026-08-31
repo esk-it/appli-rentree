@@ -24,6 +24,11 @@ class SiteOut(BaseModel):
     prefixe_annee_ou: str
     numero_ordre: int
     prefixe_racine_ou: str
+    base_koxo: str | None = None
+    """Le serveur KoXo des élèves de ce site, ou rien quand il n'en a pas.
+    L'interface s'en sert pour savoir si les mots de passe doivent être
+    fabriqués — un site sans KoXo n'a personne pour les produire."""
+    organisation_etiquettes: str | None = None
 
 
 class SitePayload(BaseModel):
@@ -45,6 +50,8 @@ def _serialiser(s: Site) -> SiteOut:
         prefixe_annee_ou=s.prefixe_annee_ou,
         numero_ordre=s.numero_ordre,
         prefixe_racine_ou=s.prefixe_racine_ou(),
+        base_koxo=s.base_koxo,
+        organisation_etiquettes=s.organisation_etiquettes,
     )
 
 

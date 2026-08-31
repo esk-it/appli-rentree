@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import GraduationCap from "@lucide/svelte/icons/graduation-cap";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import ArrowRightLeft from "@lucide/svelte/icons/arrow-right-left";
   import KeyRound from "@lucide/svelte/icons/key-round";
   import Home from "@lucide/svelte/icons/home";
   import Database from "@lucide/svelte/icons/database";
@@ -29,6 +30,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Coffre from "./routes/Coffre.svelte";
+  import Mouvements from "./routes/Mouvements.svelte";
   import Personnes from "./routes/Personnes.svelte";
   import Sites from "./routes/Sites.svelte";
   import TableCorrespondance from "./routes/TableCorrespondance.svelte";
@@ -317,6 +319,8 @@
       titre: "Outils",
       repliable: true,
       items: [
+        // Le seul écran qui sert toute l'année, et non à la campagne.
+        { id: "mouvements", label: "Mouvements", icon: ArrowRightLeft },
         { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
         { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
         { id: "simulation", label: "Simulation", icon: Zap },
@@ -612,6 +616,8 @@
           <Personnes />
         {:else if page === "coffre"}
           <Coffre />
+        {:else if page === "mouvements"}
+          <Mouvements />
         {:else if page === "sites"}
           <Sites />
         {:else if page === "table_correspondance"}

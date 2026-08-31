@@ -628,6 +628,27 @@ export const coffreApi = {
       await fetch(`${BASE}/coffre/chercher?q=${encodeURIComponent(q)}`),
     );
   },
+  /**
+   * Fabrique les comptes d'un site sans serveur KoXo.
+   *
+   * Vit avec le coffre et non avec les exports : générer un mot de passe
+   * et le ranger sont le même geste, et la génération refuse si le coffre
+   * est fermé.
+   */
+  async comptesSansKoxo({ siteId, anneeCibleId, anneeSourceId = null, categorie = "nouveaux" }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/coffre/comptes-sans-koxo`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          site_id: siteId,
+          annee_cible_id: anneeCibleId,
+          annee_source_id: anneeSourceId,
+          categorie,
+        }),
+      }),
+    );
+  },
   async verser({ fichier, site }) {
     const buffer = await fichier.arrayBuffer();
     let binaire = "";
@@ -638,6 +659,36 @@ export const coffreApi = {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ fichier_base64: btoa(binaire), site }),
+      }),
+    );
+  },
+};
+
+/** Les mouvements d'un seul élève, en cours d'année. */
+export const mouvementsApi = {
+  /**
+   * Décrit — ou applique — le passage dans une autre classe.
+   *
+   * `appliquerGoogle` à faux ne bouge que le référentiel : c'est ce qu'on
+   * veut quand les élèves attendent en OU de pré-rentrée et que leurs
+   * groupes sont volontairement vides.
+   */
+  async changerClasse({
+    personneId, nouvelleClasse, anneeId,
+    mode = "simulation", reprise = false, appliquerGoogle = true,
+  }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/mouvements/changer-classe`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          personne_id: personneId,
+          nouvelle_classe: nouvelleClasse,
+          annee_id: anneeId,
+          mode,
+          reprise,
+          appliquer_google: appliquerGoogle,
+        }),
       }),
     );
   },
