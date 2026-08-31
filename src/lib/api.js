@@ -588,6 +588,58 @@ export const simulation = {
 // ---------------------------------------------------------------------------
 // Exports vers les cibles (KoXo, Google, PMB, JPM…)
 // ---------------------------------------------------------------------------
+/**
+ * Le coffre à mots de passe.
+ *
+ * La clé ne traverse jamais cette frontière : le mot de passe maître part
+ * une fois, à l'ouverture, et le backend ne rend jamais que « ouvert » ou
+ * « fermé ».
+ */
+export const coffreApi = {
+  async etat() {
+    return jsonOrThrow(await fetch(`${BASE}/coffre/etat`));
+  },
+  async initialiser(motDePasse) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/coffre/initialiser`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mot_de_passe: motDePasse }),
+      }),
+    );
+  },
+  async ouvrir(motDePasse) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/coffre/ouvrir`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mot_de_passe: motDePasse }),
+      }),
+    );
+  },
+  async verrouiller() {
+    return jsonOrThrow(await fetch(`${BASE}/coffre/verrouiller`, { method: "POST" }));
+  },
+  async chercher(q) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/coffre/chercher?q=${encodeURIComponent(q)}`),
+    );
+  },
+  async verser({ fichier, site }) {
+    const buffer = await fichier.arrayBuffer();
+    let binaire = "";
+    const octets = new Uint8Array(buffer);
+    for (let i = 0; i < octets.length; i += 1) binaire += String.fromCharCode(octets[i]);
+    return jsonOrThrow(
+      await fetch(`${BASE}/coffre/verser`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fichier_base64: btoa(binaire), site }),
+      }),
+    );
+  },
+};
+
 /** Où en est la rentrée, étape par étape. */
 export const parcoursApi = {
   /** Ce qui se lit sans réseau. Rejoué à chaque navigation. */

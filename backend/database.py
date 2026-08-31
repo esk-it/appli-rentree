@@ -80,6 +80,7 @@ def _wipe_complet() -> None:
         login_reserve,
         parametre,
         personne,
+        secret_conserve,
         site,
         snapshot,
         table_correspondance,

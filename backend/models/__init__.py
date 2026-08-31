@@ -13,6 +13,7 @@ from backend.models.login_reserve import LoginReserve
 from backend.models.mouvement_prof import MouvementProf
 from backend.models.parametre import Parametre
 from backend.models.personne import Personne
+from backend.models.secret_conserve import SecretConserve
 from backend.models.site import Site
 from backend.models.snapshot import Snapshot
 from backend.models.suivi_chromebook import SuiviChromebook
@@ -28,6 +29,7 @@ __all__ = [
     "MouvementProf",
     "Parametre",
     "Personne",
+    "SecretConserve",
     "Site",
     "Snapshot",
     "SuiviChromebook",

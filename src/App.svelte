@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import GraduationCap from "@lucide/svelte/icons/graduation-cap";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import KeyRound from "@lucide/svelte/icons/key-round";
   import Home from "@lucide/svelte/icons/home";
   import Database from "@lucide/svelte/icons/database";
   import Users2 from "@lucide/svelte/icons/users-2";
@@ -27,6 +28,7 @@
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
+  import Coffre from "./routes/Coffre.svelte";
   import Personnes from "./routes/Personnes.svelte";
   import Sites from "./routes/Sites.svelte";
   import TableCorrespondance from "./routes/TableCorrespondance.svelte";
@@ -324,6 +326,9 @@
       titre: "Consulter",
       items: [
         { id: "personnes", label: "Référentiel", icon: Users2 },
+        // Retrouver un mot de passe est un geste de consultation, et
+        // fréquent : il n'a pas à être replié derrière un groupe.
+        { id: "coffre", label: "Coffre", icon: KeyRound },
         { id: "suivi", label: "Suivi", icon: Activity },
         { id: "statistiques", label: "Statistiques", icon: BarChart3 },
       ],
@@ -605,6 +610,8 @@
           <TableauDeBord onNaviguer={(p) => (page = p)} />
         {:else if page === "personnes"}
           <Personnes />
+        {:else if page === "coffre"}
+          <Coffre />
         {:else if page === "sites"}
           <Sites />
         {:else if page === "table_correspondance"}

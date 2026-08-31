@@ -40,6 +40,7 @@ from backend.routers import (
     statistiques as statistiques_router,
     suivi as suivi_router,
     table_correspondance,
+    coffre as coffre_router,
     mouvements as mouvements_router,
     parcours as parcours_router,
 )
@@ -251,3 +252,4 @@ app.include_router(bascule.router)
 app.include_router(sortants_router.router)
 app.include_router(parcours_router.router)
 app.include_router(mouvements_router.router)
+app.include_router(coffre_router.router)
