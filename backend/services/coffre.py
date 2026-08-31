@@ -292,37 +292,109 @@ class RapportVersement:
     nb_deposes: int = 0
     nb_sans_correspondance: int = 0
     nb_sans_mot_de_passe: int = 0
+    nb_retires: int = 0
+    """Secrets que cette base contenait et que l'export ne confirme plus."""
 
     @property
     def resume(self) -> str:
-        return (
+        texte = (
             f"{self.nb_deposes} mot(s) de passe rangé(s) sur {self.nb_lignes} "
             f"ligne(s) lues"
         )
+        if self.nb_retires:
+            texte += f", {self.nb_retires} remplacé(s)"
+        return texte
+
+
+def _mdp_par_id_unique(contenu_csv: bytes) -> dict[int, str]:
+    """`{ID unique: mot de passe}` lu dans un export KoXo, en mémoire.
+
+    **Par ID unique, jamais par identifiant.** Un identifiant n'a de sens
+    que dans sa propre base : `cdeniel` désigne Chloé DENIEL dans celle de
+    NDK et Clément DENIEL dans celle de SU. Rapprocher par login versait le
+    mot de passe de l'un dans la fiche de l'autre — un mot de passe faux
+    est pire qu'un mot de passe absent, parce qu'on le croit bon.
+
+    L'ID unique, lui, est le badge Charlemagne : il désigne la même
+    personne partout, et c'est déjà la clé sur laquelle KoXo lui-même
+    reconnaît ses comptes.
+    """
+    import csv as _csv
+    import io as _io
+
+    from unidecode import unidecode as _unidecode
+
+    texte = None
+    for encodage in ("cp1252", "utf-8"):
+        try:
+            texte = contenu_csv.decode(encodage)
+            break
+        except UnicodeDecodeError:
+            continue
+    if texte is None:
+        raise ValueError("Impossible de décoder le CSV KoXo (ni cp1252, ni utf-8)")
+
+    premiere = texte.split("\n", 1)[0]
+    sep = "," if premiere.count(",") >= premiere.count(";") else ";"
+
+    par_id: dict[int, str] = {}
+    for ligne in _csv.DictReader(_io.StringIO(texte), delimiter=sep):
+        identifiant = mdp = None
+        for cle_col, val in ligne.items():
+            if cle_col is None:
+                continue
+            k = _unidecode(str(cle_col).strip().lower())
+            if k == "id unique":
+                identifiant = (val or "").strip()
+            elif k == "mot de passe":
+                mdp = (val or "").strip()
+        if identifiant and identifiant.isdigit() and mdp:
+            par_id[int(identifiant)] = mdp
+    return par_id
 
 
 def verser_export_koxo(
     session: Session, cle: bytes, contenu_csv: bytes, *, site: str | None = None
 ) -> RapportVersement:
-    """Range les mots de passe d'un export KoXo, par identifiant.
+    """Range les mots de passe d'un export KoXo, rapprochés par ID unique.
 
-    Le rapprochement se fait sur le login, pas sur le nom : c'est
-    l'identifiant qui est unique dans une base KoXo, et c'est lui que
-    l'export porte à côté du mot de passe.
+    Voir `_mdp_par_id_unique` : le rapprochement par identifiant serait une
+    faute, un même identifiant désignant deux personnes différentes dans
+    deux bases.
+
+    Le versement **remplace** ce que cette base avait déposé plutôt que de
+    s'y ajouter : un export décrit l'état complet d'un serveur, et ce qu'il
+    ne contient plus n'y est plus. C'est aussi ce qui permet de réparer —
+    reverser un export corrige les attributions fautives au lieu de les
+    laisser cohabiter avec les bonnes.
     """
-    from backend.services.exports_google import _extraire_mdp_depuis_csv_koxo
+    par_id = _mdp_par_id_unique(contenu_csv)
+    rapport = RapportVersement(site=site, nb_lignes=len(par_id))
 
-    par_login = _extraire_mdp_depuis_csv_koxo(contenu_csv)
-    rapport = RapportVersement(site=site, nb_lignes=len(par_login))
+    # Un export KoXo décrit l'**état complet** de sa base. Ce qu'il ne
+    # contient plus n'y est plus, et le garder ferait afficher un mot de
+    # passe qui n'ouvre rien. C'est aussi ce qui rend le versement
+    # réparateur : un dépôt mal attribué disparaît au lieu de survivre.
+    #
+    # Seuls les secrets relevés dans KoXo sont concernés — ceux que le
+    # programme a fabriqués pour un site sans KoXo n'ont pas d'export qui
+    # les confirme, et les effacer les perdrait pour de bon.
+    anciens = (
+        session.query(SecretConserve)
+        .filter_by(cible="koxo", site=site, origine="koxo")
+        .all()
+    )
+    for vieux in anciens:
+        session.delete(vieux)
+    rapport.nb_retires = len(anciens)
+    session.flush()
 
-    personnes = {
-        p.login: p for p in session.query(Personne).all() if p.login
-    }
-    for login, mdp in par_login.items():
+    personnes = {p.badge: p for p in session.query(Personne).all() if p.badge}
+    for badge, mdp in par_id.items():
         if not mdp:
             rapport.nb_sans_mot_de_passe += 1
             continue
-        personne = personnes.get(login)
+        personne = personnes.get(badge)
         if personne is None:
             rapport.nb_sans_correspondance += 1
             continue

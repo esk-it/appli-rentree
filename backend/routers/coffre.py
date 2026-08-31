@@ -174,6 +174,7 @@ class VersementOut(BaseModel):
     nb_deposes: int
     nb_sans_correspondance: int
     nb_sans_mot_de_passe: int
+    nb_retires: int
     resume: str
 
 

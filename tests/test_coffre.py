@@ -199,8 +199,10 @@ def _export_koxo(lignes):
 def test_verser_un_export_range_les_mots_de_passe(session, coffre,
                                                   personne_factory):
     p = personne_factory(nom="GUEGAN", prenom="Maya", login="mguegan")
+    # L'ID unique de l'export est le badge : c'est lui la clé du
+    # rapprochement, pas l'identifiant.
     contenu = _export_koxo([
-        ["Elèves", "6A", "", "GUEGAN", "Maya", "mguegan", 100, "Vikuge90", "", ""],
+        ["Elèves", "6A", "", "GUEGAN", "Maya", "mguegan", p.badge, "Vikuge90", "", ""],
     ])
 
     r = verser_export_koxo(session, coffre, contenu, site="NDK")
@@ -301,3 +303,97 @@ def test_la_reponse_ne_contient_jamais_la_cle(client):
     r = client.post("/api/coffre/initialiser", json={"mot_de_passe": MAITRE})
     assert MAITRE not in r.text
     assert set(r.json()) == {"initialise", "ouvert", "expire_dans", "nb_secrets"}
+
+
+def test_le_versement_rapproche_par_id_unique_pas_par_login(
+    session, coffre, personne_factory
+):
+    """Le bug réel : `cdeniel` désigne deux personnes dans deux bases.
+
+    Chloé DENIEL tient `cdeniel` dans la base de NDK, Clément DENIEL le
+    tient dans celle de SU. Rapprocher par identifiant versait le mot de
+    passe de Clément dans la fiche de Chloé — et un mot de passe faux est
+    pire qu'un mot de passe absent, parce qu'on le croit bon.
+    """
+    chloe = personne_factory(nom="DENIEL", prenom="Chloé", login="cdeniel",
+                             id_charlemagne=62690)
+    clement = personne_factory(nom="DENIEL", prenom="Clément", login="cdeniel2",
+                               id_charlemagne=90400)
+
+    # L'export de SU : l'identifiant y est `cdeniel`, mais l'ID unique dit
+    # que c'est Clément.
+    contenu = _export_koxo([
+        ["Elèves", "34", "", "DENIEL", "Clément", "cdeniel", clement.badge,
+         "Ekepuv36", "", ""],
+    ])
+    r = verser_export_koxo(session, coffre, contenu, site="SU")
+    session.commit()
+
+    assert r.nb_deposes == 1
+    assert chercher(session, coffre, "Clément")[0].mot_de_passe == "Ekepuv36"
+    assert chercher(session, coffre, "Chloé") == [], "rien ne doit lui être attribué"
+
+
+def test_un_id_unique_inconnu_est_compte(session, coffre):
+    contenu = _export_koxo([
+        ["Elèves", "6A", "", "INCONNU", "Jean", "jinconnu", 999999, "Zidpes09", "", ""],
+    ])
+    r = verser_export_koxo(session, coffre, contenu, site="NDK")
+    assert r.nb_deposes == 0 and r.nb_sans_correspondance == 1
+
+
+def test_reverser_un_export_repare_les_attributions_fautives(
+    session, coffre, personne_factory
+):
+    """Vingt-six mots de passe SU avaient été versés à la mauvaise personne.
+
+    Reverser doit les corriger, donc effacer ce que la base avait déposé
+    avant de redéposer — sinon un dépôt fautif sur quelqu'un que l'export
+    ne mentionne pas survivrait à la correction.
+    """
+    cedric = personne_factory(nom="CUEFF", prenom="Cédric", login="ccueff",
+                              id_charlemagne=228)
+    clemence = personne_factory(nom="CUEFF", prenom="Clémence", login="ccueff2",
+                                id_charlemagne=93700)
+
+    # L'ancien versement, fautif : le mot de passe de Clémence chez Cédric.
+    deposer(session, coffre, personne_id=cedric.id, mot_de_passe="Ekepuv36",
+            cible="koxo", site="SU", origine="koxo")
+    session.commit()
+
+    contenu = _export_koxo([
+        ["Elèves", "34", "", "CUEFF", "Clémence", "ccueff", clemence.badge,
+         "Ekepuv36", "", ""],
+    ])
+    r = verser_export_koxo(session, coffre, contenu, site="SU")
+    session.commit()
+
+    assert r.nb_retires == 1
+    assert chercher(session, coffre, "Cédric") == [], "le dépôt fautif a disparu"
+    assert chercher(session, coffre, "Clémence")[0].mot_de_passe == "Ekepuv36"
+
+
+def test_reverser_une_base_nefface_pas_lautre(session, coffre, personne_factory):
+    p = personne_factory(login="pdupont", id_charlemagne=500)
+    deposer(session, coffre, personne_id=p.id, mot_de_passe="Aaa111",
+            cible="koxo", site="NDK", origine="koxo")
+    session.commit()
+
+    verser_export_koxo(session, coffre, _export_koxo([]), site="SU")
+    session.commit()
+
+    assert chercher(session, coffre, "pdupont")[0].mot_de_passe == "Aaa111"
+
+
+def test_reverser_nefface_pas_un_mot_de_passe_fabrique(session, coffre,
+                                                       personne_factory):
+    """NDE n'a pas d'export qui le confirme : l'effacer le perdrait."""
+    p = personne_factory(login="ndeeleve", id_charlemagne=700)
+    deposer(session, coffre, personne_id=p.id, mot_de_passe="Vikuge90",
+            cible="google", site="NDE", origine="genere")
+    session.commit()
+
+    verser_export_koxo(session, coffre, _export_koxo([]), site="NDE")
+    session.commit()
+
+    assert chercher(session, coffre, "ndeeleve")[0].mot_de_passe == "Vikuge90"
