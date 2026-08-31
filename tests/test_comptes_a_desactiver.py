@@ -450,3 +450,160 @@ def test_un_eleve_conserve_ne_glisse_pas_dans_l_export_des_professeurs(
         )[0]
     )
     assert "92330" not in {l["ID unique"] for l in lignes}
+
+
+# ---------------------------------------------------------------------------
+# Un adulte vit dans les deux bases
+# ---------------------------------------------------------------------------
+
+
+def test_la_base_visee_definit_la_population_des_adultes(
+    session, base, constat_factory, site_factory
+):
+    """Le rattachement d'un adulte ne dit pas où il travaille.
+
+    Tous les adultes sont rattachés à NDK, base lue la première par
+    l'amorçage, et Charlemagne ne donne aucun établissement pour eux. Sans
+    cette règle, l'export visant SU ne contenait presque personne quand la
+    base SU en détient 176 : la synchronisation proposait d'en désactiver
+    173 en exercice.
+    """
+    from backend.services.comptes_a_desactiver import comptes_a_desactiver
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    site_ndk, an, restants = base
+    site_su = site_factory("SU")
+    # La base de SU détient ces professeurs, tous rattachés à NDK.
+    for p in restants:
+        constat_factory(p.login, p.badge, site="SU",
+                        groupe_secondaire="MATHEMATIQUES")
+
+    lignes = _lire(
+        generer_csv_koxo(
+            session, site_id=site_su.id, type_personne="adulte",
+            categorie="tous", annee_cible_id=an.id, base_koxo="SU",
+        )[0]
+    )
+    assert {l["ID unique"] for l in lignes} == {str(p.badge) for p in restants}
+    # Et le groupe reste celui que SU détient, pas celui de Charlemagne.
+    assert all(l["Groupe secondaire"] == "MATHEMATIQUES" for l in lignes)
+
+    r = comptes_a_desactiver(
+        session, site_id=site_su.id, type_personne="adulte",
+        annee_cible_id=an.id, base_koxo="SU",
+    )
+    assert r.comptes == []
+
+
+def test_un_adulte_disparu_de_charlemagne_reste_a_trancher(
+    session, base, constat_factory, site_factory, personne_factory
+):
+    """Reconduire ce que la base détient ne doit pas reconduire les partants."""
+    from backend.services.comptes_a_desactiver import comptes_a_desactiver
+
+    site_ndk, an, _ = base
+    site_su = site_factory("SU")
+    # Connu du référentiel — rattaché à NDK comme tous les adultes — mais
+    # absent de la photographie Charlemagne de l'année visée.
+    parti = personne_factory(
+        type="adulte", site_id=site_ndk.id, id_charlemagne=606,
+        nom="SENABRE", prenom="Eric", login="esenabre",
+    )
+    constat_factory("esenabre", parti.badge, site="SU", nom="SENABRE",
+                    prenom="Eric")
+
+    r = comptes_a_desactiver(
+        session, site_id=site_su.id, type_personne="adulte",
+        annee_cible_id=an.id, base_koxo="SU",
+    )
+    assert [c.login for c in r.comptes] == ["esenabre"]
+    # Le motif porte sur Charlemagne, pas sur un rattachement qui ne veut
+    # rien dire pour un adulte.
+    assert "Charlemagne" in r.comptes[0].motif
+    assert "rattaché" not in r.comptes[0].motif
+
+
+def test_un_eleve_n_est_pas_reconduit_dans_la_base_qu_il_a_quittee(
+    session, base, constat_factory, site_factory, personne_factory, snap_factory
+):
+    """Un élève appartient réellement à son site : il a changé d'établissement."""
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    site_ndk, an, _ = base
+    site_su = site_factory("SU")
+    monte = personne_factory(
+        type="eleve", site_id=site_ndk.id, id_charlemagne=9200,
+        nom="MONTE", prenom="Lea", login="lmonte",
+    )
+    snap_factory(monte.id, an.id, classe="2_1")
+    constat_factory("lmonte", monte.badge, site="SU", groupe_primaire="Elèves",
+                    groupe_secondaire="31")
+
+    lignes = _lire(
+        generer_csv_koxo(
+            session, site_id=site_su.id, type_personne="eleve",
+            categorie="tous", annee_cible_id=an.id, base_koxo="SU",
+        )[0]
+    )
+    assert str(monte.badge) not in {l["ID unique"] for l in lignes}
+
+
+# ---------------------------------------------------------------------------
+# La limite que KoXo ne dit pas
+# ---------------------------------------------------------------------------
+
+
+def test_l_export_previent_des_groupes_que_koxo_tronquera(
+    session, base, constat_factory, personne_factory, snap_factory
+):
+    """Vingt caractères, et le groupe se dédouble sans prévenir.
+
+    Sur l'instance réelle, trois groupes dépassaient la limite et leurs dix
+    comptes ont été déplacés vers un jumeau tronqué. Le déplacement se
+    répète à chaque synchronisation : remettre les gens à la main ne tient
+    pas.
+    """
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    site, an, _ = base
+    p = personne_factory(
+        type="adulte", site_id=site.id, id_charlemagne=500,
+        nom="QUESSEVEUR", prenom="Sophie", login="squessev",
+    )
+    snap_factory(p.id, an.id, matieres="BIOCH. GENIE BIOLOGIQUE")
+    constat_factory("squessev", p.badge, nom="QUESSEVEUR", prenom="Sophie",
+                    groupe_secondaire="BIOCH. GENIE BIOLOGIQUE")
+
+    _, rapport = generer_csv_koxo(
+        session, site_id=site.id, type_personne="adulte", categorie="tous",
+        annee_cible_id=an.id,
+    )
+    avertissement = next(
+        (a for a in rapport.avertissements if "tronquera" in a), None
+    )
+    assert avertissement is not None
+    # Le nom raccourci est donné tel que KoXo le fabriquera.
+    assert "BIOCH. GENIE BIOLOGI" in avertissement
+    assert "Renomme-les dans KoXo" in avertissement
+
+
+def test_un_groupe_de_vingt_caracteres_ne_declenche_rien(
+    session, base, constat_factory, personne_factory, snap_factory
+):
+    """`DIRECTRICE ADJOINTE`, dix-neuf caractères, n'a pas bougé."""
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    site, an, _ = base
+    p = personne_factory(
+        type="adulte", site_id=site.id, id_charlemagne=501,
+        nom="LE DUFF", prenom="Isabelle", login="ileduff",
+    )
+    snap_factory(p.id, an.id, matieres="DIRECTRICE ADJOINTE")
+    constat_factory("ileduff", p.badge, nom="LE DUFF", prenom="Isabelle",
+                    groupe_secondaire="DIRECTRICE ADJOINTE")
+
+    _, rapport = generer_csv_koxo(
+        session, site_id=site.id, type_personne="adulte", categorie="tous",
+        annee_cible_id=an.id,
+    )
+    assert not any("tronquera" in a for a in rapport.avertissements)

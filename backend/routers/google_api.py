@@ -1520,6 +1520,107 @@ def corriger_adresses(
 
 
 # ---------------------------------------------------------------------------
+# Homonymies d'adresse
+# ---------------------------------------------------------------------------
+
+
+class AttributionOut(BaseModel):
+    personne_id: int
+    badge: int | None
+    nom: str
+    prenom: str
+    login: str | None
+    site: str | None
+    adresse_actuelle: str
+    adresse_proposee: str
+
+
+class HomonymieOut(BaseModel):
+    adresse: str
+    garde_par: str
+    motif_du_choix: str
+    a_trancher: list[AttributionOut]
+
+
+class HomonymesOut(BaseModel):
+    nb_examines: int
+    nb_a_trancher: int
+    homonymies: list[HomonymieOut]
+
+
+def _detecter_homonymies(session: Session, annee_id, avec_google: bool = True):
+    from backend.services.adresses_homonymes import detecter_homonymies
+
+    adresses = None
+    if avec_google:
+        # Un suffixe libre au référentiel mais déjà ouvert dans Google ne
+        # servirait à rien : la création échouerait pareillement.
+        try:
+            comptes = ClientGoogle(charger_config(session)).lister_utilisateurs()
+        except Exception:
+            comptes = None
+        if comptes is not None:
+            adresses = {(u.get("email") or "").lower() for u in comptes}
+            for u in comptes:
+                adresses.update(a.lower() for a in (u.get("alias") or []) if a)
+    return detecter_homonymies(session, annee_id=annee_id, adresses_google=adresses)
+
+
+@router.get("/adresses/homonymies", response_model=HomonymesOut)
+def homonymies_adresses(
+    annee_id: int | None = Query(None),
+    session: Session = Depends(db_session),
+) -> HomonymesOut:
+    """Adresses que plusieurs personnes revendiquent. Lecture seule.
+
+    Deux personnes du même prénom et du même nom calculent la même adresse.
+    Google refuse la seconde — et parfois le fichier entier.
+    """
+    r = _detecter_homonymies(session, annee_id)
+    return HomonymesOut(
+        nb_examines=r.nb_examines,
+        nb_a_trancher=r.nb_a_trancher,
+        homonymies=[
+            HomonymieOut(
+                adresse=h.adresse, garde_par=h.garde_par,
+                motif_du_choix=h.motif_du_choix,
+                a_trancher=[AttributionOut(**vars(x)) for x in h.a_trancher],
+            )
+            for h in r.homonymies
+        ],
+    )
+
+
+class AttribuerPayload(BaseModel):
+    annee_id: int | None = None
+    mode: str = "simulation"
+
+
+class AttributionResultOut(BaseModel):
+    nb_attribuees: int
+    mode: str
+
+
+@router.post("/adresses/attribuer", response_model=AttributionResultOut)
+def attribuer_adresses(
+    payload: AttribuerPayload, session: Session = Depends(db_session)
+) -> AttributionResultOut:
+    """Donne un suffixe libre à ceux qui n'ont pas encore de compte.
+
+    Celui dont le compte existe garde son adresse : c'est là qu'il se
+    connecte. La décision est gardée — un suffixe qui changerait d'un
+    export au suivant créerait un second compte au lieu du premier.
+    """
+    from backend.services.adresses_homonymes import appliquer_attributions
+
+    if payload.mode not in ("simulation", "reel"):
+        raise HTTPException(400, f"mode invalide : {payload.mode!r}")
+    r = _detecter_homonymies(session, payload.annee_id)
+    n = appliquer_attributions(session, r, mode=payload.mode)
+    return AttributionResultOut(nb_attribuees=n, mode=payload.mode)
+
+
+# ---------------------------------------------------------------------------
 # Groupes de classe
 # ---------------------------------------------------------------------------
 

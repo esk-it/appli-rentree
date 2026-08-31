@@ -172,6 +172,7 @@ def comptes_a_desactiver(
                 motif=_motif(
                     session, p, c.badge in avec_snapshot, site,
                     conserve=bool(c.conserver),
+                    type_personne=type_personne,
                 ),
                 personne_id=p.id if p else None,
             )
@@ -284,6 +285,7 @@ def _motif(
     site: Site,
     *,
     conserve: bool = False,
+    type_personne: str = "eleve",
 ) -> str:
     """Pourquoi ce compte manque à l'export.
 
@@ -295,18 +297,27 @@ def _motif(
     l'export une ligne recopiée d'un vieux constat plutôt que la ligne à
     jour.
     """
-    if conserve and p is not None and a_un_snapshot and p.site_id == site.id:
+    if conserve and p is not None and a_un_snapshot and (
+        type_personne == "adulte" or p.site_id == site.id
+    ):
         return (
             "revenu dans l'export Charlemagne : la conservation ne sert plus, "
             "tu peux la relâcher"
         )
     if p is None:
         return "inconnu du référentiel — aucune ingestion ne l'a jamais porté"
-    if p.site_id is None:
-        return "rattaché à aucun site : aucun export ne peut le contenir"
-    if p.site_id != site.id:
-        autre = session.query(Site).filter_by(id=p.site_id).one_or_none()
-        return f"rattaché au site {autre.nom if autre else p.site_id}"
+
+    # Le site d'un adulte est un artefact de l'amorçage, pas un fait : tous
+    # sont rattachés à NDK, base lue en premier, et Charlemagne ne donne
+    # aucun établissement pour eux. Le dire ici égarait — les trois comptes
+    # menacés de SU s'annonçaient « rattaché au site NDK », alors que la
+    # raison de leur absence est ailleurs.
+    if type_personne != "adulte":
+        if p.site_id is None:
+            return "rattaché à aucun site : aucun export ne peut le contenir"
+        if p.site_id != site.id:
+            autre = session.query(Site).filter_by(id=p.site_id).one_or_none()
+            return f"rattaché au site {autre.nom if autre else p.site_id}"
     if not a_un_snapshot:
         return "absent de l'export Charlemagne de l'année visée"
     return "présent au référentiel mais écarté de l'export"

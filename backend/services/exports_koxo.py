@@ -60,6 +60,25 @@ COLONNES_KOXO = [
 
 ENCODAGE_KOXO = "cp1252"
 
+LONGUEUR_MAX_GROUPE = 20
+"""Au-delà, KoXo tronque le nom du groupe en lisant le fichier.
+
+La limite ne s'applique qu'à l'import : un groupe créé à la main dans
+l'interface porte le nom qu'on veut, et l'export de KoXo le rend entier.
+Mais quand la synchronisation relit ce nom depuis un CSV, elle le coupe à
+vingt caractères, ne reconnaît plus le groupe existant, en crée un jumeau
+tronqué à côté, et y déplace les comptes.
+
+Constaté sur l'instance réelle : trois groupes dépassaient la limite —
+`SC. & TECH. MEDICO-SOCIALES`, `BIOCH. GENIE BIOLOGIQUE`, `ENTRETIEN -
+MAINTENANCE` — et leurs dix comptes ont été déplacés vers
+`SC. & TECH. MEDICO-S`, `BIOCH. GENIE BIOLOGI` et `ENTRETIEN - MAINTENA`.
+`DIRECTRICE ADJOINTE`, dix-neuf caractères, n'a pas bougé.
+
+Les remettre à la main ne suffit pas : la synchronisation suivante
+retronque et redéplace. Il faut renommer le groupe dans KoXo.
+"""
+
 Categorie = Literal["tous", "nouveaux", "anciens"]
 
 
@@ -211,6 +230,7 @@ def generer_csv_koxo(
         avertissements=_relire(lignes, ctx)
         + _adultes_sans_site(session, ctx)
         + _groupes_absents_de_la_base(session, ctx, lignes)
+        + _groupes_trop_longs(lignes)
         + _adresses_seulement_calculees(session, ctx, lignes)
         + _comptes_que_la_synchro_desactivera(session, ctx, lignes),
     )
@@ -308,6 +328,38 @@ def _groupes_absents_de_la_base(
         f"{len(inconnus)} groupe(s) secondaire(s) absents de la base "
         f"{ctx.base} — {details}. KoXo les créera : vérifie qu'ils ne font "
         "pas double emploi avec un groupe existant."
+    ]
+
+
+def _groupes_trop_longs(lignes: list[dict]) -> list[str]:
+    """Prévient des groupes que KoXo coupera en lisant le fichier.
+
+    Le déplacement est silencieux et se répète : chaque synchronisation
+    recrée le jumeau tronqué et y ramène les comptes. Remettre les gens à
+    la main ne tient donc pas — il faut renommer le groupe dans KoXo.
+
+    Le message donne le nom raccourci tel que KoXo le fabriquera, pour
+    qu'on reconnaisse le groupe parasite s'il existe déjà.
+    """
+    par_groupe: dict[str, int] = {}
+    for l in lignes:
+        g = (l.get("Groupe secondaire") or "").strip()
+        if len(g) > LONGUEUR_MAX_GROUPE:
+            par_groupe[g] = par_groupe.get(g, 0) + 1
+    if not par_groupe:
+        return []
+
+    detail = " ; ".join(
+        f"« {g} » → « {g[:LONGUEUR_MAX_GROUPE]} » ({n} compte{'s' if n > 1 else ''})"
+        for g, n in sorted(par_groupe.items(), key=lambda x: -len(x[0]))
+    )
+    total = sum(par_groupe.values())
+    return [
+        f"{len(par_groupe)} groupe(s) dépassent {LONGUEUR_MAX_GROUPE} caractères : "
+        f"KoXo les tronquera en lisant ce fichier, créera un groupe jumeau et y "
+        f"déplacera {total} compte(s) — {detail}. Renomme-les dans KoXo avant de "
+        "synchroniser : les remettre à la main ne tient pas, la synchronisation "
+        "suivante recommence."
     ]
 
 
@@ -470,19 +522,83 @@ def _relire(lignes: list[dict], ctx: ContexteExport) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
+def _ids_detenus_par_la_base(session: Session, ctx: ContexteExport) -> set[int]:
+    """Les adultes que cette base KoXo détient déjà, et qui enseignent encore.
+
+    ## Le rattachement d'un adulte ne dit pas où il travaille
+
+    Le référentiel rattache chaque personne à **un** site. Pour un élève
+    c'est une vérité : il est inscrit quelque part. Pour un adulte, c'est un
+    artefact — l'amorçage a lu la base de NDK en premier, et les 195 adultes
+    y ont été rattachés. Aucun n'est rattaché à SU.
+
+    Et Charlemagne ne tranche pas : sur l'instance réelle, les 214
+    photographies d'adultes de l'année portent un **code établissement
+    vide**. Rien, nulle part, ne dit qui enseigne à SU.
+
+    ## Ce que ça coûtait
+
+    L'export visant SU ne contenait donc presque aucun adulte, quand la
+    base SU en détient 176. Un export « tous » valant état complet, la
+    synchronisation proposait d'en désactiver 176 — dont 173 professeurs
+    en exercice, beaucoup enseignant sur les deux sites.
+
+    ## La règle
+
+    La seule source qui sache qui travaille à SU est **la base de SU**.
+    Un compte qu'elle détient, dont la personne figure encore chez
+    Charlemagne cette année, est reconduit : il n'y a aucune raison de le
+    fermer.
+
+    Celui dont la personne a disparu de Charlemagne n'est pas reconduit
+    pour autant — c'est un départ possible, et il revient à l'écran des
+    comptes menacés, qui le nomme et laisse décider.
+
+    Ne concerne que les adultes. Un élève appartient réellement à son
+    site : le reconduire dans la base qu'il a quittée l'y maintiendrait
+    alors qu'il a changé d'établissement.
+    """
+    if ctx.type_personne != "adulte":
+        return set()
+
+    from backend.models import LoginReserve
+
+    badges = {
+        c.badge
+        for c in session.query(LoginReserve)
+        .filter(LoginReserve.site == ctx.base, LoginReserve.badge.isnot(None))
+        .all()
+        if not (c.groupe_primaire or "").strip()
+        or (c.groupe_primaire or "").strip().lower() == "professeurs"
+    }
+    if not badges:
+        return set()
+
+    return {
+        pid
+        for (pid,) in session.query(Personne.id)
+        .filter(Personne.badge.in_(badges), Personne.type == "adulte")
+        .all()
+    }
+
+
 def _lignes_tous(session: Session, ctx: ContexteExport) -> list[dict]:
     """État complet visé : toutes les Personnes du site+type ayant un snapshot
-    dans l'année cible."""
+    dans l'année cible — plus, pour les adultes, celles que la base détient
+    déjà."""
+    ids = set(
+        ids_personnes_du_site(
+            session, site_id=ctx.site.id,
+            annee_id=ctx.annee_cible_id, type_personne=ctx.type_personne,
+        )
+    )
+    ids |= _ids_detenus_par_la_base(session, ctx)
+
     q = (
         session.query(Personne, Snapshot)
         .join(Snapshot, Snapshot.personne_id == Personne.id)
         .filter(
-            Personne.id.in_(
-                ids_personnes_du_site(
-                    session, site_id=ctx.site.id,
-                    annee_id=ctx.annee_cible_id, type_personne=ctx.type_personne,
-                )
-            ),
+            Personne.id.in_(ids),
             Personne.type == ctx.type_personne,
             Snapshot.annee_scolaire_id == ctx.annee_cible_id,
         )

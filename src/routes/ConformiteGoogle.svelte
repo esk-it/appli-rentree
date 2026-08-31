@@ -116,6 +116,38 @@
     }
   }
 
+  /**
+   * Les adresses que plusieurs personnes revendiquent.
+   *
+   * Deux personnes du même prénom et du même nom calculent la même
+   * adresse. Google refuse la seconde — et parfois le fichier entier.
+   */
+  let homonymies = $state(/** @type {any} */ (null));
+
+  async function analyserHomonymies() {
+    chargeAdr = true;
+    try {
+      homonymies = await googleApi.homonymies({ anneeId });
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
+    } finally {
+      chargeAdr = false;
+    }
+  }
+
+  async function attribuerAdresses() {
+    chargeAdr = true;
+    try {
+      const r = await googleApi.attribuerAdresses({ anneeId, mode: "reel" });
+      notify.succes(`${r.nb_attribuees} adresse(s) tranchée(s)`);
+      await analyserHomonymies();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
+    } finally {
+      chargeAdr = false;
+    }
+  }
+
   // --- Groupes --------------------------------------------------------------
   let diffGroupes = $state(/** @type {any} */ (null));
   let chargeGrp = $state(false);
@@ -425,7 +457,54 @@
               Corriger {divergences.nb_resolvables} adresse(s)
             </Bouton>
           {/if}
+          <Bouton icon={Search} occupe={chargeAdr} onclick={analyserHomonymies}>
+            Chercher les homonymes
+          </Bouton>
+          {#if homonymies && homonymies.nb_a_trancher > 0}
+            <Bouton variante="primary" occupe={chargeAdr} onclick={attribuerAdresses}>
+              Trancher {homonymies.nb_a_trancher} homonymie(s)
+            </Bouton>
+          {/if}
         </div>
+
+        {#if homonymies}
+          {#if homonymies.homonymies.length === 0}
+            <p class="text-sm text-emerald-700 dark:text-emerald-400">
+              Aucune adresse revendiquée par deux personnes sur
+              {homonymies.nb_examines} examinée(s).
+            </p>
+          {:else}
+            <div class="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+              <p class="text-xs text-amber-800 dark:text-amber-300">
+                Deux personnes du même prénom et du même nom calculent la même
+                adresse. Google refuse la seconde — et parfois le fichier
+                entier. Celui dont le compte existe garde son adresse ; l'autre
+                reçoit le premier suffixe libre, ici et dans Google.
+              </p>
+              {#each homonymies.homonymies as h (h.adresse)}
+                <div class="mt-2 rounded-md border border-amber-200 bg-white p-2 text-sm dark:border-amber-900 dark:bg-stone-900">
+                  <p class="font-medium">{h.adresse}</p>
+                  <p class="text-xs text-stone-500 dark:text-stone-400">
+                    gardée par {h.garde_par} — {h.motif_du_choix}
+                  </p>
+                  <ul class="mt-1 space-y-0.5">
+                    {#each h.a_trancher as x (x.personne_id)}
+                      <li class="text-xs">
+                        <span class="font-medium">{x.prenom} {x.nom}</span>
+                        <span class="text-stone-500 dark:text-stone-400">
+                          · {x.login ?? "—"}{#if x.site} · {x.site}{/if} →
+                        </span>
+                        <span class="text-emerald-700 dark:text-emerald-400">
+                          {x.adresse_proposee}
+                        </span>
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        {/if}
 
         {#if divergences}
           <p class="text-sm">

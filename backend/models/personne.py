@@ -130,6 +130,31 @@ class Personne(Base):
     classes_prof_principal: Mapped[str | None] = mapped_column(String(500), nullable=True)
     """Classes où prof principal, séparées par `;`."""
 
+    email_attribuee: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    """L'adresse choisie pour lever une homonymie, avant tout compte.
+
+    Deux personnes du même prénom et du même nom produisent la **même**
+    adresse calculée. La règle des identifiants sait déjà s'en sortir : elle
+    suffixe, et `hguillou2` naît à côté de `hguillou`. La règle des adresses
+    ne le savait pas.
+
+    Sur l'instance réelle, deux Hugo GUILLOU — un en 1re à NDK, un entrant
+    en 6e à SU — se voyaient attribuer `hugo.guillou@lekreisker.fr` tous les
+    deux. L'export Google du second portait l'adresse du premier : Google
+    aurait refusé la ligne, voire le fichier.
+
+    Cette colonne n'est ni `email_constate` — qui dit ce qu'un compte
+    **existant** porte — ni un calcul. C'est une **décision**, prise une
+    fois et gardée : un suffixe qui changerait d'un export à l'autre
+    créerait un second compte au lieu de retrouver le premier.
+
+    Les deux numérotations sont indépendantes, et il ne faut pas les
+    confondre : `alix.cabioch2@` appartient à `acabioch`, sans suffixe, et
+    `jules.salaun@` à `jsalaun1`. Un identifiant se dispute sur
+    `initiale+nom`, une adresse sur `prenom.nom` — les collisions ne
+    tombent pas aux mêmes endroits.
+    """
+
     email_professionnel: Mapped[str | None] = mapped_column(String(200), nullable=True)
     email_personnel: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
@@ -166,6 +191,10 @@ class Personne(Base):
         """
         if self.email_constate:
             return self.email_constate
+        # Une homonymie tranchée l'a été une fois pour toutes : le calcul
+        # redonnerait l'adresse de l'autre.
+        if self.email_attribuee:
+            return self.email_attribuee
         if not self.site:
             return None
         from backend.services.regles_metier import calculer_email

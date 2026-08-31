@@ -427,6 +427,21 @@ export const googleApi = {
     const q = p.toString() ? `?${p}` : "";
     return jsonOrThrow(await fetch(`${BASE}/google/adresses/divergences${q}`));
   },
+  /** Adresses revendiquées par plusieurs personnes — Google refuse la seconde. */
+  async homonymies({ anneeId = null } = {}) {
+    const q = anneeId ? `?annee_id=${anneeId}` : "";
+    return jsonOrThrow(await fetch(`${BASE}/google/adresses/homonymies${q}`));
+  },
+  /** Donne un suffixe libre à ceux dont le compte n'existe pas encore. */
+  async attribuerAdresses({ anneeId = null, mode = "simulation" }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/adresses/attribuer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ annee_id: anneeId, mode }),
+      }),
+    );
+  },
   async corrigerAdresses({ anneeId = null, siteId = null, mode = "simulation" }) {
     return jsonOrThrow(
       await fetch(`${BASE}/google/adresses/corriger`, {
