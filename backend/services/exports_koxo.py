@@ -196,7 +196,8 @@ def generer_csv_koxo(
         nom_fichier_suggere=_nom_fichier(site.nom, type_personne, categorie),
         groupe_secondaire_force=ctx.groupe_secondaire_force,
         avertissements=_relire(lignes, ctx)
-        + _adultes_sans_site(session, ctx),
+        + _adultes_sans_site(session, ctx)
+        + _groupes_absents_de_la_base(session, ctx, lignes),
     )
     return contenu, rapport
 
@@ -240,6 +241,58 @@ def _adultes_sans_site(session: Session, ctx: ContexteExport) -> list[str]:
         f"n'apparaissent donc dans aucun export — {qui}"
         + (", …" if len(orphelins) > 6 else "")
         + ". Rattache ceux qui doivent avoir un compte."
+    ]
+
+
+def _groupes_absents_de_la_base(
+    session: Session, ctx: ContexteExport, lignes: list[dict]
+) -> list[str]:
+    """Les groupes secondaires que la base visée ne connaît pas encore.
+
+    KoXo crée sans broncher le groupe qu'on lui présente. Un libellé
+    Charlemagne qui n'existe pas dans la base y fait donc naître une
+    discipline de plus, où l'enseignant se retrouve seul — et sans accès au
+    répertoire partagé de ses collègues, rangés sous l'autre nom.
+
+    Le programme ne tranche pas : `MATH. SCIENCES` et `Mathematiques` sont
+    peut-être la même chose, et le décider serait deviner. Il nomme.
+    """
+    if ctx.type_personne != "adulte":
+        return []
+
+    from backend.models import LoginReserve
+
+    connus = {
+        _sans_casse_ni_accents(c.groupe_secondaire)
+        for c in session.query(LoginReserve).filter_by(site=ctx.base).all()
+        if (c.groupe_secondaire or "").strip()
+    }
+    if not connus:
+        return [
+            f"La base {ctx.base} n'a jamais été passée au Contrôle KoXo : le "
+            "programme ignore quels groupes secondaires elle porte, et ne "
+            "peut donc ni les préserver ni signaler ceux qu'elle créerait."
+        ]
+
+    inconnus: dict[str, list[str]] = {}
+    for l in lignes:
+        groupe = (l.get("Groupe secondaire") or "").strip()
+        if not groupe or _sans_casse_ni_accents(groupe) in connus:
+            continue
+        inconnus.setdefault(groupe, []).append(
+            f"{l.get('Prénom', '')} {l.get('Nom', '')}".strip()
+        )
+    if not inconnus:
+        return []
+
+    details = "; ".join(
+        f"{groupe} ({', '.join(gens[:3])}{', …' if len(gens) > 3 else ''})"
+        for groupe, gens in sorted(inconnus.items())
+    )
+    return [
+        f"{len(inconnus)} groupe(s) secondaire(s) absents de la base "
+        f"{ctx.base} — {details}. KoXo les créera : vérifie qu'ils ne font "
+        "pas double emploi avec un groupe existant."
     ]
 
 
@@ -539,7 +592,47 @@ def _groupe_pour(
     )
     if constat is not None and (constat.groupe_secondaire or "").strip():
         return constat.groupe_secondaire.strip()
-    return charlemagne
+
+    # Compte à créer : aucun constat à préserver, la matière vient de
+    # Charlemagne. Reste qu'elle peut ne pas s'écrire comme le groupe que la
+    # base porte déjà — `MATHEMATIQUES` contre `Mathematiques`. Écrire la
+    # graphie de Charlemagne ferait naître un second groupe à côté du
+    # premier, et le professeur atterrirait seul dans une discipline où ses
+    # collègues sont ailleurs.
+    return _graphie_de_la_base(session, site, charlemagne)
+
+
+def _graphie_de_la_base(session: Session, site: str, matiere: str) -> str:
+    """La façon dont cette base écrit ce groupe, si elle le connaît.
+
+    Le rapprochement ignore la casse et les accents, et rien d'autre : deux
+    libellés qui ne diffèrent que par là désignent le même groupe, KoXo
+    lui-même les confondant. Au-delà, on ne devine pas — `MATH. SCIENCES` et
+    `Mathematiques` sont peut-être la même discipline, mais c'est une
+    décision humaine, pas une déduction.
+    """
+    if not matiere:
+        return matiere
+
+    from backend.models import LoginReserve
+
+    connus = {
+        (c.groupe_secondaire or "").strip()
+        for c in session.query(LoginReserve).filter_by(site=site).all()
+        if (c.groupe_secondaire or "").strip()
+    }
+    cible = _sans_casse_ni_accents(matiere)
+    for connu in sorted(connus):
+        if _sans_casse_ni_accents(connu) == cible:
+            return connu
+    return matiere
+
+
+def _sans_casse_ni_accents(t: str) -> str:
+    import unicodedata
+
+    t = unicodedata.normalize("NFD", (t or "").strip().upper())
+    return "".join(c for c in t if not unicodedata.combining(c))
 
 
 def _formatter_ligne(

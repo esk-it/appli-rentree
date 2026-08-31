@@ -904,3 +904,82 @@ def test_les_deux_bases_tiennent_chacune_leur_constat(session, tmp_path):
     assert {c.groupe_secondaire for c in constats} == {
         "DIRECTEUR", "PHYSIQUE-CHIMIE",
     }
+
+
+# ---------------------------------------------------------------------------
+# La graphie des groupes secondaires
+# ---------------------------------------------------------------------------
+
+
+def test_un_entrant_prend_la_graphie_de_la_base(session, site_factory, tmp_path):
+    """`MATHEMATIQUES` de Charlemagne contre `Mathematiques` de KoXo.
+
+    Écrire la graphie de Charlemagne ferait naître un second groupe à côté
+    du premier, et l'enseignant atterrirait seul dans une discipline où ses
+    collègues sont ailleurs — sans accès à leur répertoire partagé.
+    """
+    from backend.services.controle_koxo import retenir_identifiants_constates
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    ndk = site_factory("NDK")
+    ancien = _adulte(session, ndk, "TONNARD", "Sylvie", "stonnard", 54,
+                     "MATHEMATIQUES")
+    annee = _annee_et_snapshot(session, ancien, "2026-2027", "MATHEMATIQUES")
+    entrant = _adulte(session, ndk, "BILLANT", "Pierre", "pbillant", 680,
+                      "MATHEMATIQUES")
+    _annee_et_snapshot(session, entrant, "2026-2027", "MATHEMATIQUES")
+
+    # La base écrit « Mathematiques », en minuscules.
+    retenir_identifiants_constates(session, _base_koxo(tmp_path, [
+        ["Professeurs", "Mathematiques", "TONNARD", "Sylvie", "stonnard", 54],
+    ]), site="NDK")
+    session.commit()
+
+    contenu, _ = generer_csv_koxo(
+        session, site_id=ndk.id, type_personne="adulte",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    par_nom = {l["Nom"]: l["Groupe secondaire"] for l in _lire_csv_koxo(contenu)}
+    assert par_nom["TONNARD"] == "Mathematiques", "préservé par le constat"
+    assert par_nom["BILLANT"] == "Mathematiques", "raccordé à la graphie de la base"
+
+
+def test_une_matiere_inconnue_de_la_base_est_signalee(session, site_factory,
+                                                      tmp_path):
+    """`MATH. SCIENCES` est peut-être `Mathematiques` — c'est humain à dire."""
+    from backend.services.controle_koxo import retenir_identifiants_constates
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    ndk = site_factory("NDK")
+    ancien = _adulte(session, ndk, "TONNARD", "Sylvie", "stonnard", 54, "MATHS")
+    annee = _annee_et_snapshot(session, ancien, "2026-2027", "MATHS")
+    entrant = _adulte(session, ndk, "BILLANT", "Pierre", "pbillant", 680,
+                      "MATH. SCIENCES")
+    _annee_et_snapshot(session, entrant, "2026-2027", "MATH. SCIENCES")
+
+    retenir_identifiants_constates(session, _base_koxo(tmp_path, [
+        ["Professeurs", "Mathematiques", "TONNARD", "Sylvie", "stonnard", 54],
+    ]), site="NDK")
+    session.commit()
+
+    _, rapport = generer_csv_koxo(
+        session, site_id=ndk.id, type_personne="adulte",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    assert any("MATH. SCIENCES" in a and "Pierre BILLANT" in a
+               for a in rapport.avertissements)
+
+
+def test_sans_controle_de_la_base_le_programme_le_dit(session, site_factory):
+    """Il ne peut alors ni préserver les groupes ni annoncer ce qu'il crée."""
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    ndk = site_factory("NDK")
+    p = _adulte(session, ndk, "TONNARD", "Sylvie", "stonnard", 54, "MATHS")
+    annee = _annee_et_snapshot(session, p, "2026-2027", "MATHS")
+
+    _, rapport = generer_csv_koxo(
+        session, site_id=ndk.id, type_personne="adulte",
+        categorie="tous", annee_cible_id=annee.id,
+    )
+    assert any("jamais été passée au Contrôle" in a for a in rapport.avertissements)
