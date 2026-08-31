@@ -193,6 +193,87 @@ def _resumer_personne_pour_conflit(p) -> ResumePersonneConflit:
     )
 
 
+def bases_koxo(session, *, type_personne: str, site_id: int | None) -> set[str]:
+    """Les serveurs KoXo où cette personne a un compte.
+
+    L'établissement tient **un serveur par domaine Active Directory**, pas
+    un par site : NDK et SU ont chacun le leur, NDE n'en a aucun. Et dans
+    un annuaire, un identifiant est unique pour **tout le monde** — élèves
+    et professeurs confondus, les groupes primaires n'y changent rien.
+
+    D'où :
+
+    - un adulte est dans **tous** les serveurs, il enseigne des deux côtés ;
+    - un élève est dans celui de son site, s'il en a un ;
+    - un élève de NDE n'est dans aucun.
+
+    Deux personnes ne se gênent que si l'intersection n'est pas vide. Sans
+    cette règle, l'arrivée de NDE levait cinquante-six collisions dont
+    aucune n'était réelle.
+    """
+    from backend.models import Site
+
+    sites = session.query(Site).all()
+    declarees = {s.base_koxo for s in sites if (s.base_koxo or "").strip()}
+
+    # Tant qu'aucun site ne déclare son serveur, on retombe sur l'ancienne
+    # lecture — chaque site est son propre annuaire. Sans ce repli, une
+    # base fraîchement migrée cesserait de voir la moindre collision, ce
+    # qui est bien pire que d'en voir trop.
+    configure = bool(declarees)
+
+    def base_de(site) -> str | None:
+        if site is None:
+            return None
+        if configure:
+            return (site.base_koxo or "").strip() or None
+        return site.nom
+
+    toutes = {b for b in (base_de(s) for s in sites) if b}
+    if type_personne == "adulte":
+        return toutes
+    if site_id is None:
+        # Site inconnu : se taire ferait passer une vraie collision. On
+        # suppose donc le pire.
+        return toutes
+    base = base_de(session.query(Site).filter_by(id=site_id).one_or_none())
+    return {base} if base else set()
+
+
+def collision_reelle(
+    session,
+    *,
+    type_personne: str,
+    site_id: int | None,
+    personnes_en_conflit,
+) -> list:
+    """Ne garde que les conflits qui portent sur un serveur commun.
+
+    Un identifiant identique dans deux annuaires distincts n'est pas un
+    conflit : personne ne se marche dessus. Le référentiel, lui, suffixe
+    quand même — sa colonne est unique — mais l'arbitrage humain n'a pas à
+    être réclamé pour un problème qui n'existe pas.
+    """
+    from backend.models import Personne
+
+    miennes = bases_koxo(session, type_personne=type_personne, site_id=site_id)
+    if not miennes:
+        return []
+
+    reels = []
+    for c in personnes_en_conflit:
+        autre = session.query(Personne).filter_by(id=c.personne_id).one_or_none()
+        if autre is None:
+            reels.append(c)
+            continue
+        siennes = bases_koxo(
+            session, type_personne=autre.type, site_id=autre.site_id
+        )
+        if miennes & siennes:
+            reels.append(c)
+    return reels
+
+
 def proposer_suffixe(
     session: Session,
     login_base: str,

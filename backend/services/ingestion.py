@@ -45,6 +45,7 @@ from backend.services.arbitrage import (
 from backend.services.parser_charlemagne import lire_htm, lire_xlsx
 from backend.services.regles_metier import (
     calculer_login_base,
+    collision_reelle,
     detecter_homonymes_ingestion,
     proposer_suffixe,
 )
@@ -504,7 +505,21 @@ def _traiter_ligne_eleve(
                 f"Impossible d'attribuer un login pour {nom} {prenom} (id={id_ch})"
             )
             return
-        if proposition.a_conflit:
+        # Un identifiant identique dans deux annuaires distincts n'est pas
+        # un conflit : personne ne se marche dessus. Le référentiel suffixe
+        # quand même — sa colonne est unique — mais on ne réclame pas un
+        # arbitrage pour un problème qui n'existe pas.
+        conflits = (
+            collision_reelle(
+                session,
+                type_personne="eleve",
+                site_id=site_id,
+                personnes_en_conflit=proposition.personnes_en_conflit,
+            )
+            if proposition.a_conflit
+            else []
+        )
+        if conflits:
             collision = CollisionLoginIngestion(
                 id_charlemagne=id_ch,
                 nom=nom,
@@ -520,7 +535,7 @@ def _traiter_ligne_eleve(
                         "nom": c.nom,
                         "prenom": c.prenom,
                     }
-                    for c in proposition.personnes_en_conflit
+                    for c in conflits
                 ],
             )
             rapport.collisions_login.append(collision)
@@ -740,7 +755,21 @@ def _traiter_ligne_adulte(
                 f"Impossible d'attribuer un login pour {nom} {prenom} (id={id_ch})"
             )
             return
-        if proposition.a_conflit:
+        # Un identifiant identique dans deux annuaires distincts n'est pas
+        # un conflit : personne ne se marche dessus. Le référentiel suffixe
+        # quand même — sa colonne est unique — mais on ne réclame pas un
+        # arbitrage pour un problème qui n'existe pas.
+        conflits = (
+            collision_reelle(
+                session,
+                type_personne="adulte",
+                site_id=None,
+                personnes_en_conflit=proposition.personnes_en_conflit,
+            )
+            if proposition.a_conflit
+            else []
+        )
+        if conflits:
             collision = CollisionLoginIngestion(
                 id_charlemagne=id_ch,
                 nom=nom,
@@ -756,7 +785,7 @@ def _traiter_ligne_adulte(
                         "nom": c.nom,
                         "prenom": c.prenom,
                     }
-                    for c in proposition.personnes_en_conflit
+                    for c in conflits
                 ],
             )
             rapport.collisions_login.append(collision)

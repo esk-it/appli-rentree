@@ -43,6 +43,21 @@ class Site(Base):
     prefixe_annee_ou: Mapped[str] = mapped_column(String(20))
     """Préfixe utilisé dans le nom des OU annuelles : NDE (donne NDE2026), NDK, SU."""
 
+    base_koxo: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    """Le serveur KoXo où les élèves de ce site ont un compte. `None` quand
+    le site n'en a pas.
+
+    Ce n'est pas une redondance avec `nom` : l'établissement tient **un
+    serveur par domaine Active Directory**, pas un par site. NDK et SU ont
+    chacun le leur ; NDE n'en a aucun, ses élèves n'ayant qu'un compte
+    Google.
+
+    De là découle la seule chose qui compte pour les identifiants : deux
+    personnes ne se gênent que si elles partagent un serveur. Sans cette
+    colonne, l'arrivée de NDE levait cinquante-six collisions d'identifiant
+    dont aucune n'était réelle — ses élèves étaient comparés à ceux de deux
+    annuaires où ils n'ont pas de compte."""
+
     numero_ordre: Mapped[int] = mapped_column(Integer)
     """Numéro d'ordre pour l'arborescence OU : 2 (NDE), 3 (NDK), 4 (SU), 7 (Sortis)."""
 
