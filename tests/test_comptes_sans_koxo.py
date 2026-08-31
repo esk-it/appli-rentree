@@ -330,3 +330,25 @@ def test_une_etiquette_ne_se_coupe_pas_entre_deux_pages(session):
         organisation="O", annee="2026-2027",
     ).decode("utf-8")
     assert "break-inside: avoid" in page
+
+
+def test_les_fonds_sont_imposes_a_limpression(session):
+    """Sans cela, la planche sort en noir et blanc.
+
+    Les navigateurs suppriment les fonds à l'impression pour économiser
+    l'encre. Sur une étiquette, le bandeau bleu et le fond bleu pâle sont
+    l'essentiel de la présentation — elle ne ressemblerait plus à celles
+    que KoXo produit pour les deux autres sites.
+    """
+    from backend.services.comptes_sans_koxo import fiches_html
+
+    page = fiches_html(
+        [{"nom": "X", "prenom": "Y", "classe": "6B", "groupe": "Elèves / 6B",
+          "login": "x", "mot_de_passe": "Z"}],
+        organisation="O", annee="2026-2027",
+    ).decode("utf-8")
+
+    assert page.count("print-color-adjust: exact") >= 3
+    assert "-webkit-print-color-adjust: exact" in page
+    # Le fond gris de l'écran, lui, ne doit pas partir à l'impression.
+    assert "@media print" in page

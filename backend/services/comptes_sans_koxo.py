@@ -335,7 +335,15 @@ def fiches_html(
 <title>Étiquettes de comptes — {_echapper(annee)}</title>
 <style>
   @page {{ size: A4; margin: {MARGE_H}pt {MARGE_G}pt; }}
-  * {{ box-sizing: border-box; }}
+  /* À l'impression, les navigateurs suppriment les fonds pour économiser
+     l'encre. Sur une étiquette, le bandeau bleu et le fond bleu pâle sont
+     l'essentiel de la présentation : sans eux, la planche sort en noir et
+     blanc et ne ressemble plus à celles de KoXo. On les impose. */
+  * {{
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }}
   body {{
     margin: 0;
     font-family: "Segoe UI", Arial, sans-serif;
@@ -355,6 +363,8 @@ def fiches_html(
     width: {CARTE_L}pt;
     height: {CARTE_H}pt;
     background: {FOND};
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
     border: 0.28pt solid #000;
     padding: 0 2.84pt;
     position: relative;
@@ -366,6 +376,8 @@ def fiches_html(
     height: {BANDEAU_H}pt;
     margin: 0 -2.84pt 0;
     background: {BLEU};
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
     border-bottom: 0.28pt solid #000;
     color: #fff;
     font-size: 11.91pt;
@@ -413,6 +425,11 @@ def fiches_html(
     display: flex;
     justify-content: space-between;
     font-size: 5.1pt;
+  }}
+  @media print {{
+    /* Le fond d'écran de la page ne doit pas être imprimé, lui. */
+    body {{ background: #fff; padding: 0; }}
+    .planche {{ box-shadow: none; margin: 0; padding: 0; }}
   }}
   @media screen {{
     body {{ background: #eef1f4; padding: 12pt; }}
