@@ -742,6 +742,8 @@ def retenir_identifiants_constates(
                 login=l.login, source="controle_koxo", badge=badge,
                 site=site, nom=l.nom, prenom=l.prenom,
                 groupe_secondaire=l.groupe_secondaire or None,
+                groupe_primaire=(l.groupe_primaire or "").strip() or None,
+                email=(l.email or "").strip() or None,
                 motif="identifiant détenu dans un export KoXo",
             )
             session.add(nouvelle)
@@ -751,6 +753,12 @@ def retenir_identifiants_constates(
             existante.source = "controle_koxo"
             existante.groupe_secondaire = (
                 l.groupe_secondaire or existante.groupe_secondaire
+            )
+            # L'adresse que la base détient est un constat : elle prime sur
+            # celle que le programme sait calculer, et il la jetait.
+            existante.email = (l.email or "").strip() or existante.email
+            existante.groupe_primaire = (
+                (l.groupe_primaire or "").strip() or existante.groupe_primaire
             )
         retenus += 1
 

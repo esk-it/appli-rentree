@@ -733,6 +733,29 @@ export const exportsCible = {
       }),
     );
   },
+  /**
+   * Les comptes que la synchronisation KoXo désactiverait, nommément.
+   * KoXo n'annonce qu'un nombre au moment de lancer l'opération.
+   */
+  async desactivationsKoxo({ siteId, typePersonne, anneeCibleId, baseKoxo = null }) {
+    const q = new URLSearchParams({
+      site_id: String(siteId),
+      type_personne: typePersonne,
+      annee_cible_id: String(anneeCibleId),
+    });
+    if (baseKoxo) q.set("base_koxo", baseKoxo);
+    return jsonOrThrow(await fetch(`${BASE}/exports/koxo/desactivations?${q}`));
+  },
+  /** Garde (ou relâche) des comptes que l'export ne reconduirait pas. */
+  async conserverKoxo({ badges, base, conserver }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/koxo/conserver`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ badges, base, conserver }),
+      }),
+    );
+  },
   async google({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null, enregistrerPrevus = false }) {
     return jsonOrThrow(
       await fetch(`${BASE}/exports/google`, {

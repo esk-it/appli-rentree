@@ -107,6 +107,13 @@ class RapportExportKoxo:
     travail — un compte sans ID unique ne sera pas reconnu, un groupe
     secondaire vide range le compte nulle part."""
 
+    badges_conserves: list[int] = field(default_factory=list)
+    """Les comptes que seule la décision de conserver fait figurer ici.
+
+    Sans cette liste, on ne peut plus distinguer un compte présent de
+    plein droit d'un compte reconduit à la main — et l'écran qui propose
+    de les relâcher les perdait de vue dès qu'on les cochait."""
+
 
 # ---------------------------------------------------------------------------
 # Point d'entrée
@@ -180,8 +187,11 @@ def generer_csv_koxo(
         base_koxo=(base_koxo or "").strip() or None,
     )
 
+    conserves: list[dict] = []
     if categorie == "tous":
         lignes = _lignes_tous(session, ctx)
+        conserves = _lignes_conservees(session, ctx, lignes)
+        lignes += conserves
     elif categorie == "nouveaux":
         lignes = _lignes_nouveaux(session, ctx)
     else:
@@ -195,9 +205,14 @@ def generer_csv_koxo(
         nb_lignes=len(lignes),
         nom_fichier_suggere=_nom_fichier(site.nom, type_personne, categorie),
         groupe_secondaire_force=ctx.groupe_secondaire_force,
+        badges_conserves=[
+            int(l["ID unique"]) for l in conserves if l["ID unique"].isdigit()
+        ],
         avertissements=_relire(lignes, ctx)
         + _adultes_sans_site(session, ctx)
-        + _groupes_absents_de_la_base(session, ctx, lignes),
+        + _groupes_absents_de_la_base(session, ctx, lignes)
+        + _adresses_seulement_calculees(session, ctx, lignes)
+        + _comptes_que_la_synchro_desactivera(session, ctx, lignes),
     )
     return contenu, rapport
 
@@ -296,6 +311,114 @@ def _groupes_absents_de_la_base(
     ]
 
 
+def _adresses_seulement_calculees(
+    session: Session, ctx: ContexteExport, lignes: list[dict]
+) -> list[str]:
+    """Prévient quand le fichier écrira des adresses que rien n'a vérifiées.
+
+    La synchronisation écrit la colonne Email dans la base. Une adresse
+    calculée est une hypothèse : `prenom.nom@domaine`, sans savoir comment
+    la maison traite les particules ni les noms d'usage. Sur l'instance
+    réelle, l'export des professeurs allait en réécrire trente-huit, dont
+    trente-trois que Google contredisait — `isabelle.leduff@` remplacée
+    par `isabelle.le.duff@`, qui n'existe pas.
+
+    Un entrant n'a pas encore de compte : son adresse ne peut être que
+    calculée, et c'est normal. Le message ne compte donc que les lignes qui
+    **écrasent** quelque chose : une adresse constatée existe dans la base,
+    et le fichier en porte une autre.
+    """
+    if ctx.type_personne != "adulte":
+        return []
+
+    from backend.models import LoginReserve
+
+    constats = {
+        c.badge: (c.email or "").strip()
+        for c in session.query(LoginReserve)
+        .filter(LoginReserve.site == ctx.base, LoginReserve.badge.isnot(None))
+        .all()
+        if (c.email or "").strip()
+    }
+    if not constats:
+        return []
+
+    ecrases = [
+        l
+        for l in lignes
+        if (l.get("ID unique") or "").isdigit()
+        and int(l["ID unique"]) in constats
+        and (l.get("Email") or "").strip().lower()
+        != constats[int(l["ID unique"])].lower()
+    ]
+    if not ecrases:
+        return []
+
+    qui = ", ".join(f"{l['Prénom']} {l['Nom']}" for l in ecrases[:4])
+    return [
+        f"{len(ecrases)} adresse(s) remplaceront celle que la base détient — "
+        f"{qui}" + (", …" if len(ecrases) > 4 else "") + ". Passe par "
+        "Conformité → Adresses pour les vérifier dans Google avant de "
+        "synchroniser."
+    ]
+
+
+def _comptes_que_la_synchro_desactivera(
+    session: Session, ctx: ContexteExport, lignes: list[dict]
+) -> list[str]:
+    """Annonce, en les nommant, les comptes que la synchronisation désactivera.
+
+    KoXo donne ce nombre au moment de lancer l'opération, sans les noms :
+    « Désactiver 7 ». Sept qui ? Il fallait exporter la base et comparer
+    les fichiers à la main pour l'apprendre. Sur l'instance réelle, la
+    liste contenait un remplaçant attendu pour la rentrée.
+
+    Le fichier ne pouvant pas mentir sur ce point — il vaut état complet —
+    autant le dire ici, où la décision se prend encore.
+    """
+    if ctx.categorie != "tous":
+        return []
+
+    from backend.models import LoginReserve
+
+    presents = {
+        int(l["ID unique"]) for l in lignes if (l.get("ID unique") or "").isdigit()
+    }
+    groupe = "Elèves" if ctx.type_personne == "eleve" else "Professeurs"
+    manquants = []
+    vus: set[int] = set()
+    for c in (
+        session.query(LoginReserve)
+        .filter(LoginReserve.site == ctx.base, LoginReserve.badge.isnot(None))
+        .order_by(LoginReserve.date_constat.desc())
+        .all()
+    ):
+        if c.badge in vus or c.badge in presents:
+            continue
+        vus.add(c.badge)
+        gp = (c.groupe_primaire or "").strip().lower()
+        if gp and gp != groupe.lower():
+            continue
+        if not gp:
+            p = session.query(Personne).filter_by(badge=c.badge).one_or_none()
+            if p is None or p.type != ctx.type_personne:
+                continue
+        manquants.append(c)
+
+    if not manquants:
+        return []
+
+    qui = ", ".join(
+        f"{(c.prenom or '').strip()} {(c.nom or '').strip()}".strip() or c.login
+        for c in manquants[:8]
+    )
+    return [
+        f"La synchronisation désactivera {len(manquants)} compte(s) de la base "
+        f"{ctx.base} : {qui}" + (", …" if len(manquants) > 8 else "") + ". "
+        "Décoche ceux à garder dans « Comptes menacés » avant d'exporter."
+    ]
+
+
 def _relire(lignes: list[dict], ctx: ContexteExport) -> list[str]:
     """Ce que ce fichier fera mal, dit avant de l'importer.
 
@@ -380,6 +503,85 @@ def _lignes_tous(session: Session, ctx: ContexteExport) -> list[dict]:
         )
         for pid in par_personne
     ]
+
+
+def _lignes_conservees(
+    session: Session, ctx: ContexteExport, deja: list[dict]
+) -> list[dict]:
+    """Les comptes qu'on a décidé de garder, reconduits tels que la base les tient.
+
+    Un export « tous » vaut état complet : la synchronisation désactive
+    tout compte du groupe primaire qui n'y figure pas. Pour un sortant
+    c'est le but ; pour un remplaçant que Charlemagne ne porte pas encore,
+    c'est une porte fermée un matin de rentrée.
+
+    La ligne est recopiée du constat — identifiant, groupe secondaire,
+    adresse — et non recalculée : on ne veut rien changer à ce compte,
+    seulement le montrer à la synchronisation pour qu'elle le laisse
+    tranquille.
+
+    Seul `tous` est concerné. `nouveaux` et `anciens` sont des fichiers
+    partiels, qui ne servent jamais d'état complet : y ajouter des
+    conservés n'aurait aucun sens.
+    """
+    from backend.models import LoginReserve
+
+    groupe_primaire = "Elèves" if ctx.type_personne == "eleve" else "Professeurs"
+    presents = {
+        l["ID unique"] for l in deja if (l.get("ID unique") or "").strip()
+    }
+
+    constats = (
+        session.query(LoginReserve)
+        .filter(
+            LoginReserve.site == ctx.base,
+            LoginReserve.conserver.is_(True),
+            LoginReserve.badge.isnot(None),
+        )
+        .order_by(LoginReserve.date_constat.desc())
+        .all()
+    )
+
+    lignes: list[dict] = []
+    vus: set[int] = set()
+    for c in constats:
+        if c.badge in vus or str(c.badge) in presents:
+            continue
+        vus.add(c.badge)
+
+        personne = (
+            session.query(Personne).filter_by(badge=c.badge).one_or_none()
+        )
+
+        # Un export porte une population, et une seule. Sans ce tri, un
+        # élève conservé dans cette base se serait retrouvé dans le fichier
+        # des professeurs, sous le groupe primaire `Professeurs` — la
+        # synchronisation l'aurait déplacé hors des élèves.
+        gp = (c.groupe_primaire or "").strip().lower()
+        if gp:
+            if gp != groupe_primaire.lower():
+                continue
+        elif personne is None or personne.type != ctx.type_personne:
+            continue
+        email = (c.email or "").strip()
+        if not email and personne is not None:
+            email = personne.email or ""
+
+        lignes.append(
+            {
+                "Groupe primaire": groupe_primaire,
+                "Groupe secondaire": (c.groupe_secondaire or "").strip(),
+                "Titre": "",
+                "Nom": (c.nom or (personne.nom if personne else "")) or "",
+                "Prénom": (c.prenom or (personne.prenom if personne else "")) or "",
+                "Identifiant": c.login or "",
+                "ID unique": str(c.badge),
+                "Mot de passe": "",
+                "Date de naissance": "",
+                "Email": email,
+            }
+        )
+    return lignes
 
 
 def _lignes_nouveaux(session: Session, ctx: ContexteExport) -> list[dict]:
@@ -635,6 +837,50 @@ def _sans_casse_ni_accents(t: str) -> str:
     return "".join(c for c in t if not unicodedata.combining(c))
 
 
+def _email_pour(
+    session: Session, personne: Personne, site: str | None
+) -> str:
+    """L'adresse à écrire : un constat plutôt qu'une hypothèse.
+
+    Trois sources, dans cet ordre :
+
+    1. **l'adresse constatée dans Google** — vérifiée, elle fait foi ;
+    2. **l'adresse que la base KoXo détient** — un constat, lui aussi ;
+    3. **l'adresse calculée** — `prenom.nom@domaine`, une hypothèse.
+
+    L'ordre importe parce que la synchronisation écrit ce fichier dans la
+    base. Passer la troisième devant la deuxième remplaçait des adresses
+    réelles par des adresses inventées : sur l'instance réelle, l'export
+    des professeurs en réécrivait trente-huit, et Google a donné tort au
+    calcul trente-trois fois. `isabelle.leduff@` devenait
+    `isabelle.le.duff@`, qui n'existe pas.
+
+    La règle des particules ne se déduit pas. `Le Duff` s'écrit `leduff`
+    chez l'un et `le.duff` chez l'autre, selon l'année d'ouverture du
+    compte ; `Jacqueline BLANC-COQUAND` répond à `jbc@`. Aucune règle ne
+    retrouve ça, et il n'y a rien à retrouver puisque la base le sait.
+
+    Le calcul garde sa place — un entrant n'a ni compte Google ni compte
+    KoXo, et il faut bien lui proposer une adresse.
+    """
+    if personne.email_constate:
+        return personne.email_constate
+
+    if personne.badge is not None and site:
+        from backend.models import LoginReserve
+
+        constat = (
+            session.query(LoginReserve)
+            .filter_by(badge=personne.badge, site=site)
+            .order_by(LoginReserve.date_constat.desc())
+            .first()
+        )
+        if constat is not None and (constat.email or "").strip():
+            return constat.email.strip()
+
+    return personne.email or ""
+
+
 def _formatter_ligne(
     session: Session,
     personne: Personne,
@@ -648,7 +894,7 @@ def _formatter_ligne(
         session, personne, snapshot, type_personne, site
     )
 
-    email = personne.email or ""
+    email = _email_pour(session, personne, site)
 
     return {
         "Groupe primaire": groupe_primaire,

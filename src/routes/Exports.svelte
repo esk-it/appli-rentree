@@ -58,6 +58,66 @@
   let generationEnCours = $state(false);
 
   /**
+   * Les comptes que la synchronisation désactiverait.
+   *
+   * KoXo n'annonce qu'un nombre au moment de lancer l'opération —
+   * « Désactiver 7 » — et il faut exporter la base puis comparer les
+   * fichiers à la main pour savoir lesquels. Sur l'instance réelle, la
+   * liste contenait un remplaçant attendu pour la rentrée.
+   */
+  let menaces = $state(/** @type {null | any} */ (null));
+  let menacesEnCours = $state(false);
+  let menacesErreur = $state("");
+
+  async function chargerMenaces() {
+    if (!siteId || !anneeCibleId || cible !== "koxo" || categorie !== "tous") {
+      menaces = null;
+      return;
+    }
+    menacesEnCours = true;
+    menacesErreur = "";
+    try {
+      menaces = await exportsCible.desactivationsKoxo({
+        siteId,
+        typePersonne,
+        anneeCibleId,
+        baseKoxo: typePersonne === "adulte" ? baseKoxo : null,
+      });
+    } catch (e) {
+      menaces = null;
+      menacesErreur = e?.message ?? String(e);
+    } finally {
+      menacesEnCours = false;
+    }
+  }
+
+  async function basculerConservation(compte) {
+    if (!menaces) return;
+    try {
+      await exportsCible.conserverKoxo({
+        badges: [compte.badge],
+        base: menaces.base,
+        conserver: !compte.conserver,
+      });
+      await chargerMenaces();
+      notify.succes(
+        compte.conserver
+          ? `${compte.prenom} ${compte.nom} sera désactivé`
+          : `${compte.prenom} ${compte.nom} sera reconduit dans l'export`,
+      );
+    } catch (e) {
+      notify.erreur(e?.message ?? String(e));
+    }
+  }
+
+  // La liste dépend de tout ce qui définit le fichier : la recharger à
+  // chaque changement évite de décider sur un état périmé.
+  $effect(() => {
+    void [cible, siteId, typePersonne, categorie, anneeCibleId, baseKoxo];
+    chargerMenaces();
+  });
+
+  /**
    * Groupe secondaire imposé aux sortants KoXo.
    *
    * Sans lui, la ligne d'un sortant porte sa dernière classe — le seul
@@ -459,6 +519,70 @@
           <strong>Contrôle KoXo</strong>, site désigné.
         </span>
       </label>
+    {/if}
+
+    {#if cible === "koxo" && categorie === "tous" && menaces && (menaces.comptes.length > 0 || menaces.avertissements.length > 0)}
+      <div class="rounded-lg border border-amber-300 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
+        <div class="flex items-baseline justify-between gap-2">
+          <span class="text-xs font-medium uppercase tracking-wide text-amber-800 dark:text-amber-300">
+            Comptes que la synchronisation désactivera
+          </span>
+          {#if menaces.comptes.length > 0}
+            <span class="text-xs text-amber-700 dark:text-amber-400">
+              base {menaces.base} · {menaces.nb_menaces} désactivé{menaces.nb_menaces > 1 ? "s" : ""}{#if menaces.nb_conserves > 0}, {menaces.nb_conserves} gardé{menaces.nb_conserves > 1 ? "s" : ""}{/if}
+            </span>
+          {/if}
+        </div>
+
+        {#each menaces.avertissements as a}
+          <p class="mt-2 text-xs text-amber-800 dark:text-amber-300">{a}</p>
+        {/each}
+
+        {#if menaces.comptes.length > 0}
+          <p class="mt-1 text-xs text-amber-700 dark:text-amber-400">
+            Un export « tous » vaut état complet : KoXo désactive tout compte
+            qui n'y figure pas. Coche ceux à garder — ils seront reconduits
+            tels que la base les détient.
+          </p>
+          <ul class="mt-2 space-y-1">
+            {#each menaces.comptes as c (c.badge)}
+              <li
+                class="flex items-start gap-2 rounded-md border px-2 py-1.5 text-sm {c.conserver
+                  ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/40'
+                  : 'border-amber-200 bg-white dark:border-amber-900 dark:bg-stone-900'}"
+              >
+                <input
+                  type="checkbox"
+                  class="mt-1 shrink-0"
+                  checked={c.conserver}
+                  onchange={() => basculerConservation(c)}
+                  aria-label="Garder {c.prenom} {c.nom}"
+                />
+                <span class="min-w-0 flex-1">
+                  <span class="font-medium">{c.prenom} {c.nom}</span>
+                  <span class="text-stone-500 dark:text-stone-400"> · {c.login}</span>
+                  {#if c.groupe_secondaire}
+                    <span class="text-stone-500 dark:text-stone-400"> · {c.groupe_secondaire}</span>
+                  {/if}
+                  <span class="block text-xs text-stone-500 dark:text-stone-400">{c.motif}</span>
+                </span>
+                <span class="shrink-0 text-xs {c.conserver ? 'text-emerald-700 dark:text-emerald-400' : 'text-amber-700 dark:text-amber-400'}">
+                  {c.conserver ? "gardé" : "désactivé"}
+                </span>
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    {:else if cible === "koxo" && categorie === "tous" && menacesErreur}
+      <p class="rounded-lg border border-rose-300 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
+        Impossible de lire ce que la base détient : {menacesErreur}. Sans cette
+        liste, tu ne sauras pas qui la synchronisation désactivera.
+      </p>
+    {:else if cible === "koxo" && categorie === "tous" && menacesEnCours}
+      <p class="text-xs text-stone-500 dark:text-stone-400">
+        Lecture de ce que la base détient…
+      </p>
     {/if}
 
     {#if cible === "koxo" && categorie === "anciens"}

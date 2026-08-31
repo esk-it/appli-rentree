@@ -36,7 +36,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
@@ -100,6 +100,49 @@ class LoginReserve(Base):
 
     nom: Mapped[str | None] = mapped_column(String(120), nullable=True)
     prenom: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    groupe_primaire: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    """Le groupe primaire de la base — `Elèves`, `Professeurs`.
+
+    C'est la portée exacte d'une synchronisation KoXo, qui se lance sur un
+    groupe primaire et ne touche à rien d'autre. Sans lui, le programme ne
+    savait pas dire si un compte constaté relevait de l'export des élèves
+    ou de celui des professeurs, et devait le déduire du référentiel — ce
+    qui échoue précisément pour les comptes que le référentiel ignore.
+    """
+
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    """L'adresse que la base détient en face de cet identifiant.
+
+    Elle vaut mieux qu'une adresse calculée, et le programme la jetait.
+    Sur l'instance réelle, l'export réécrivait trente-huit adresses de
+    professeurs : `isabelle.leduff@` devenait `isabelle.le.duff@`,
+    `jbc@` devenait `jacqueline.blanc-coquand@`. Interrogé, Google a
+    donné tort au calcul trente-trois fois sur trente-huit — la
+    synchronisation allait remplacer des adresses réelles par des
+    adresses qui n'existent pas.
+
+    La règle des particules ne se devine pas : `Le Duff` donne
+    `leduff` ici et `le.duff` ailleurs, et rien dans le nom ne le dit.
+    Ce que la base détient est un constat ; ce que le programme calcule
+    est une hypothèse. Le constat gagne.
+    """
+
+    conserver: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    """Garder ce compte même si le référentiel ne porte plus la personne.
+
+    Un export « tous » vaut état complet : la synchronisation désactive
+    tout compte qui n'y figure pas. C'est ce qu'on veut d'un sortant, et
+    pas du tout ce qu'on veut d'un professeur que Charlemagne ignore —
+    un remplaçant qui revient, un membre de la vie scolaire que l'export
+    Charlemagne ne porte pas.
+
+    Le programme n'avait aucun moyen de dire « celui-là, on le garde » :
+    l'absence du référentiel valait condamnation. Cette case rend la
+    décision à qui la prend, et l'export reconduit alors la ligne telle
+    que la base la détient.
+    """
+
 
     motif: Mapped[str | None] = mapped_column(String(300), nullable=True)
     """Pourquoi la ligne n'a pas pu être chargée — c'est ce qu'il faudra

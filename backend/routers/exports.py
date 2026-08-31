@@ -215,6 +215,105 @@ def exporter_koxo(
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Comptes que la synchronisation désactiverait
+# ---------------------------------------------------------------------------
+
+
+class CompteMenaceOut(BaseModel):
+    badge: int
+    login: str
+    nom: str
+    prenom: str
+    groupe_secondaire: str | None
+    email: str | None
+    conserver: bool
+    motif: str
+    personne_id: int | None = None
+
+
+class DesactivationsOut(BaseModel):
+    site_nom: str
+    base: str
+    type_personne: str
+    nb_dans_la_base: int
+    nb_dans_l_export: int
+    nb_menaces: int
+    nb_conserves: int
+    comptes: list[CompteMenaceOut]
+    avertissements: list[str]
+
+
+@router.get("/koxo/desactivations", response_model=DesactivationsOut)
+def desactivations_koxo(
+    site_id: int,
+    type_personne: Literal["eleve", "adulte"],
+    annee_cible_id: int,
+    base_koxo: str | None = None,
+    session: Session = Depends(db_session),
+) -> DesactivationsOut:
+    """Nomme les comptes que la synchronisation désactiverait. Lecture seule.
+
+    KoXo annonce un nombre au moment de lancer l'opération — « Désactiver
+    7 » — sans dire lesquels. Les voir avant, avec la raison de leur
+    absence, est ce qui permet d'en garder un.
+    """
+    from backend.services.comptes_a_desactiver import comptes_a_desactiver
+
+    try:
+        r = comptes_a_desactiver(
+            session,
+            site_id=site_id,
+            type_personne=type_personne,
+            annee_cible_id=annee_cible_id,
+            base_koxo=base_koxo,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    return DesactivationsOut(
+        site_nom=r.site_nom,
+        base=r.base,
+        type_personne=r.type_personne,
+        nb_dans_la_base=r.nb_dans_la_base,
+        nb_dans_l_export=r.nb_dans_l_export,
+        nb_menaces=r.nb_menaces,
+        nb_conserves=r.nb_conserves,
+        comptes=[CompteMenaceOut(**vars(c)) for c in r.comptes],
+        avertissements=r.avertissements,
+    )
+
+
+class ConservationPayload(BaseModel):
+    badges: list[int]
+    base: str
+    """La base KoXo concernée. La décision vaut par serveur : un professeur
+    peut mériter d'être gardé au lycée et pas au collège."""
+    conserver: bool
+
+
+class ConservationOut(BaseModel):
+    nb_touches: int
+    conserver: bool
+
+
+@router.post("/koxo/conserver", response_model=ConservationOut)
+def conserver_comptes(
+    payload: ConservationPayload, session: Session = Depends(db_session)
+) -> ConservationOut:
+    """Garde (ou relâche) des comptes que l'export ne reconduirait pas."""
+    from backend.services.comptes_a_desactiver import definir_conservation
+
+    n = definir_conservation(
+        session,
+        badges=payload.badges,
+        base=payload.base,
+        conserver=payload.conserver,
+    )
+    session.commit()
+    return ConservationOut(nb_touches=n, conserver=payload.conserver)
+
+
 class ExportGooglePayload(BaseModel):
     site_id: int
     type_personne: Literal["eleve", "adulte"]
