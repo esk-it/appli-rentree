@@ -167,6 +167,21 @@ export const arrivees = {
   },
 };
 
+/**
+ * Le bilan de rentrée : ce qui est en place, ce qui reste, ce qui cloche.
+ *
+ * La lecture est explicite et jamais automatique : elle parcourt tous les
+ * comptes du domaine et les membres de tous les groupes de classe.
+ */
+export const bilan = {
+  async dresser({ anneeId, anneeSourceId = null, siteId = null }) {
+    const q = new URLSearchParams({ annee_id: String(anneeId) });
+    if (anneeSourceId) q.set("annee_source_id", String(anneeSourceId));
+    if (siteId) q.set("site_id", String(siteId));
+    return jsonOrThrow(await fetch(`${BASE}/bilan?${q}`));
+  },
+};
+
 export const sites = {
   async lister() {
     return jsonOrThrow(await fetch(`${BASE}/sites`));

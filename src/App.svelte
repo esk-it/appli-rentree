@@ -20,6 +20,7 @@
   import FolderTree from "@lucide/svelte/icons/folder-tree";
   import LogOut from "@lucide/svelte/icons/log-out";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
+  import ClipboardCheck from "@lucide/svelte/icons/clipboard-check";
   import Laptop from "@lucide/svelte/icons/laptop";
   import Scale from "@lucide/svelte/icons/scale";
   import Rocket from "@lucide/svelte/icons/rocket";
@@ -31,6 +32,7 @@
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Coffre from "./routes/Coffre.svelte";
   import Arrivees from "./routes/Arrivees.svelte";
+  import Bilan from "./routes/Bilan.svelte";
   import Mouvements from "./routes/Mouvements.svelte";
   import Personnes from "./routes/Personnes.svelte";
   import Sites from "./routes/Sites.svelte";
@@ -313,6 +315,8 @@
         { id: "conformite_google", label: "Conformité Google", icon: ShieldCheck },
         { id: "bascule", label: "Bascule des OU", icon: FolderTree },
         { id: "chromebooks", label: "Chromebooks", icon: Laptop },
+        // Il clôt la campagne : c'est le geste qui dit si elle a abouti.
+        { id: "bilan", label: "Bilan de rentrée", icon: ClipboardCheck },
       ],
     },
     {
@@ -620,6 +624,8 @@
           <Coffre />
         {:else if page === "arrivees"}
           <Arrivees />
+        {:else if page === "bilan"}
+          <Bilan />
         {:else if page === "mouvements"}
           <Mouvements />
         {:else if page === "sites"}

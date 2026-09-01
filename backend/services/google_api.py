@@ -719,6 +719,19 @@ class ClientGoogle:
                         "nom": (u.get("name") or {}).get("familyName") or "",
                         "prenom": (u.get("name") or {}).get("givenName") or "",
                         "derniere_connexion": u.get("lastLoginTime"),
+                        # L'identifiant Charlemagne inscrit dans le compte.
+                        # C'est lui qui a trahi le compte écrasé : deux
+                        # homonymes, un seul compte, et l'identifiant du
+                        # second posé sur le compte du premier par un import
+                        # de masse. Sans le lire, rien ne distingue les deux.
+                        "id_externe": next(
+                            (
+                                x.get("value")
+                                for x in (u.get("externalIds") or [])
+                                if x.get("value")
+                            ),
+                            None,
+                        ),
                     }
                 )
             jeton = reponse.get("nextPageToken")

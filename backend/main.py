@@ -41,6 +41,7 @@ from backend.routers import (
     suivi as suivi_router,
     table_correspondance,
     arrivees as arrivees_router,
+    bilan as bilan_router,
     coffre as coffre_router,
     mouvements as mouvements_router,
     parcours as parcours_router,
@@ -255,3 +256,4 @@ app.include_router(parcours_router.router)
 app.include_router(mouvements_router.router)
 app.include_router(coffre_router.router)
 app.include_router(arrivees_router.router)
+app.include_router(bilan_router.router)
