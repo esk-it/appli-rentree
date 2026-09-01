@@ -30,6 +30,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Coffre from "./routes/Coffre.svelte";
+  import Arrivees from "./routes/Arrivees.svelte";
   import Mouvements from "./routes/Mouvements.svelte";
   import Personnes from "./routes/Personnes.svelte";
   import Sites from "./routes/Sites.svelte";
@@ -319,7 +320,8 @@
       titre: "Outils",
       repliable: true,
       items: [
-        // Le seul écran qui sert toute l'année, et non à la campagne.
+        // Les deux écrans qui servent toute l'année, et non à la campagne.
+        { id: "arrivees", label: "Arrivée", icon: UserPlus },
         { id: "mouvements", label: "Mouvements", icon: ArrowRightLeft },
         { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
         { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
@@ -616,6 +618,8 @@
           <Personnes />
         {:else if page === "coffre"}
           <Coffre />
+        {:else if page === "arrivees"}
+          <Arrivees />
         {:else if page === "mouvements"}
           <Mouvements />
         {:else if page === "sites"}

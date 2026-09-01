@@ -96,6 +96,62 @@ export const personnes = {
 // ---------------------------------------------------------------------------
 // Sites
 // ---------------------------------------------------------------------------
+/**
+ * Faire entrer quelqu'un en cours d'année.
+ *
+ * Quatre gestes, séparés parce qu'entre le compte et le groupe il y a un
+ * geste humain : l'import du CSV dans la console Google.
+ */
+export const arrivees = {
+  async proposer(corps) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/arrivees/proposer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(corps),
+      }),
+    );
+  },
+  async enregistrer(corps) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/arrivees/enregistrer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(corps),
+      }),
+    );
+  },
+  async compteGoogle({ personneId, ou, mode = "reel" }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/arrivees/compte-google`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ personne_id: personneId, ou, mode }),
+      }),
+    );
+  },
+  async rejoindreGroupe({ personneId, groupe }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/arrivees/groupe`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ personne_id: personneId, groupe }),
+      }),
+    );
+  },
+  async tableauChromebooks({ personneId, anneeId, discipline = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/arrivees/tableau-chromebooks`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          personne_id: personneId, annee_id: anneeId, discipline, mode: "reel",
+        }),
+      }),
+    );
+  },
+};
+
 export const sites = {
   async lister() {
     return jsonOrThrow(await fetch(`${BASE}/sites`));
