@@ -42,21 +42,22 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Run backend tests
-        # `-n auto` : un processus par cœur du runner.
+        # En série, délibérément.
         #
-        # Chaque test se monte sa propre base et réimporte toute la couche
-        # modèles — 0,2 s ici, plusieurs secondes sur un runner Windows, où
-        # les entrées-sorties fichier sont lentes. C'est la mise en place qui
-        # coûte, pas les tests : 0,02 s pour l'assertion elle-même.
+        # `pytest -n auto` diviserait ce temps par le nombre de cœurs — mesuré
+        # 3 min 24 contre 1 min 16 sur quatre cœurs, tous tests verts. Mais un
+        # build qui échoue coûte bien plus cher que vingt minutes d'attente :
+        # sans lui, pas de version installable, et c'est arrivé un jour de
+        # rentrée. On garde l'exécution la plus prévisible.
         #
-        # Ce coût est **par test**, et il croît avec le nombre de modules à
-        # réimporter : l'étape est passée de 15 à 50 minutes en six versions,
-        # pour 7 % de tests en plus. La parallélisation rend le temps à peu
-        # près proportionnel au nombre de cœurs.
+        # Le coût est dans la mise en place, pas dans les tests : chaque test
+        # monte sa propre base et réimporte la couche modèles — 0,20 s contre
+        # 0,02 s d'assertion. Si l'étape redevient un goulot, c'est le
+        # `conftest` qu'il faudra reprendre, pas le parallélisme.
         #
-        # L'isolation tient : chaque worker est un processus séparé, et la
-        # base de chaque test vit dans un `tmp_path` qui lui est propre.
-        run: python -m pytest tests/ --tb=short -n auto
+        # `pytest-xdist` reste installé : `-n auto` est disponible en local,
+        # où un échec ne coûte qu'une relance.
+        run: python -m pytest tests/ --tb=short
         env:
           PYTHONIOENCODING: utf-8
 
