@@ -183,3 +183,97 @@ def test_l_adresse_attribuee_est_celle_du_groupe(
     )
     d = next(x for x in r.diffs if x.classe == "61")
     assert "test.eleve01@lekreisker.fr" in d.a_ajouter
+
+
+# ---------------------------------------------------------------------------
+# Les trois sites d'un coup
+# ---------------------------------------------------------------------------
+
+
+def test_le_plan_google_accepte_les_trois_sites(
+    session, site_factory, annee_factory, personne_factory, tc_factory
+):
+    """L'écran propose « Les trois sites » et envoyait alors `null` sur un
+    champ obligatoire : le bouton répondait 422 sans rien expliquer."""
+    from backend.models import Snapshot
+    from backend.routers.google_api import PlanPayload, _construire
+
+    ndk = site_factory("NDK")
+    su = site_factory("SU")
+    an = annee_factory("2026-2027")
+    for site, code in ((ndk, "2_1"), (su, "61")):
+        t = tc_factory(site.id, code)
+        t.ou_pre_rentree = f"/{site.nom}/attente"
+        t.ou_definitive = f"/{site.nom}/{code}"
+        p = personne_factory(
+            type="eleve", site_id=site.id, id_charlemagne=8000 + site.id,
+            nom=f"X{site.nom}", prenom="Test", login=f"t{site.nom.lower()}",
+        )
+        session.add(
+            Snapshot(personne_id=p.id, annee_scolaire_id=an.id,
+                     nom=p.nom, prenom=p.prenom, classe=code)
+        )
+    session.commit()
+
+    plan = _construire(
+        session,
+        PlanPayload(
+            site_id=None, type_personne="eleve",
+            annee_cible_id=an.id, phase="definitive",
+        ),
+    )
+    vises = {op.ou_visee for op in plan.operations if op.ou_visee}
+    assert vises == {"/NDK/2_1", "/SU/61"}
+
+
+def test_le_filtre_de_classes_traverse_les_trois_sites(
+    session, site_factory, annee_factory, personne_factory, tc_factory
+):
+    from backend.models import Snapshot
+    from backend.routers.google_api import PlanPayload, _construire
+
+    ndk = site_factory("NDK")
+    su = site_factory("SU")
+    an = annee_factory("2026-2027")
+    for site, code in ((ndk, "2_1"), (su, "61")):
+        t = tc_factory(site.id, code)
+        t.ou_definitive = f"/{site.nom}/{code}"
+        p = personne_factory(
+            type="eleve", site_id=site.id, id_charlemagne=8100 + site.id,
+            nom=f"Y{site.nom}", prenom="Test", login=f"y{site.nom.lower()}",
+        )
+        session.add(
+            Snapshot(personne_id=p.id, annee_scolaire_id=an.id,
+                     nom=p.nom, prenom=p.prenom, classe=code)
+        )
+    session.commit()
+
+    plan = _construire(
+        session,
+        PlanPayload(
+            site_id=None, type_personne="eleve", annee_cible_id=an.id,
+            phase="definitive", classes=["61"],
+        ),
+    )
+    vises = {op.ou_visee for op in plan.operations if op.ou_visee}
+    assert vises == {"/SU/61"}
+
+
+def test_un_avertissement_commun_n_est_pas_repete_par_site(
+    session, site_factory, annee_factory, personne_factory, tc_factory
+):
+    """« Aucune année de référence » sortait trois fois, une par site."""
+    from backend.models import Snapshot
+    from backend.routers.google_api import PlanPayload, _construire
+
+    for nom in ("NDK", "SU", "NDE"):
+        site = site_factory(nom)
+        t = tc_factory(site.id, "61")
+        t.ou_definitive = f"/{nom}/61"
+    an = annee_factory("2026-2027")
+    plan = _construire(
+        session,
+        PlanPayload(site_id=None, type_personne="eleve",
+                    annee_cible_id=an.id, phase="definitive"),
+    )
+    assert len(plan.avertissements) == len(set(plan.avertissements))

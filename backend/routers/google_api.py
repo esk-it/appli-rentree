@@ -77,7 +77,14 @@ def tester_connexion(session: Session = Depends(db_session)) -> dict:
 
 
 class PlanPayload(BaseModel):
-    site_id: int
+    site_id: int | None = None
+    """Le site visé, ou `None` pour les trois.
+
+    Le plan se construit site par site — les préfixes d'unité et la
+    réconciliation en dépendent. L'écran de bascule, lui, propose « Les
+    trois sites », et envoyait alors `null` sur un champ obligatoire : le
+    bouton répondait 422 sans rien expliquer. On assemble donc les plans
+    des trois, plutôt que d'obliger à lancer trois fois."""
     type_personne: Literal["eleve", "adulte"]
     annee_cible_id: int
     annee_source_id: int | None = None
@@ -127,19 +134,52 @@ def _construire(session: Session, payload: PlanPayload):
         except Exception as e:
             raise HTTPException(400, f"CSV KoXo illisible : {e}")
 
+    from backend.models import Site
+
+    if payload.site_id is not None:
+        sites = [payload.site_id]
+    else:
+        sites = [s.id for s in session.query(Site).order_by(Site.numero_ordre).all()]
+        if not sites:
+            raise HTTPException(400, "Aucun site déclaré.")
+
+    plans = []
     try:
-        return construire_plan(
-            session,
-            site_id=payload.site_id,
-            type_personne=payload.type_personne,
-            annee_cible_id=payload.annee_cible_id,
-            annee_source_id=payload.annee_source_id,
-            mots_de_passe=mots_de_passe,
-            phase=payload.phase,
-            classes=payload.classes,
-        )
+        for sid in sites:
+            plans.append(
+                construire_plan(
+                    session,
+                    site_id=sid,
+                    type_personne=payload.type_personne,
+                    annee_cible_id=payload.annee_cible_id,
+                    annee_source_id=payload.annee_source_id,
+                    mots_de_passe=mots_de_passe,
+                    phase=payload.phase,
+                    classes=payload.classes,
+                )
+            )
     except ValueError as e:
         raise HTTPException(400, str(e))
+
+    if len(plans) == 1:
+        return plans[0]
+
+    # Un plan n'est qu'une liste d'opérations : les assembler ne demande
+    # rien de plus que de les concaténer. Les comptes bloqués s'additionnent
+    # aussi — un seul suffit à retenir l'exécution, comme pour un site seul.
+    from backend.services.google_api import PlanGoogle
+
+    ensemble = PlanGoogle(phase=payload.phase)
+    for plan in plans:
+        ensemble.operations.extend(plan.operations)
+        ensemble.nb_bloques += plan.nb_bloques
+        for a in plan.avertissements:
+            # Les avertissements généraux — « aucune année de référence » —
+            # sortent identiques des trois sites. Les répéter donnerait
+            # l'impression de trois problèmes distincts.
+            if a not in ensemble.avertissements:
+                ensemble.avertissements.append(a)
+    return ensemble
 
 
 @router.post("/plan", response_model=PlanOut)
