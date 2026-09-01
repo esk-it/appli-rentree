@@ -441,3 +441,60 @@ def test_deux_classes_sans_lettre_ne_se_confondent_pas(
     )
     assert p.ou_definitive == "/3. NDK/NDK2027/6_3"
     assert p.groupe_google == "6_3@lekreisker.fr"
+
+
+def test_la_classe_courante_est_ecrite_aussi_sur_la_personne(session, etab):
+    """`Personne.classe` est ce que lisent les écrans et les recherches.
+
+    L'écran Mouvements affichait « sans classe » un élève qu'on venait de
+    placer en terminale : la photographie de l'année portait bien la
+    classe, la personne non. L'ingestion et le changement de classe
+    écrivent les deux.
+    """
+    from backend.services.arrivees import enregistrer_arrivee, proposer_arrivee
+
+    site, an = etab
+    p = proposer_arrivee(
+        session, site_id=site.id, type_personne="eleve", nom="ISSARTIAL",
+        prenom="Clement", classe="2_1", annee_id=an.id, id_charlemagne=99800,
+    )
+    personne = enregistrer_arrivee(
+        session, p, site_id=site.id, annee_id=an.id,
+        id_charlemagne=99800, mode="reel",
+    )
+    session.refresh(personne)
+    assert personne.classe == "2_1"
+
+
+def test_une_reinscription_met_aussi_a_jour_la_classe_courante(
+    session, etab, personne_factory
+):
+    from backend.services.arrivees import enregistrer_arrivee, proposer_arrivee
+
+    site, an = etab
+    deja = personne_factory(
+        type="eleve", site_id=site.id, id_charlemagne=5900,
+        nom="ISSARTIAL", prenom="Clement", login="cissartial",
+    )
+    p = proposer_arrivee(
+        session, site_id=site.id, type_personne="eleve", nom="ISSARTIAL",
+        prenom="Clement", classe="2_1", annee_id=an.id, id_charlemagne=5900,
+    )
+    enregistrer_arrivee(session, p, site_id=site.id, annee_id=an.id,
+                        id_charlemagne=5900, mode="reel")
+    session.refresh(deja)
+    assert deja.classe == "2_1"
+
+
+def test_un_adulte_n_a_pas_de_classe_courante(session, etab):
+    from backend.services.arrivees import enregistrer_arrivee, proposer_arrivee
+
+    site, an = etab
+    p = proposer_arrivee(
+        session, site_id=site.id, type_personne="adulte", nom="LAGADEC",
+        prenom="Sophie", annee_id=an.id, id_charlemagne=705,
+    )
+    personne = enregistrer_arrivee(session, p, site_id=site.id, annee_id=an.id,
+                                   id_charlemagne=705, mode="reel")
+    session.refresh(personne)
+    assert personne.classe is None

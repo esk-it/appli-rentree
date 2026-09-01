@@ -271,6 +271,14 @@ def enregistrer_arrivee(
     elif proposition.classe:
         deja.classe = proposition.classe
 
+    # La photographie de l'année ne suffit pas : `Personne.classe` est la
+    # classe **courante**, et c'est elle que lisent les écrans et les
+    # recherches — Mouvements affichait « sans classe » un élève qu'on
+    # venait de placer en terminale. L'ingestion et le changement de classe
+    # écrivent les deux ; une arrivée n'a pas à faire autrement.
+    if proposition.classe:
+        personne.classe = proposition.classe
+
     if mode == "reel":
         session.commit()
     else:
