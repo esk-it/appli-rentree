@@ -1537,9 +1537,6 @@ def divergences_adresses(
 class CorrigerPayload(BaseModel):
     annee_id: int | None = None
     site_id: int | None = None
-    classes: list[str] | None = None
-    """Les classes relues dans l'aperçu — la synchronisation doit porter
-    sur elles, et pas sur toutes."""
     """Chaque site a ses conventions d'adresse : on veut pouvoir les
     traiter l'un après l'autre plutôt que tout d'un coup."""
     mode: str = "simulation"
@@ -1769,6 +1766,9 @@ def diff_groupes(
 class SyncGroupesPayload(BaseModel):
     annee_id: int
     site_id: int | None = None
+    classes: list[str] | None = None
+    """Les classes relues dans l'aperçu — la synchronisation doit porter
+    sur elles, et pas sur toutes."""
     retirer: bool = True
     """À faux, on n'ajoute que. Utile pour un premier passage prudent."""
     confirmation: bool = False

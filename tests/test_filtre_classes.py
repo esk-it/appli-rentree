@@ -277,3 +277,25 @@ def test_un_avertissement_commun_n_est_pas_repete_par_site(
                     annee_cible_id=an.id, phase="definitive"),
     )
     assert len(plan.avertissements) == len(set(plan.avertissements))
+
+
+def test_la_synchro_des_groupes_accepte_le_filtre_de_classes():
+    """Le champ avait été posé sur le mauvais payload.
+
+    `synchroniser_groupes` lisait `payload.classes` sur un modèle qui ne
+    le déclarait pas : 500 au clic sur Synchroniser, alors que l'aperçu
+    juste au-dessus fonctionnait. Les deux doivent porter le même filtre,
+    sans quoi on applique autre chose que ce qu'on a relu.
+    """
+    import inspect
+
+    from backend.routers import google_api
+    from backend.routers.google_api import SyncGroupesPayload
+
+    p = SyncGroupesPayload(annee_id=1, classes=["61", "2_1"])
+    assert p.classes == ["61", "2_1"]
+    assert SyncGroupesPayload(annee_id=1).classes is None
+
+    # Et le corps de l'endpoint lit bien ce champ-là.
+    source = inspect.getsource(google_api.synchroniser_groupes)
+    assert "payload.classes" in source
