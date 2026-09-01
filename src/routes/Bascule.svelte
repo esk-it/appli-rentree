@@ -51,11 +51,24 @@
     ].sort((a, b) => a.code.localeCompare(b.code, "fr", { numeric: true })),
   );
 
+  /**
+   * Recalcule après une pause, plutôt qu'à chaque clic.
+   *
+   * Cocher vingt-cinq classes déclencherait vingt-cinq calculs sur mille
+   * sept cents élèves. Mais ne rien déclencher du tout laissait le compte
+   * à zéro sans moyen de le rafraîchir : seuls le site et la phase
+   * recalculaient, et on restait devant « Déplacer 0 élève(s) » en se
+   * demandant si la sélection avait pris.
+   */
+  let minuteurClasses;
+
   function basculerClasse(code) {
     classesRetenues = classesRetenues.includes(code)
       ? classesRetenues.filter((c) => c !== code)
       : [...classesRetenues, code];
     rapport = null;
+    clearTimeout(minuteurClasses);
+    minuteurClasses = setTimeout(rafraichir, 500);
   }
 
   let rapport = $state(/** @type {any} */ (null));
@@ -338,7 +351,12 @@
       </div>
       {#if classesRetenues.length > 0}
         <button class="mt-2 text-xs text-stone-500 underline hover:text-stone-800 dark:hover:text-stone-200"
-                onclick={() => { classesRetenues = []; rapport = null; }}>
+                onclick={() => {
+                  classesRetenues = [];
+                  rapport = null;
+                  clearTimeout(minuteurClasses);
+                  minuteurClasses = setTimeout(rafraichir, 500);
+                }}>
           Tout décocher
         </button>
       {/if}
