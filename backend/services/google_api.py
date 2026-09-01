@@ -322,6 +322,7 @@ def construire_plan(
     annee_source_id: int | None = None,
     mots_de_passe: dict[str, str] | None = None,
     phase: str = "pre_rentree",
+    classes: list[str] | None = None,
 ) -> PlanGoogle:
     """Calcule les opérations Google à partir de la réconciliation.
 
@@ -344,6 +345,9 @@ def construire_plan(
         phase: `pre_rentree` (tout le monde dans l'OU d'attente du site) ou
             `definitive` (chacun dans l'OU de sa classe). Les déplacements
             sont calculés par `services.bascule`, le même que le canal CSV.
+        classes: restreint les déplacements à ces classes. C'est le même
+            filtre que celui de l'aperçu, passé au même service : ce qu'on
+            a relu est exactement ce qui part.
     """
     from backend.models import Personne, Site
     from backend.services.bascule import PHASES
@@ -438,7 +442,8 @@ def construire_plan(
     from backend.services.bascule import planifier_bascule
 
     bascule = planifier_bascule(
-        session, annee_id=annee_cible_id, phase=phase, site_id=site.id
+        session, annee_id=annee_cible_id, phase=phase, site_id=site.id,
+        classes=classes,
     )
     plan.nb_bloques = bascule.nb_bloques
     for m in bascule.mouvements:

@@ -94,6 +94,9 @@ class RapportBascule:
     phase: str
     annee_libelle: str
     sites: list[str] = field(default_factory=list)
+    classes: list[str] = field(default_factory=list)
+    """Les classes retenues, vide si toutes. Le dire évite de prendre un
+    aperçu filtré pour l'état complet."""
 
     nb_a_deplacer: int = 0
     nb_deja_en_place: int = 0
@@ -117,6 +120,7 @@ def planifier_bascule(
     annee_id: int,
     phase: str,
     site_id: int | None = None,
+    classes: list[str] | None = None,
 ) -> RapportBascule:
     """Calcule les déplacements d'OU sans rien appliquer.
 
@@ -124,6 +128,17 @@ def planifier_bascule(
         annee_id: année dont on prépare la rentrée.
         phase: `pre_rentree` ou `definitive`.
         site_id: restreint à un site. `None` = les trois.
+        classes: restreint à ces classes. `None` = toutes.
+
+            Basculer mille sept cents élèves d'un bloc suppose d'avoir tout
+            vérifié d'un bloc. En pratique on veut avancer par paquets — les
+            sixièmes et les secondes d'abord, le reste ensuite — et surtout
+            pouvoir relire un paquet de taille humaine avant de le lancer.
+
+            Le déplacement d'une unité d'organisation est indépendant d'un
+            élève à l'autre : le découpage ne coûte donc rien, sinon d'y
+            revenir. Ce n'est pas vrai des groupes, où quitter l'ancienne
+            classe et rejoindre la nouvelle sont deux gestes.
     """
     from backend.models import AnneeScolaire
 
@@ -138,9 +153,14 @@ def planifier_bascule(
     if site_id is not None and site_id not in sites_par_id:
         raise ValueError(f"Site introuvable : {site_id}")
 
+    # Le filtre est comparé sur la graphie exacte du code court, celle que
+    # l'écran propose : les classes viennent toutes de la même table.
+    filtre = {c.strip() for c in (classes or []) if c and c.strip()} or None
+
     rapport = RapportBascule(
         phase=phase,
         annee_libelle=annee.libelle,
+        classes=sorted(filtre) if filtre else [],
         sites=(
             [sites_par_id[site_id].nom]
             if site_id is not None
@@ -161,6 +181,8 @@ def planifier_bascule(
     for personne, snapshot in _derniers_snapshots_eleves(session, annee_id):
         compte = comptes.get(personne.id)
         classe = snapshot.classe or personne.classe
+        if filtre is not None and (classe or "") not in filtre:
+            continue
         lignes = par_classe.get(classe or "", [])
 
         site = None

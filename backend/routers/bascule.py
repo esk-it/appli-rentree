@@ -37,6 +37,7 @@ class RapportOut(BaseModel):
     phase_libelle: str
     annee_libelle: str
     sites: list[str]
+    classes: list[str] = []
     nb_total: int
     nb_a_deplacer: int
     nb_deja_en_place: int
@@ -45,10 +46,24 @@ class RapportOut(BaseModel):
     mouvements: list[MouvementOut]
 
 
-def _planifier(session, annee_id, phase, site_id):
+def _classes(brut: str | None) -> list[str] | None:
+    """`"61,2_1"` → `["61", "2_1"]`. Vide ou absent = toutes les classes.
+
+    Le filtre voyage en une seule chaîne plutôt qu'en paramètre répété :
+    l'aperçu, le CSV et la confirmation le passent tous les trois, et une
+    forme unique évite qu'ils divergent.
+    """
+    if not brut:
+        return None
+    retenues = [c.strip() for c in brut.split(",") if c.strip()]
+    return retenues or None
+
+
+def _planifier(session, annee_id, phase, site_id, classes=None):
     try:
         return planifier_bascule(
-            session, annee_id=annee_id, phase=phase, site_id=site_id
+            session, annee_id=annee_id, phase=phase, site_id=site_id,
+            classes=classes,
         )
     except ValueError as e:
         code = 400 if "phase" in str(e) else 404
@@ -61,6 +76,7 @@ def _en_sortie(r) -> RapportOut:
         phase_libelle=LIBELLE_PHASE[r.phase],
         annee_libelle=r.annee_libelle,
         sites=r.sites,
+        classes=r.classes,
         nb_total=r.nb_total,
         nb_a_deplacer=r.nb_a_deplacer,
         nb_deja_en_place=r.nb_deja_en_place,
@@ -75,10 +91,11 @@ def planifier(
     annee_id: int = Query(..., description="Année dont on prépare la rentrée"),
     phase: str = Query(..., description="`pre_rentree` ou `definitive`"),
     site_id: int | None = Query(None, description="Un site, ou tous si absent"),
+    classes: str | None = Query(None, description="Classes retenues, séparées par des virgules. Absent = toutes."),
     session: Session = Depends(db_session),
 ) -> RapportOut:
     """Ce que la bascule ferait — ne modifie rien."""
-    return _en_sortie(_planifier(session, annee_id, phase, site_id))
+    return _en_sortie(_planifier(session, annee_id, phase, site_id, _classes(classes)))
 
 
 class FichierOut(BaseModel):
@@ -92,10 +109,11 @@ def telecharger_csv(
     annee_id: int = Query(...),
     phase: str = Query(...),
     site_id: int | None = Query(None),
+    classes: str | None = Query(None, description="Classes retenues, séparées par des virgules. Absent = toutes."),
     session: Session = Depends(db_session),
 ) -> FichierOut:
     """CSV de mise à jour d'OU pour la console Google Admin."""
-    r = _planifier(session, annee_id, phase, site_id)
+    r = _planifier(session, annee_id, phase, site_id, _classes(classes))
     contenu = generer_csv_bascule(r)
     portee = "_".join(r.sites) if len(r.sites) <= 3 else "tous"
     suffixe = "pre-rentree" if r.phase == "pre_rentree" else "definitive"
@@ -110,6 +128,9 @@ class ConfirmationPayload(BaseModel):
     annee_id: int
     phase: str
     site_id: int | None = None
+    classes: list[str] | None = None
+    """Les classes relues dans l'aperçu — la confirmation doit porter sur
+    elles, et pas sur tout le monde."""
     mode: str = "simulation"
 
 
@@ -131,7 +152,10 @@ def confirmer(
     """
     if payload.mode not in ("simulation", "reel"):
         raise HTTPException(400, f"mode invalide : {payload.mode!r}")
-    r = _planifier(session, payload.annee_id, payload.phase, payload.site_id)
+    r = _planifier(
+        session, payload.annee_id, payload.phase, payload.site_id,
+        payload.classes,
+    )
     if not r.est_applicable:
         raise HTTPException(
             409,

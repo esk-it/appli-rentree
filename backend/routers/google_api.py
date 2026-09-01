@@ -90,6 +90,11 @@ class PlanPayload(BaseModel):
     phase: Literal["pre_rentree", "definitive"] = "pre_rentree"
     """Phase de rentrée visée. Même découpage que la bascule par CSV."""
 
+    classes: list[str] | None = None
+    """Restreint les déplacements à ces classes. C'est le filtre relu dans
+    l'aperçu : le plan doit porter sur lui, sinon on lance autre chose que
+    ce qu'on a vérifié."""
+
 
 class OperationOut(BaseModel):
     action: str
@@ -131,6 +136,7 @@ def _construire(session: Session, payload: PlanPayload):
             annee_source_id=payload.annee_source_id,
             mots_de_passe=mots_de_passe,
             phase=payload.phase,
+            classes=payload.classes,
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -1491,6 +1497,9 @@ def divergences_adresses(
 class CorrigerPayload(BaseModel):
     annee_id: int | None = None
     site_id: int | None = None
+    classes: list[str] | None = None
+    """Les classes relues dans l'aperçu — la synchronisation doit porter
+    sur elles, et pas sur toutes."""
     """Chaque site a ses conventions d'adresse : on veut pouvoir les
     traiter l'un après l'autre plutôt que tout d'un coup."""
     mode: str = "simulation"
@@ -1650,7 +1659,7 @@ class GroupesOut(BaseModel):
     diffs: list[DiffGroupeOut]
 
 
-def _diff_groupes(session: Session, annee_id: int, site_id):
+def _diff_groupes(session: Session, annee_id: int, site_id, classes=None):
     from backend.models import TableCorrespondance
     from backend.services.groupes_google import calculer_diff_groupes
 
@@ -1663,9 +1672,13 @@ def _diff_groupes(session: Session, annee_id: int, site_id):
     q = session.query(TableCorrespondance)
     if site_id is not None:
         q = q.filter(TableCorrespondance.site_id == site_id)
+    lignes = q.all()
+    # On relève les membres de **tous** les groupes du site, même hors
+    # filtre : c'est ce qui permet de dire qu'un élève resterait dans deux
+    # listes parce que son ancienne classe n'est pas sélectionnée.
     adresses = {
         (tc.groupe_google or "").strip().lower()
-        for tc in q.all()
+        for tc in lignes
         if (tc.groupe_google or "").strip()
     }
 
@@ -1680,7 +1693,8 @@ def _diff_groupes(session: Session, annee_id: int, site_id):
             membres[g] = None
     try:
         return client, calculer_diff_groupes(
-            session, membres, annee_id=annee_id, site_id=site_id
+            session, membres, annee_id=annee_id, site_id=site_id,
+            classes=classes,
         )
     except ValueError as e:
         raise HTTPException(404, str(e)) from None
@@ -1690,10 +1704,14 @@ def _diff_groupes(session: Session, annee_id: int, site_id):
 def diff_groupes(
     annee_id: int = Query(...),
     site_id: int | None = Query(None),
+    classes: str | None = Query(
+        None, description="Classes retenues, séparées par des virgules."
+    ),
     session: Session = Depends(db_session),
 ) -> GroupesOut:
     """Qui doit entrer et sortir de chaque groupe de classe. Lecture seule."""
-    _, r = _diff_groupes(session, annee_id, site_id)
+    retenues = [c.strip() for c in (classes or "").split(",") if c.strip()] or None
+    _, r = _diff_groupes(session, annee_id, site_id, retenues)
     return GroupesOut(
         annee_libelle=r.annee_libelle,
         nb_a_ajouter=r.nb_a_ajouter,
@@ -1728,7 +1746,9 @@ def synchroniser_groupes(
     if not payload.confirmation:
         raise HTTPException(400, "Confirmation requise.")
 
-    client, r = _diff_groupes(session, payload.annee_id, payload.site_id)
+    client, r = _diff_groupes(
+        session, payload.annee_id, payload.site_id, payload.classes,
+    )
 
     class _Mvt:
         def __init__(self, action, groupe, email):

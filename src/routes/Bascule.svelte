@@ -16,7 +16,7 @@
   import X from "@lucide/svelte/icons/x";
   import Loader from "@lucide/svelte/icons/loader-2";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
-  import { annees, bascule, enregistrerFichierBase64, googleApi, sites } from "$lib/api.js";
+  import { annees, bascule, enregistrerFichierBase64, googleApi, sites, tableCorrespondance } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
   let listeAnnees = $state(/** @type {any[]} */ ([]));
@@ -25,6 +25,38 @@
   let anneeId = $state(/** @type {number | null} */ (null));
   let phase = $state("pre_rentree");
   let filtreSite = $state("");
+
+  /**
+   * Les classes retenues, vide = toutes.
+   *
+   * Basculer mille sept cents élèves d'un bloc suppose d'avoir tout
+   * vérifié d'un bloc. On veut pouvoir avancer par paquets — les sixièmes
+   * et les secondes d'abord — et relire un paquet de taille humaine avant
+   * de le lancer.
+   *
+   * Le déplacement d'une unité d'organisation est indépendant d'un élève à
+   * l'autre : le découpage ne coûte rien, sinon d'y revenir.
+   */
+  let classesRetenues = $state(/** @type {string[]} */ ([]));
+  let listeClasses = $state(/** @type {any[]} */ ([]));
+
+  /** Les classes du site choisi, sans doublon, dans l'ordre. */
+  let classesVisibles = $derived(
+    [
+      ...new Map(
+        listeClasses
+          .filter((c) => !filtreSite || String(c.site_id) === String(filtreSite))
+          .map((c) => [c.classe_code_court, { cle: `${c.site_id}-${c.classe_code_court}`, code: c.classe_code_court }]),
+      ).values(),
+    ].sort((a, b) => a.code.localeCompare(b.code, "fr", { numeric: true })),
+  );
+
+  function basculerClasse(code) {
+    classesRetenues = classesRetenues.includes(code)
+      ? classesRetenues.filter((c) => c !== code)
+      : [...classesRetenues, code];
+    rapport = null;
+  }
 
   let rapport = $state(/** @type {any} */ (null));
   let chargement = $state(true);
@@ -84,6 +116,7 @@
     try {
       job = await googleApi.lancerJob({
         siteId: filtreSite || null,
+        classes: classesRetenues,
         typePersonne: "eleve",
         anneeCibleId: anneeId,
         anneeSourceId: null,
@@ -170,7 +203,9 @@
 
   onMount(async () => {
     try {
-      [listeAnnees, listeSites] = await Promise.all([annees.lister(), sites.lister()]);
+      [listeAnnees, listeSites, listeClasses] = await Promise.all([
+        annees.lister(), sites.lister(), tableCorrespondance.lister(),
+      ]);
       try {
         statutApi = await googleApi.statut();
       } catch {
@@ -192,7 +227,7 @@
     chargement = true;
     erreur = "";
     try {
-      rapport = await bascule.planifier({ anneeId, phase, siteId: filtreSite || null });
+      rapport = await bascule.planifier({ anneeId, phase, siteId: filtreSite || null, classes: classesRetenues });
     } catch (e) {
       erreur = String(e).replace(/^Error:\s*/, "");
       rapport = null;
@@ -204,7 +239,7 @@
   async function telechargerCsv() {
     telechargement = true;
     try {
-      const r = await bascule.csv({ anneeId, phase, siteId: filtreSite || null });
+      const r = await bascule.csv({ anneeId, phase, siteId: filtreSite || null, classes: classesRetenues });
       const { chemin, annule } = await enregistrerFichierBase64(
         r.nom_fichier, r.contenu_base64, "text/csv",
       );
@@ -224,7 +259,7 @@
     confirmation = true;
     try {
       const r = await bascule.confirmer({
-        anneeId, phase, siteId: filtreSite || null, mode: "reel",
+        anneeId, phase, siteId: filtreSite || null, classes: classesRetenues, mode: "reel",
       });
       notify.succes(r.message);
       demandeConfirmation = false;
@@ -271,7 +306,45 @@
           {/each}
         </select>
       </div>
+    </div>
 
+    <!-- Avancer par paquets plutôt que tout d'un bloc : c'est ce qui permet
+         de relire avant de lancer. -->
+    <details class="mt-3 border-t border-stone-100 pt-3 dark:border-stone-800">
+      <summary class="cursor-pointer text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">
+        Classes — {classesRetenues.length === 0
+          ? "toutes"
+          : `${classesRetenues.length} retenue(s)`}
+      </summary>
+      <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">
+        Rien de coché vaut tout le monde. Cocher permet d'avancer par
+        paquets — les sixièmes et les secondes d'abord, le reste ensuite —
+        et de relire un paquet de taille humaine avant de le lancer. Un
+        déplacement d'unité d'organisation est indépendant d'un élève à
+        l'autre : le découpage ne coûte rien.
+      </p>
+      <div class="mt-2 flex flex-wrap gap-1.5">
+        {#each classesVisibles as c (c.cle)}
+          <button
+            type="button"
+            onclick={() => basculerClasse(c.code)}
+            class="rounded-full border px-2 py-0.5 text-xs transition {classesRetenues.includes(c.code)
+              ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+              : 'border-stone-300 text-stone-600 hover:bg-stone-100 dark:border-stone-600 dark:text-stone-400 dark:hover:bg-stone-800'}"
+          >
+            {c.code}
+          </button>
+        {/each}
+      </div>
+      {#if classesRetenues.length > 0}
+        <button class="mt-2 text-xs text-stone-500 underline hover:text-stone-800 dark:hover:text-stone-200"
+                onclick={() => { classesRetenues = []; rapport = null; }}>
+          Tout décocher
+        </button>
+      {/if}
+    </details>
+
+    <div class="mt-3 flex flex-wrap items-end gap-3">
       <div class="ml-auto flex items-end gap-2">
         {#if apiUtilisable}
           <div>

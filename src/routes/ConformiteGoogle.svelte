@@ -13,7 +13,7 @@
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
   import Segments from "$lib/components/Segments.svelte";
-  import { annees, googleApi, sites } from "$lib/api.js";
+  import { annees, googleApi, sites, tableCorrespondance } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
   /** @type {{ onRotationTable?: (a: {chercher: string, remplacer: string}) => void }} */
@@ -22,6 +22,7 @@
   let statutApi = $state(/** @type {any} */ (null));
   let listeAnnees = $state(/** @type {any[]} */ ([]));
   let listeSites = $state(/** @type {any[]} */ ([]));
+  let listeClasses = $state(/** @type {any[]} */ ([]));
   let anneeId = $state(/** @type {number | null} */ (null));
 
   let volet = $state("arborescence");
@@ -150,6 +151,29 @@
 
   // --- Groupes --------------------------------------------------------------
   let diffGroupes = $state(/** @type {any} */ (null));
+
+  /**
+   * Les classes retenues, vide = toutes.
+   *
+   * Contrairement aux unités d'organisation, changer de classe est ici
+   * **deux gestes** : quitter l'ancienne, rejoindre la nouvelle. Un filtre
+   * peut n'en retenir qu'un — le rapport le dit alors, au lieu de laisser
+   * un élève dans deux listes sans prévenir.
+   */
+  let classesGroupes = $state(/** @type {string[]} */ ([]));
+
+  let classesDeclarees = $derived(
+    [...new Set((listeClasses ?? []).map((c) => c.classe_code_court))].sort(
+      (a, b) => a.localeCompare(b, "fr", { numeric: true }),
+    ),
+  );
+
+  function basculerClasseGroupe(code) {
+    classesGroupes = classesGroupes.includes(code)
+      ? classesGroupes.filter((c) => c !== code)
+      : [...classesGroupes, code];
+    diffGroupes = null;
+  }
   let chargeGrp = $state(false);
   let retirerMembres = $state(true);
 
@@ -168,7 +192,7 @@
     if (!anneeId) return;
     chargeGrp = true;
     try {
-      diffGroupes = await googleApi.diffGroupes({ anneeId });
+      diffGroupes = await googleApi.diffGroupes({ anneeId, classes: classesGroupes });
     } catch (e) {
       notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
     } finally {
@@ -245,7 +269,7 @@
   async function synchroniserGroupes() {
     chargeGrp = true;
     try {
-      job = await googleApi.synchroniserGroupes({ anneeId, retirer: retirerMembres });
+      job = await googleApi.synchroniserGroupes({ anneeId, retirer: retirerMembres, classes: classesGroupes });
       diffGroupes = null;
       sonder();
     } catch (e) {
@@ -292,7 +316,9 @@
 
   onMount(async () => {
     try {
-      [listeAnnees, listeSites] = await Promise.all([annees.lister(), sites.lister()]);
+      [listeAnnees, listeSites, listeClasses] = await Promise.all([
+        annees.lister(), sites.lister(), tableCorrespondance.lister(),
+      ]);
       const triees = [...listeAnnees].sort((a, b) => b.libelle.localeCompare(a.libelle));
       anneeId = triees[0]?.id ?? null;
       // L'arborescence porte l'année qui se termine : celle de la rentrée
@@ -578,6 +604,40 @@
             </Bouton>
           {/if}
         </div>
+
+        <details class="border-t border-stone-100 pt-3 dark:border-stone-800">
+          <summary class="cursor-pointer text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">
+            Classes — {classesGroupes.length === 0
+              ? "toutes"
+              : `${classesGroupes.length} retenue(s)`}
+          </summary>
+          <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">
+            Rien de coché vaut tout le monde. Attention : changer de classe
+            est ici <strong>deux gestes</strong> — quitter l'ancienne,
+            rejoindre la nouvelle. Si la sélection ne retient que la
+            nouvelle, l'élève figurera dans deux listes ; l'analyse le
+            signale.
+          </p>
+          <div class="mt-2 flex flex-wrap gap-1.5">
+            {#each classesDeclarees as c (c)}
+              <button
+                type="button"
+                onclick={() => basculerClasseGroupe(c)}
+                class="rounded-full border px-2 py-0.5 text-xs transition {classesGroupes.includes(c)
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300'
+                  : 'border-stone-300 text-stone-600 hover:bg-stone-100 dark:border-stone-600 dark:text-stone-400 dark:hover:bg-stone-800'}"
+              >
+                {c}
+              </button>
+            {/each}
+          </div>
+          {#if classesGroupes.length > 0}
+            <button class="mt-2 text-xs text-stone-500 underline hover:text-stone-800 dark:hover:text-stone-200"
+                    onclick={() => { classesGroupes = []; diffGroupes = null; }}>
+              Tout décocher
+            </button>
+          {/if}
+        </details>
 
         {#if diffGroupes}
           <p class="text-sm">

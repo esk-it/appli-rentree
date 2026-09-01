@@ -102,6 +102,9 @@ class GroupeACreer:
 class RapportGroupes:
     annee_libelle: str
     diffs: list[DiffGroupe] = field(default_factory=list)
+    classes: list[str] = field(default_factory=list)
+    """Les classes retenues, vide si toutes. Le dire évite de prendre un
+    aperçu filtré pour l'état complet."""
     classes_sans_groupe: list[str] = field(default_factory=list)
     sites_sans_eleve: list[str] = field(default_factory=list)
     avertissements: list[str] = field(default_factory=list)
@@ -193,6 +196,7 @@ def calculer_diff_groupes(
     *,
     annee_id: int,
     site_id: int | None = None,
+    classes: list[str] | None = None,
 ) -> RapportGroupes:
     """Compare l'appartenance voulue à l'appartenance réelle.
 
@@ -202,6 +206,14 @@ def calculer_diff_groupes(
             signale un groupe que Google ne connaît pas — distinct d'un
             groupe vide, qui vaut `[]`.
         annee_id: année préparée — c'est elle qui définit la composition.
+        classes: restreint aux groupes de ces classes. `None` = toutes.
+
+            Composer mille sept cents appartenances d'un bloc suppose
+            d'avoir tout vérifié d'un bloc ; on veut pouvoir avancer par
+            paquets. Mais changer de classe est ici **deux gestes** —
+            quitter l'ancienne, rejoindre la nouvelle — et un filtre peut
+            n'en retenir qu'un. Le rapport le dit alors, au lieu de laisser
+            un élève dans deux listes sans prévenir.
     """
     from backend.models import AnneeScolaire
 
@@ -232,12 +244,12 @@ def calculer_diff_groupes(
             personnes[p.id] = p
 
     def adresse(p: Personne) -> str | None:
-        if p.email_constate:
-            return p.email_constate.strip().lower()
-        site = sites.get(p.site_id) if p.site_id else None
-        if site is None:
-            return None
-        return (calculer_email(p.prenom, p.nom, site.domaine_mail) or "").lower() or None
+        # `Personne.email` connaît les trois sources dans le bon ordre :
+        # constatée dans Google, attribuée pour lever une homonymie, puis
+        # calculée. Recalculer ici en sautant la deuxième aurait ajouté au
+        # groupe l'adresse de l'homonyme.
+        a = (p.email or "").strip().lower()
+        return a or None
 
     # Toutes les adresses connues du référentiel, pour distinguer un partant
     # d'un compte ajouté à la main.
@@ -310,6 +322,32 @@ def calculer_diff_groupes(
                 nb_retraits_suspendus += len(d.a_retirer)
                 d.retraits_suspendus = d.a_retirer
                 d.a_retirer = []
+
+    # Le filtre s'applique **après** le calcul complet : c'est ce qui
+    # permet de voir ce que le découpage laisse de côté.
+    filtre = {c.strip() for c in (classes or []) if c and c.strip()} or None
+    if filtre is not None:
+        gardes = [d for d in rapport.diffs if d.classe in filtre]
+        ecartes = [d for d in rapport.diffs if d.classe not in filtre]
+        arrivants = {a for d in gardes for a in d.a_ajouter}
+        en_attente: dict[str, list[str]] = {}
+        for d in ecartes:
+            for a in d.a_retirer:
+                if a in arrivants:
+                    en_attente.setdefault(d.classe, []).append(a)
+        rapport.diffs = gardes
+        rapport.classes = sorted(filtre)
+        if en_attente:
+            total = sum(len(v) for v in en_attente.values())
+            detail = ", ".join(
+                f"{c} ({len(v)})" for c, v in sorted(en_attente.items())
+            )
+            rapport.avertissements.append(
+                f"{total} élève(s) rejoindront leur nouvelle classe mais "
+                f"resteront membres de l'ancienne, qui n'est pas dans la "
+                f"sélection — {detail}. Synchronise ces classes aussi, sinon "
+                "ils figureront dans deux listes."
+            )
 
     rapport.diffs.sort(key=lambda d: (d.site or "", d.classe))
     if rapport.sites_sans_eleve:

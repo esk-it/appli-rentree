@@ -430,7 +430,7 @@ export const googleApi = {
     );
   },
   /** Lance l'exécution suivie ; retourne le job à interroger ensuite. */
-  async lancerJob({ siteId, typePersonne, anneeCibleId, anneeSourceId, csvKoxoBase64 = null, phase = "pre_rentree" }) {
+  async lancerJob({ siteId, typePersonne, anneeCibleId, anneeSourceId, csvKoxoBase64 = null, phase = "pre_rentree", classes = null }) {
     return jsonOrThrow(
       await fetch(`${BASE}/google/jobs`, {
         method: "POST", headers: { "content-type": "application/json" },
@@ -438,6 +438,7 @@ export const googleApi = {
           site_id: siteId, type_personne: typePersonne,
           annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
           csv_koxo_base64: csvKoxoBase64, phase, confirmation: true,
+          classes: classes && classes.length ? classes : null,
         }),
       }),
     );
@@ -523,9 +524,10 @@ export const googleApi = {
     );
   },
   /** Qui doit entrer et sortir de chaque groupe de classe. */
-  async diffGroupes({ anneeId, siteId = null }) {
+  async diffGroupes({ anneeId, siteId = null, classes = null }) {
     const q = new URLSearchParams({ annee_id: String(anneeId) });
     if (siteId) q.set("site_id", String(siteId));
+    if (classes && classes.length) q.set("classes", classes.join(","));
     return jsonOrThrow(await fetch(`${BASE}/google/groupes/diff?${q}`));
   },
   /** Groupes déclarés dans la Table que Google ne connaît pas. */
@@ -546,13 +548,14 @@ export const googleApi = {
       }),
     );
   },
-  async synchroniserGroupes({ anneeId, siteId = null, retirer = true }) {
+  async synchroniserGroupes({ anneeId, siteId = null, retirer = true, classes = null }) {
     return jsonOrThrow(
       await fetch(`${BASE}/google/groupes/synchroniser`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           annee_id: anneeId, site_id: siteId, retirer, confirmation: true,
+          classes: classes && classes.length ? classes : null,
         }),
       }),
     );
@@ -1076,9 +1079,10 @@ export const nouveaux = {
 // Bascule des OU Google (pré-rentrée → définitive)
 // ---------------------------------------------------------------------------
 export const bascule = {
-  _qs({ anneeId, phase, siteId = null }) {
+  _qs({ anneeId, phase, siteId = null, classes = null }) {
     const p = new URLSearchParams({ annee_id: String(anneeId), phase });
     if (siteId) p.set("site_id", String(siteId));
+    if (classes && classes.length) p.set("classes", classes.join(","));
     return p.toString();
   },
   async planifier(options) {
@@ -1095,7 +1099,7 @@ export const bascule = {
       await fetch(`${BASE}/bascule/relever?${p}`, { method: "POST" }),
     );
   },
-  async confirmer({ anneeId, phase, siteId = null, mode = "simulation" }) {
+  async confirmer({ anneeId, phase, siteId = null, classes = null, mode = "simulation" }) {
     return jsonOrThrow(
       await fetch(`${BASE}/bascule/confirmer`, {
         method: "POST",
@@ -1104,6 +1108,7 @@ export const bascule = {
           annee_id: anneeId,
           phase,
           site_id: siteId || null,
+          classes: classes && classes.length ? classes : null,
           mode,
         }),
       }),
