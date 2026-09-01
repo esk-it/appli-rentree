@@ -82,6 +82,21 @@ export const personnes = {
     return jsonOrThrow(await fetch(`${BASE}/personnes/par-cle-pivot/${encodeURIComponent(cle)}`));
   },
   /** Fige l'adresse mail. `""` rétablit l'adresse calculée. */
+  /**
+   * Corrige le nom ou le prénom au référentiel.
+   *
+   * En `simulation`, rien n'est écrit : la réponse montre ce que la
+   * correction entraînerait, l'adresse calculée comprise.
+   */
+  async corrigerIdentite(id, { nom = null, prenom = null, mode = "simulation" }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/personnes/${id}/identite`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ nom, prenom, mode }),
+      }),
+    );
+  },
   async definirEmail(id, email) {
     return jsonOrThrow(
       await fetch(`${BASE}/personnes/${id}/email`, {

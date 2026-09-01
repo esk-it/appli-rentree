@@ -266,6 +266,62 @@
     saisie = p.email_est_constate ? (p.email ?? "") : "";
   }
 
+  /**
+   * Corriger le nom ou le prénom.
+   *
+   * Charlemagne se trompe, ou il est en retard, et rien ne permettait de
+   * le contredire. La simulation montre d'abord ce que ça entraîne —
+   * l'adresse calculée suit le prénom, et c'est souvent le but.
+   */
+  let enRenommage = $state(/** @type {any} */ (null));
+  let nomSaisi = $state("");
+  let prenomSaisi = $state("");
+  let apercu = $state(/** @type {any} */ (null));
+
+  function ouvrirRenommage(p) {
+    enRenommage = p;
+    nomSaisi = p.nom ?? "";
+    prenomSaisi = p.prenom ?? "";
+    apercu = null;
+  }
+
+  async function simulerRenommage() {
+    if (!enRenommage) return;
+    enregistrement = true;
+    try {
+      apercu = await personnes.corrigerIdentite(enRenommage.id, {
+        nom: nomSaisi.trim(), prenom: prenomSaisi.trim(), mode: "simulation",
+      });
+    } catch (e) {
+      apercu = null;
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 9000 });
+    } finally {
+      enregistrement = false;
+    }
+  }
+
+  async function enregistrerRenommage() {
+    if (!enRenommage) return;
+    enregistrement = true;
+    try {
+      const r = await personnes.corrigerIdentite(enRenommage.id, {
+        nom: nomSaisi.trim(), prenom: prenomSaisi.trim(), mode: "reel",
+      });
+      liste = await personnes.lister();
+      notify.succes(
+        r.changements.length
+          ? `${r.prenom_apres} ${r.nom_apres} — ${r.changements.length} changement(s)`
+          : "Rien à changer.",
+      );
+      for (const x of r.reste_a_faire) notify.info(x, { duree: 11000 });
+      enRenommage = null;
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 9000 });
+    } finally {
+      enregistrement = false;
+    }
+  }
+
   async function enregistrerEmail() {
     if (!enEdition) return;
     enregistrement = true;
@@ -489,7 +545,25 @@
                   </span>
                 </td>
                 <td class="whitespace-nowrap px-3 py-1.5 font-medium">{p.nom}</td>
-                <td class="whitespace-nowrap px-3 py-1.5">{p.prenom}</td>
+                <td class="whitespace-nowrap px-3 py-1.5">
+                  <div class="group/nom flex items-center gap-1.5">
+                    <span>{p.prenom}</span>
+                    <!-- Charlemagne se trompe, ou il est en retard. Jusqu'ici
+                         rien ne permettait de le contredire. -->
+                    <button
+                      type="button"
+                      title="Corriger le nom ou le prénom"
+                      aria-label="Corriger l'identité de {p.prenom} {p.nom}"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        ouvrirRenommage(p);
+                      }}
+                      class="rounded p-0.5 text-stone-300 opacity-60 transition hover:bg-stone-200 hover:text-stone-700 focus:opacity-100 group-hover/nom:opacity-100 dark:text-stone-600 dark:hover:bg-stone-700 dark:hover:text-stone-200"
+                    >
+                      <Pencil class="h-3 w-3" />
+                    </button>
+                  </div>
+                </td>
                 <!-- L'identifiant détenu prime sur celui que le référentiel
                      a calculé : `login` est unique ici alors que les
                      identifiants vivent dans une base KoXo par population.
@@ -753,6 +827,67 @@
     {/if}
   </div>
 </section>
+
+{#if enRenommage}
+  <Modale titre="Nom et prénom — {enRenommage.prenom} {enRenommage.nom}"
+          onFermer={() => (enRenommage = null)}>
+    <div class="space-y-3">
+      <p class="text-sm text-stone-600 dark:text-stone-300">
+        Le référentiel se remplit par ingestion, et Charlemagne fait foi. Il
+        se trompe parfois, ou il est en retard. Corriger ici fait suivre les
+        exports — et l'adresse calculée, si elle n'a pas été figée.
+      </p>
+
+      <div class="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label class="libelle-champ" for="champ-nom">Nom</label>
+          <input id="champ-nom" class="champ" bind:value={nomSaisi}
+                 oninput={() => (apercu = null)} />
+        </div>
+        <div>
+          <label class="libelle-champ" for="champ-prenom">Prénom</label>
+          <input id="champ-prenom" class="champ" bind:value={prenomSaisi}
+                 oninput={() => (apercu = null)} />
+        </div>
+      </div>
+
+      {#if apercu}
+        {#if apercu.changements.length === 0}
+          <p class="text-sm text-stone-500 dark:text-stone-400">
+            Rien ne change.
+          </p>
+        {:else}
+          <ul class="space-y-1 rounded-lg border border-stone-200 bg-stone-50 p-2 text-sm dark:border-stone-700 dark:bg-stone-800">
+            {#each apercu.changements as c}<li>{c}</li>{/each}
+          </ul>
+        {/if}
+        {#each apercu.reste_a_faire as x}
+          <p class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            {x}
+          </p>
+        {/each}
+      {/if}
+
+      <p class="text-xs text-stone-500 dark:text-stone-400">
+        L'identifiant <span class="font-mono">{enRenommage.login_constate ?? enRenommage.login}</span>
+        ne bouge pas : c'est celui que KoXo détient, et le changer ferait
+        renommer le compte de l'annuaire.
+      </p>
+    </div>
+
+    {#snippet actions()}
+      <Bouton onclick={() => (enRenommage = null)}>Annuler</Bouton>
+      <Bouton occupe={enregistrement} onclick={simulerRenommage}>
+        Voir ce que ça change
+      </Bouton>
+      <Bouton variante="primary" occupe={enregistrement}
+              disabled={!apercu || apercu.changements.length === 0}
+              onclick={enregistrerRenommage}>
+        Corriger
+      </Bouton>
+    {/snippet}
+  </Modale>
+{/if}
 
 {#if enEdition}
   <Modale titre="Adresse mail — {enEdition.prenom} {enEdition.nom}" onFermer={() => (enEdition = null)}>

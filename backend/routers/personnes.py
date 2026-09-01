@@ -313,6 +313,54 @@ class FicheOut(BaseModel):
     comptes: list[CompteOut]
 
 
+class IdentitePayload(BaseModel):
+    nom: str | None = None
+    prenom: str | None = None
+    mode: str = "simulation"
+
+
+class IdentiteOut(BaseModel):
+    personne_id: int
+    nom_avant: str
+    prenom_avant: str
+    nom_apres: str
+    prenom_apres: str
+    login: str
+    email_avant: str | None
+    email_apres: str | None
+    changements: list[str]
+    reste_a_faire: list[str]
+
+
+@router.patch("/{personne_id}/identite", response_model=IdentiteOut)
+def corriger_identite(
+    personne_id: int,
+    payload: IdentitePayload,
+    session: Session = Depends(db_session),
+) -> IdentiteOut:
+    """Corrige le nom ou le prénom. Ne touche ni l'identifiant ni le badge.
+
+    Charlemagne se trompe, ou il est en retard, et rien ne permettait de le
+    contredire. En `simulation`, rien n'est écrit : la réponse montre ce
+    que la correction entraînerait, l'adresse calculée comprise.
+    """
+    from backend.services.identite import (
+        ModificationImpossible,
+        modifier_identite,
+    )
+
+    if payload.mode not in ("simulation", "reel"):
+        raise HTTPException(400, f"mode invalide : {payload.mode!r}")
+    try:
+        r = modifier_identite(
+            session, personne_id,
+            nom=payload.nom, prenom=payload.prenom, mode=payload.mode,
+        )
+    except ModificationImpossible as e:
+        raise HTTPException(400, str(e)) from None
+    return IdentiteOut(**vars(r))
+
+
 @router.get("/{personne_id}/fiche", response_model=FicheOut)
 def fiche(personne_id: int, session: Session = Depends(db_session)) -> FicheOut:
     """Tout ce que le référentiel sait d'une personne, en un appel.
