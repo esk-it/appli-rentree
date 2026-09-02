@@ -36,8 +36,11 @@ from backend.services.exports_google import (
 from backend.services.exports_google_groupes import generer_csv_groupes_google
 from backend.services.exports_jpm import generer_csv_jpm
 from backend.services.exports_koxo import generer_csv_koxo
-from backend.services.exports_pmb import generer_csv_pmb
 from backend.services.journal import journaliser
+from backend.services.repartition_pmb import (
+    RepartitionImpossible,
+    repartir_export_pmb,
+)
 
 router = APIRouter(prefix="/api/exports", tags=["exports"])
 
@@ -519,51 +522,101 @@ def exporter_groupes_google(
 # ---------------------------------------------------------------------------
 
 
-class ExportPmbPayload(BaseModel):
-    site_id: int
-    type_personne: Literal["eleve", "adulte"]
-    categorie: Literal["tous", "nouveaux", "anciens"]
-    annee_cible_id: int
-    annee_source_id: int | None = None
-    enregistrer_prevus: bool = False
+class RepartitionPmbPayload(BaseModel):
+    """L'export PMB de Charlemagne, à couper en un fichier par instance.
+
+    Le contenu passe en base64 dans le JSON plutôt qu'en multipart : c'est
+    le contournement déjà retenu pour l'ingestion, le webview Tauri
+    rejetant silencieusement certains envois multipart.
+    """
+
+    fichier_base64: str
+    annee_libelle: str
 
 
-class ExportPmbReponse(BaseModel):
+class PaquetPmbOut(BaseModel):
     site_nom: str
-    type_personne: str
-    categorie: str
-    nb_lignes: int
     nom_fichier: str
+    nb_eleves: int
+    classes: list[str]
     contenu_base64: str
-    nb_prevus_enregistres: int = 0
 
 
-@router.post("/pmb", response_model=ExportPmbReponse)
-def exporter_pmb(payload: ExportPmbPayload, session: Session = Depends(db_session)) -> ExportPmbReponse:
+class LignePmbOut(BaseModel):
+    badge: str
+    nom: str
+    prenom: str
+    code_classe: str
+    motif: str
+
+
+class RepartitionPmbReponse(BaseModel):
+    nb_lignes_lues: int
+    nb_reparties: int
+    paquets: list[PaquetPmbOut]
+    ecartees: list[LignePmbOut]
+    inconnus_du_referentiel: list[LignePmbOut]
+
+
+@router.post("/pmb", response_model=RepartitionPmbReponse)
+def repartir_pmb(
+    payload: RepartitionPmbPayload, session: Session = Depends(db_session)
+) -> RepartitionPmbReponse:
+    """Coupe l'export PMB de Charlemagne en un fichier par instance PMB.
+
+    Le programme ne fabrique pas ce fichier : sept de ses treize colonnes
+    (adresse, code postal, ville, téléphone, année de naissance, sexe)
+    n'existent ni dans le référentiel ni dans l'export qu'il ingère. Il
+    apporte la seule chose que Charlemagne ignore — quel code classe
+    appartient à quel établissement.
+    """
     try:
-        contenu, rapport = generer_csv_pmb(
-            session=session, site_id=payload.site_id, type_personne=payload.type_personne,
-            categorie=payload.categorie, annee_cible_id=payload.annee_cible_id,
-            annee_source_id=payload.annee_source_id,
-        )
-        nb_prevus = _enregistrer_si_demande(
+        brut = base64.b64decode(payload.fichier_base64)
+    except Exception as e:
+        raise HTTPException(400, f"Base64 invalide : {e}") from e
+
+    try:
+        r = repartir_export_pmb(session, brut, annee_libelle=payload.annee_libelle)
+    except RepartitionImpossible as e:
+        raise HTTPException(400, str(e)) from None
+
+    # Le journal passe ici par `journaliser` et non par `_journaliser_export` :
+    # cette répartition n'a ni site ni année choisis dans l'écran — elle les
+    # découvre dans le fichier.
+    try:
+        journaliser(
             session,
-            demande=payload.enregistrer_prevus,
-            famille="pmb",
-            site_id=payload.site_id,
-            type_personne=payload.type_personne,
-            categorie=payload.categorie,
-            annee_cible_id=payload.annee_cible_id,
-            annee_source_id=payload.annee_source_id,
+            type_operation="export",
+            cible="pmb",
+            annee_libelle=payload.annee_libelle,
+            parametres={"sites": [p.site_nom for p in r.paquets]},
+            resultat={
+                "nb_lignes_lues": r.nb_lignes_lues,
+                "nb_reparties": r.nb_reparties,
+                "nb_ecartees": len(r.ecartees),
+                "nb_inconnus": len(r.inconnus_du_referentiel),
+                "fichiers": {p.site_nom: p.nb_eleves for p in r.paquets},
+            },
         )
-    except ValueError as e:
-        raise HTTPException(400, str(e))
-    return ExportPmbReponse(
-        site_nom=rapport.site_nom, type_personne=rapport.type_personne,
-        categorie=rapport.categorie, nb_lignes=rapport.nb_lignes,
-        nom_fichier=rapport.nom_fichier_suggere,
-        contenu_base64=base64.b64encode(contenu).decode("ascii"),
-        nb_prevus_enregistres=nb_prevus,
+        session.commit()
+    except Exception:  # pragma: no cover — le journal ne doit rien casser
+        session.rollback()
+
+    return RepartitionPmbReponse(
+        nb_lignes_lues=r.nb_lignes_lues,
+        nb_reparties=r.nb_reparties,
+        paquets=[
+            PaquetPmbOut(
+                site_nom=p.site_nom, nom_fichier=p.nom_fichier,
+                nb_eleves=p.nb_eleves, classes=p.classes,
+                contenu_base64=base64.b64encode(p.contenu_csv).decode("ascii"),
+            )
+            for p in r.paquets
+        ],
+        ecartees=[LignePmbOut(**vars(e)) for e in r.ecartees],
+        inconnus_du_referentiel=[
+            LignePmbOut(**vars(i)) for i in r.inconnus_du_referentiel
+        ],
     )
 
 

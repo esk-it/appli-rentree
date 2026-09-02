@@ -912,14 +912,23 @@ export const exportsCible = {
       }),
     );
   },
-  async pmb({ siteId, typePersonne, categorie, anneeCibleId, anneeSourceId = null, enregistrerPrevus = false }) {
+  /**
+   * Coupe l'export PMB de Charlemagne en un fichier par instance PMB.
+   *
+   * Le programme ne fabrique pas ce fichier : sept de ses treize colonnes
+   * (adresse, code postal, ville, téléphone, année de naissance, sexe)
+   * n'existent nulle part dans le référentiel. Il apporte la seule chose
+   * que Charlemagne ignore — quel code classe est au collège et lequel est
+   * au lycée.
+   */
+  async pmb({ fichier, anneeLibelle }) {
+    if (!fichier) throw new Error("Fichier Charlemagne requis");
+    const fichier_base64 = arrayBufferEnBase64(await fichier.arrayBuffer());
     return jsonOrThrow(
       await fetch(`${BASE}/exports/pmb`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          site_id: siteId, type_personne: typePersonne, categorie,
-          annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
-          enregistrer_prevus: enregistrerPrevus,
+          fichier_base64, annee_libelle: anneeLibelle,
         }),
       }),
     );

@@ -1,4 +1,9 @@
-"""Tests des exports PMB, JPM/SmartAir, CardStudio (Lot 11)."""
+"""Tests des exports JPM/SmartAir et CardStudio (Lot 11).
+
+L'export PMB n'est plus fabriqué ici : PMB veut treize colonnes dont
+sept sont absentes du référentiel. Le programme se contente de répartir
+le fichier de Charlemagne — voir `test_repartition_pmb.py`.
+"""
 from __future__ import annotations
 
 import csv
@@ -21,51 +26,6 @@ def snap_factory(session):
         return s
 
     return _creer
-
-
-# ---------------------------------------------------------------------------
-# PMB
-# ---------------------------------------------------------------------------
-
-
-def test_pmb_format_csv_pv(session, site_factory, annee_factory, personne_factory, snap_factory):
-    from backend.services.exports_pmb import COLONNES_PMB, generer_csv_pmb
-
-    site = site_factory("NDK")
-    annee = annee_factory()
-    p = personne_factory(site_id=site.id, nom="DUPONT", prenom="Jean", login="jdupont")
-    snap_factory(p.id, annee.id, classe="3B")
-
-    contenu, rapport = generer_csv_pmb(
-        session=session, site_id=site.id, type_personne="eleve",
-        categorie="tous", annee_cible_id=annee.id,
-    )
-    texte = contenu.decode("utf-8")
-    rows = list(csv.DictReader(io.StringIO(texte), delimiter=";"))
-    assert list(rows[0].keys()) == COLONNES_PMB
-    assert rows[0]["login"] == "jdupont"
-    assert rows[0]["classe"] == "3B"
-    assert rapport.nb_lignes == 1
-
-
-def test_pmb_categorie_nouveaux(session, site_factory, annee_factory, personne_factory, snap_factory):
-    from backend.services.exports_pmb import generer_csv_pmb
-
-    site = site_factory("NDK")
-    an_prec = annee_factory("2024-2025")
-    an_cour = annee_factory("2025-2026")
-
-    p_reste = personne_factory(site_id=site.id, login="reste")
-    snap_factory(p_reste.id, an_prec.id, classe="3B")
-    snap_factory(p_reste.id, an_cour.id, classe="2NDE")
-    p_neuf = personne_factory(site_id=site.id, login="neuf")
-    snap_factory(p_neuf.id, an_cour.id, classe="6A")
-
-    _, r = generer_csv_pmb(
-        session=session, site_id=site.id, type_personne="eleve",
-        categorie="nouveaux", annee_cible_id=an_cour.id, annee_source_id=an_prec.id,
-    )
-    assert r.nb_lignes == 1
 
 
 # ---------------------------------------------------------------------------

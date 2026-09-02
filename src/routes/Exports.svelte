@@ -299,6 +299,69 @@
 
   let anneeSourceRequise = $derived(categorie === "nouveaux" || categorie === "anciens");
 
+  /**
+   * PMB : le fichier de Charlemagne, coupé par instance.
+   *
+   * Le programme ne fabrique pas cet export. PMB veut treize colonnes,
+   * dont sept — adresse, complément, code postal, ville, téléphone, année
+   * de naissance, sexe — ne sont nulle part dans le référentiel ni dans
+   * l'export que le programme ingère. La version qui essayait rendait un
+   * fichier de six colonnes que PMB refusait.
+   *
+   * Ce que le programme apporte, et que Charlemagne ignore : quel code
+   * classe appartient à quel établissement. Importé entier dans l'instance
+   * du lycée, le fichier y fait entrer les classes du collège — c'est
+   * arrivé, et la documentaliste a vu ses effectifs doubler.
+   */
+  let fichierPmb = $state(/** @type {File|null} */ (null));
+  let rapportPmb = $state(/** @type {any} */ (null));
+
+  /**
+   * L'année qui nommera les fichiers, montrée avant de lancer.
+   *
+   * La liste des années arrive triée par date de création, pas par
+   * millésime : la plus récemment ingérée n'est pas forcément l'année
+   * courante, et le choix par défaut peut donc tomber sur la précédente.
+   * Un fichier mal daté envoyé au CDI est long à rattraper — autant que le
+   * nom se lise avant le clic.
+   */
+  let anneeLibelleChoisie = $derived(
+    listeAnnees.find((a) => a.id === anneeCibleId)?.libelle ?? "",
+  );
+
+  async function repartirPmb() {
+    if (!fichierPmb || !anneeCibleId) return;
+    chargement = true;
+    erreur = "";
+    rapportPmb = null;
+    try {
+      const anneeLibelle =
+        listeAnnees.find((a) => a.id === anneeCibleId)?.libelle ?? "";
+      rapportPmb = await exportsCible.pmb({ fichier: fichierPmb, anneeLibelle });
+      notify.succes(
+        `${rapportPmb.nb_reparties} ligne(s) réparties en ` +
+          `${rapportPmb.paquets.length} fichier(s) — à enregistrer ci-dessous`,
+        { duree: 8000 },
+      );
+    } catch (e) {
+      erreur = String(e).replace(/^Error:\s*/, "");
+      notify.erreur(erreur, { duree: 12000 });
+    } finally {
+      chargement = false;
+    }
+  }
+
+  /** @param {any} paquet */
+  async function enregistrerPaquet(paquet) {
+    const { chemin, annule } = await enregistrerFichierBase64(
+      paquet.nom_fichier, paquet.contenu_base64, "text/csv",
+    );
+    if (annule) return;
+    notify.succes(
+      `${paquet.nom_fichier} — ${chemin ?? "dans ton dossier Téléchargements"}`,
+    );
+  }
+
   async function generer() {
     if (!siteId || !anneeCibleId) return;
     if (anneeSourceRequise && !anneeSourceId) {
@@ -333,8 +396,6 @@
         r = await exportsCible.googleGroupes({
           siteId, anneeId: anneeCibleId, inclureEleves, inclureProfs,
         });
-      } else if (cible === "pmb") {
-        r = await exportsCible.pmb(params);
       } else if (cible === "jpm") {
         r = await exportsCible.jpm({
           siteId, anneeCibleId, anneeSourceId, enregistrerPrevus,
@@ -414,6 +475,7 @@
       />
     </div>
 
+    {#if cible !== "pmb"}
     <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
       <label class="block">
         <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">
@@ -455,6 +517,59 @@
         </select>
       </label>
     </div>
+    {/if}
+
+    {#if cible === "pmb"}
+      <div class="rounded-lg border-2 border-dashed border-sky-300 bg-sky-50/40 p-3 dark:border-sky-700 dark:bg-sky-900/10">
+        <p class="mb-2 text-xs font-medium text-sky-900 dark:text-sky-200">
+          Ce fichier vient de Charlemagne, pas du programme
+        </p>
+        <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
+          PMB veut treize colonnes, dont l'<strong>adresse postale</strong>, le
+          <strong>téléphone</strong>, l'<strong>année de naissance</strong> et le
+          <strong>sexe</strong>. Aucune n'existe dans le référentiel : le
+          programme ne peut pas les inventer. Sors l'export PMB depuis
+          Charlemagne, puis dépose-le ici.
+        </p>
+        <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
+          Ce que le programme fait, et que Charlemagne ne sait pas faire :
+          <strong>le couper par établissement</strong>. Son export porte les
+          trois sites en vrac, et PMB a une instance par établissement.
+        </p>
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
+            <Upload class="h-3.5 w-3.5" />
+            {fichierPmb?.name ?? "Choisir l'export PMB de Charlemagne (.csv)"}
+            <input
+              type="file"
+              accept=".csv"
+              onchange={(e) => {
+                const champ = /** @type {HTMLInputElement} */ (e.target);
+                fichierPmb = champ.files?.[0] ?? null;
+                rapportPmb = null;
+              }}
+              class="hidden"
+            />
+          </label>
+          {#if fichierPmb}
+            <button
+              class="text-xs text-stone-500 hover:text-red-600"
+              onclick={() => { fichierPmb = null; rapportPmb = null; }}
+            >
+              × retirer
+            </button>
+          {/if}
+        </div>
+        <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
+          Le contenu n'est pas touché — chaque ligne ressort telle quelle,
+          colonne <code>Prof. Princ.</code> comprise. L'année choisie
+          ci-dessous ne sert qu'à nommer les fichiers :
+          <strong class="font-mono text-stone-700 dark:text-stone-300">
+            PMB_&lt;SITE&gt;_{anneeLibelleChoisie || "…"}.csv
+          </strong>
+        </p>
+      </div>
+    {/if}
 
     <!-- Sans destination, la ligne d'un sortant porte sa dernière classe :
          synchronisée, elle le remettrait au milieu de la promotion
@@ -660,6 +775,9 @@
       {/if}
     </div>
 
+    <!-- Rien ici pour PMB : le programme n'y fabrique pas de CSV, et le
+         encadré du haut dit déjà d'où le fichier doit venir. -->
+    {#if cible !== "pmb"}
     <div class="rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs dark:border-stone-700 dark:bg-stone-800">
       <div class="flex items-start gap-2 text-stone-700 dark:text-stone-300">
         <Info class="mt-0.5 h-4 w-4 shrink-0" />
@@ -700,6 +818,7 @@
         </div>
       </div>
     </div>
+    {/if}
 
     {#if cible === "google" && categorie === "nouveaux"}
       <div class="rounded-lg border-2 border-dashed border-emerald-300 bg-emerald-50/40 p-3 dark:border-emerald-700 dark:bg-emerald-900/10">
@@ -758,18 +877,106 @@
     {/if}
 
     <div class="flex gap-2">
-      <Bouton
-        variante="primary"
-        icon={FileDown}
-        occupe={chargement}
-        disabled={!siteId || !anneeCibleId || (anneeSourceRequise && !anneeSourceId)}
-        onclick={generer}
-      >
-        {cible === "google" && fichierKoxoEnrichi
-          ? "Générer Google avec MDP"
-          : "Générer et télécharger"}
-      </Bouton>
+      {#if cible === "pmb"}
+        <Bouton
+          variante="primary"
+          icon={FileDown}
+          occupe={chargement}
+          disabled={!fichierPmb || !anneeCibleId}
+          onclick={repartirPmb}
+        >
+          Répartir par établissement
+        </Bouton>
+      {:else}
+        <Bouton
+          variante="primary"
+          icon={FileDown}
+          occupe={chargement}
+          disabled={!siteId || !anneeCibleId || (anneeSourceRequise && !anneeSourceId)}
+          onclick={generer}
+        >
+          {cible === "google" && fichierKoxoEnrichi
+            ? "Générer Google avec MDP"
+            : "Générer et télécharger"}
+        </Bouton>
+      {/if}
     </div>
+
+    {#if rapportPmb}
+      <div class="space-y-3 rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
+        <p class="text-xs text-stone-600 dark:text-stone-400">
+          {rapportPmb.nb_lignes_lues} ligne(s) lues,
+          <strong class="tabular-nums">{rapportPmb.nb_reparties}</strong> réparties.
+          La somme des fichiers vaut le fichier d'origine, aux écartées près.
+        </p>
+
+        {#each rapportPmb.paquets as p (p.site_nom)}
+          <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-stone-200 bg-white p-2.5 dark:border-stone-700 dark:bg-stone-900">
+            <div class="min-w-0">
+              <p class="text-sm font-medium">
+                {p.site_nom}
+                <span class="text-stone-500 dark:text-stone-400">
+                  — {p.nb_eleves} élèves, {p.classes.length} classes
+                </span>
+              </p>
+              <p class="truncate font-mono text-xs text-stone-500 dark:text-stone-400">
+                {p.classes.join(" ")}
+              </p>
+            </div>
+            <Bouton icon={Download} taille="sm" onclick={() => enregistrerPaquet(p)}>
+              {p.nom_fichier}
+            </Bouton>
+          </div>
+        {/each}
+
+        {#if rapportPmb.ecartees.length}
+          <div class="rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-800 dark:bg-amber-950/40">
+            <p class="text-xs font-medium text-amber-900 dark:text-amber-200">
+              {rapportPmb.ecartees.length} ligne(s) dans aucun fichier
+            </p>
+            <p class="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
+              Leur classe n'est dans aucune table de correspondance. Sans cette
+              liste, l'élève disparaîtrait sans bruit.
+            </p>
+            <ul class="mt-1.5 space-y-0.5">
+              {#each rapportPmb.ecartees as e (e.badge + e.code_classe)}
+                <li class="text-xs">
+                  <span class="font-medium">{e.prenom} {e.nom}</span>
+                  <span class="text-stone-500 dark:text-stone-400">
+                    · badge {e.badge} · {e.motif}
+                  </span>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+
+        {#if rapportPmb.inconnus_du_referentiel.length}
+          <div class="rounded-lg border border-stone-300 bg-white p-2.5 dark:border-stone-600 dark:bg-stone-900">
+            <p class="text-xs font-medium">
+              {rapportPmb.inconnus_du_referentiel.length} élève(s) que le
+              programme ne connaît pas
+            </p>
+            <p class="mt-0.5 text-xs text-stone-600 dark:text-stone-400">
+              Ils sont bien dans les fichiers ci-dessus, et entreront dans PMB.
+              Mais ils n'ont jamais été ingérés ici : ni compte Google, ni
+              compte KoXo, et le <strong>Bilan</strong> ne les voit pas. Une
+              ingestion Charlemagne les prendra tous d'un coup.
+            </p>
+            <ul class="mt-1.5 space-y-0.5">
+              {#each rapportPmb.inconnus_du_referentiel as i (i.badge)}
+                <li class="text-xs">
+                  <span class="font-medium">{i.prenom} {i.nom}</span>
+                  <span class="text-stone-500 dark:text-stone-400">
+                    · badge {i.badge} · classe {i.code_classe}
+                  </span>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     {#if erreur}
       <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">

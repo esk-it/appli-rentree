@@ -693,7 +693,13 @@
           <li><strong>KoXo</strong> — CSV cp1252, 10 colonnes. MDP vide (KoXo génère).</li>
           <li><strong>Google Workspace</strong> — CSV UTF-8 BOM, 40 colonnes bulk-import.
             Password rempli via boucle KoXo→Google.</li>
-          <li><strong>PMB</strong> — CSV ;-séparateur pour l'import bibliothèque CDI.</li>
+          <li><strong>PMB</strong> — le programme ne fabrique pas ce fichier :
+            sept des treize colonnes que PMB attend (adresse, code postal,
+            ville, téléphone, année de naissance, sexe) n'existent nulle part
+            dans le référentiel. Le fichier vient de <strong>Charlemagne</strong>,
+            et l'onglet PMB le <strong>coupe par établissement</strong> — son
+            export porte les trois sites en vrac, alors que PMB a une instance
+            par établissement.</li>
           <li><strong>JPM/SmartAir</strong> — CSV différentiel (<code>Op = a/b/m</code>)
             pour les badges d'accès.</li>
           <li><strong>Groupes Google</strong> — CSV 4 colonnes d'appartenances :
