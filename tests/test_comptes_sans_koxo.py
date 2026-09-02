@@ -413,3 +413,46 @@ def test_lorganisation_du_site_est_reprise(session, site_factory, annee_factory,
         session, cle, site_id=site.id, annee_cible_id=annee.id, categorie="tous",
     )
     assert "OGEC NOTRE DAME D ESPERANCE" in etiquettes.decode("utf-8")
+
+
+def test_l_etiquette_porte_l_adresse_de_connexion(session, nde):
+    """L'identifiant réseau ne suffit pas : c'est l'adresse que l'élève
+    saisit pour entrer dans Google, et elle ne se devine pas à partir du
+    login — `alezia.acquitter.le.velly@` pour `aacquitter`.
+    """
+    from backend.services.coffre import initialiser
+    from backend.services.comptes_sans_koxo import preparer_comptes
+
+    site, an_prec, an_cour = nde
+    cle = initialiser(session, MAITRE)
+    csv_google, fiches, _ = preparer_comptes(
+        session, cle, site_id=site.id, annee_cible_id=an_cour.id,
+        annee_source_id=an_prec.id,
+    )
+    session.commit()
+
+    page = fiches.decode("utf-8")
+    for l in _lire(csv_google):
+        assert l["Email Address [Required]"] in page
+    assert page.count('class="adresse"') == 3
+
+
+def test_l_adresse_ne_pousse_ni_les_cartouches_ni_le_pied(session, nde):
+    """Les positions reproduisent celles de KoXo : l'ajout est posé, pas
+    inséré dans le flux."""
+    from backend.services.coffre import initialiser
+    from backend.services.comptes_sans_koxo import preparer_comptes
+
+    site, an_prec, an_cour = nde
+    cle = initialiser(session, MAITRE)
+    _, fiches, _ = preparer_comptes(
+        session, cle, site_id=site.id, annee_cible_id=an_cour.id,
+        annee_source_id=an_prec.id,
+    )
+    session.commit()
+
+    page = fiches.decode("utf-8")
+    bloc = page[page.index(".adresse {") : page.index(".adresse {") + 320]
+    assert "position: absolute" in bloc
+    # Sous le logo (qui s'arrête à 102pt) et au-dessus du pied (2,2pt).
+    assert "bottom: 10pt" in bloc

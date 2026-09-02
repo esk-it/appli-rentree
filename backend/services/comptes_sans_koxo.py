@@ -173,6 +173,11 @@ def preparer_comptes(
                 "groupe": f"Elèves / {classe}" if classe else "Elèves",
                 "login": personne.login or "",
                 "mot_de_passe": mdp,
+                # L'identifiant réseau ne suffit pas : c'est l'adresse que
+                # l'élève saisit pour se connecter à Google, et elle ne se
+                # devine pas à partir du login — `alezia.acquitter.le.velly@`
+                # pour `aacquitter`.
+                "adresse": personne.email or "",
             }
         )
 
@@ -340,6 +345,7 @@ def fiches_html(
   <p class="groupe">{_echapper(e.get("groupe", ""))}</p>
   <div class="champ">{_echapper(e.get("login", ""))}</div>
   <div class="champ">{_echapper(e.get("mot_de_passe", ""))}</div>
+  <p class="adresse">{_echapper(e.get("adresse", ""))}</p>
   {LOGO_GOOGLE}
   <p class="pied"><span>Appli Rentrée</span><span>Année {_echapper(annee)}</span></p>
 </div>'''
@@ -453,6 +459,23 @@ def fiches_html(
     top: 68pt;
     width: 34pt;
     height: 34pt;
+  }}
+  /* L'adresse de connexion, sous le logo et au-dessus du pied.
+     Positionnée plutôt qu'en flux : elle ne doit pousser ni les cartouches
+     ni le pied, dont les positions reproduisent celles de KoXo.
+     Sept points suffisent — la plus longue adresse de l'établissement fait
+     quarante-deux caractères pour cent soixante-huit points de large. */
+  .adresse {{
+    position: absolute;
+    left: 2.84pt;
+    right: 2.84pt;
+    bottom: 10pt;
+    margin: 0;
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 7pt;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
   }}
   .pied {{
     position: absolute;
