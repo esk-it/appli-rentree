@@ -373,15 +373,18 @@
             </p>
           {:else if fiche}
             <div class="flex items-start gap-6">
-              <!-- La photo prend enfin la place qu'elle mérite :
-                   à 40 pixels dans la liste, on ne reconnaît
-                   personne. -->
-              <Avatar
-                personneId={p.id}
-                nom={p.nom}
-                prenom={p.prenom}
-                taille={112}
-              />
+              <!-- La photo prend enfin la place qu'elle mérite : à 40 pixels
+                   dans la liste, on ne reconnaît personne. En portrait plutôt
+                   qu'en pastille — le rond coupe le menton et les oreilles,
+                   et c'est là qu'on cherche à reconnaître quelqu'un. -->
+              <div class="w-40 shrink-0">
+                <Avatar
+                  personneId={p.id}
+                  nom={p.nom}
+                  prenom={p.prenom}
+                  forme="portrait"
+                />
+              </div>
 
               <div class="grid min-w-0 flex-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
                 <div>
@@ -702,26 +705,13 @@
         />
       </div>
     {:else if vue === "trombinoscope"}
-      <!-- La fiche s'ouvre sous la grille, sur toute la largeur : intercalée
-           dans une cellule, elle disloquerait les rangées à chaque clic. -->
-      {#if ouverte !== null}
-        {@const p = listeFiltree.find((x) => x.id === ouverte)}
-        {#if p}
-          <div
-            data-fiche
-            class="anim-apparition-douce border-b border-stone-200 bg-stone-50/80 px-5 py-4 dark:border-stone-700 dark:bg-stone-800/50"
-          >
-            {@render fichePersonne(p)}
-          </div>
-        {/if}
-      {/if}
       <div class="max-h-[640px] overflow-auto p-3">
-        <div class="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
+        <div class="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(150px,1fr))]">
           {#each listeFiltree as p (p.id)}
             <button
               type="button"
               data-vignette
-              class="card-interactive flex flex-col items-center p-2.5 text-center
+              class="card-interactive overflow-hidden p-2 text-center
                      {ouverte === p.id ? 'ring-2 ring-emerald-500' : ''}"
               onclick={() => basculer(p)}
               title="{p.prenom} {p.nom}{p.classe ? ' · ' + p.classe : ''}"
@@ -730,19 +720,19 @@
                 personneId={p.sans_compte ? null : p.id}
                 nom={p.nom}
                 prenom={p.prenom}
-                taille={96}
+                forme="portrait"
               />
-              <span class="mt-2 line-clamp-2 text-xs font-semibold leading-tight">
+              <span class="mt-2 block truncate text-xs font-semibold leading-tight">
                 {p.prenom}
               </span>
-              <span class="line-clamp-2 text-xs uppercase leading-tight text-stone-600 dark:text-stone-400">
+              <span class="block truncate text-xs uppercase leading-tight text-stone-600 dark:text-stone-400">
                 {p.nom}
               </span>
-              <span class="mt-1 text-[11px] text-stone-500 dark:text-stone-400">
+              <span class="mt-1 block text-[11px] text-stone-500 dark:text-stone-400">
                 {p.classe ?? (p.type === "adulte" ? "adulte" : "—")}
               </span>
               {#if anneeId !== null}
-                <span class="mt-1 rounded-full px-2 py-0.5 text-[10px] {TEINTES_MOUVEMENT[p.mouvement]}">
+                <span class="mt-1 inline-block rounded-full px-2 py-0.5 text-[10px] {TEINTES_MOUVEMENT[p.mouvement]}">
                   {LIBELLES_MOUVEMENT[p.mouvement]}
                 </span>
               {/if}
@@ -912,6 +902,22 @@
     {/if}
   </div>
 </section>
+
+<!-- Le trombinoscope ouvre la fiche en fenêtre, pas au-dessus de la grille :
+     une bande insérée dans le flux repousse les vignettes, et celle qu'on
+     vient de cliquer se retrouve ailleurs qu'où on l'a laissée. -->
+{#if vue === "trombinoscope" && ouverte !== null}
+  {@const p = listeFiltree.find((x) => x.id === ouverte)}
+  {#if p}
+    <Modale
+      titre="{p.prenom} {p.nom}"
+      largeur="xl"
+      onFermer={fermerFiche}
+    >
+      {@render fichePersonne(p)}
+    </Modale>
+  {/if}
+{/if}
 
 {#if enRenommage}
   <Modale titre="Nom et prénom — {enRenommage.prenom} {enRenommage.nom}"

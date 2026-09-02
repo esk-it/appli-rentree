@@ -20,7 +20,7 @@
    *
    * @typedef {Object} Props
    * @property {string} titre
-   * @property {"sm"|"md"|"lg"} [largeur]
+   * @property {"sm"|"md"|"lg"|"xl"} [largeur]
    * @property {() => void} onFermer
    * @property {import('svelte').Snippet} children  - corps du formulaire
    * @property {import('svelte').Snippet} [actions] - boutons de pied
@@ -32,6 +32,10 @@
     sm: "max-w-sm",
     md: "max-w-md",
     lg: "max-w-lg",
+    // Une fiche de personne met la photo et l'état civil côte à côte : sous
+    // cette largeur, les deux colonnes se replient et la photo perd
+    // l'intérêt qu'on avait à l'agrandir.
+    xl: "max-w-4xl",
   };
 
   function surTouche(e) {
