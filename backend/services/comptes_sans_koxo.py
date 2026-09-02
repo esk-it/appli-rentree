@@ -117,10 +117,16 @@ def preparer_comptes(
         nom_fichier_fiches=f"Etiquettes_{site.nom}_par_classe.html",
     )
     if not rapport_base.nb_lignes:
-        rapport.avertissements.append(
-            "Aucune ligne à créer : vérifie l'année et la catégorie."
+        # Rendre deux fichiers vides est pire que refuser : on les
+        # enregistre, on les ouvre, et on cherche ce qui a raté. La cause
+        # est presque toujours la même — l'année source réglée sur l'année
+        # cible, auquel cas « nouveaux » ne désigne personne.
+        raise GenerationImpossible(
+            f"Aucun compte à fabriquer pour {site.nom} en catégorie "
+            f"« {categorie} ». Vérifie l'année source : si elle vaut l'année "
+            "cible, « nouveaux » ne peut désigner personne. En « tous », "
+            "l'export reprend tout le site."
         )
-        return contenu, BOM_UTF8, rapport
 
     par_email = _personnes_par_email(session, site_id)
     classes = _classes(session, annee_cible_id)
@@ -305,8 +311,17 @@ def fiches_html(
     """Les étiquettes de comptes, à imprimer — présentation de KoXo.
 
     KoXo imprime une étiquette par élève : bandeau bleu à l'en-tête, nom,
-    groupe, puis l'identifiant et le mot de passe dans deux cartouches
-    blancs. NDE n'a pas de KoXo et n'aurait donc rien à distribuer.
+    groupe, puis quatre lignes libellées — identifiant, mot de passe,
+    adresse et adresse du service. NDE n'a pas de KoXo et n'aurait donc
+    rien à distribuer.
+
+    ## Des lignes libellées, pas des cartouches
+
+    Une première version encadrait l'identifiant et le mot de passe dans
+    deux cartouches blancs, à l'ancienne. Les étiquettes de KoXo portent
+    aujourd'hui `Identifiant : ncorvez` en clair, avec l'adresse et l'URL
+    en dessous — et deux jeux d'étiquettes qui ne se ressemblent pas se
+    trient mal quand on les distribue le même matin.
 
     Le format est du HTML plutôt qu'un PDF : aucune dépendance à ajouter,
     et l'impression depuis le navigateur donne le même résultat — avec la
@@ -343,10 +358,11 @@ def fiches_html(
   <div class="bandeau">{_echapper(organisation)}</div>
   <p class="identite">{_echapper(e.get("prenom", ""))} {_echapper(e.get("nom", ""))}</p>
   <p class="groupe">{_echapper(e.get("groupe", ""))}</p>
-  <div class="champ">{_echapper(e.get("login", ""))}</div>
-  <div class="champ">{_echapper(e.get("mot_de_passe", ""))}</div>
-  <p class="adresse">{_echapper(e.get("adresse", ""))}</p>
   {LOGO_GOOGLE}
+  <p class="ligne"><span class="etiq">Identifiant :</span><span class="val">{_echapper(e.get("login", ""))}</span></p>
+  <p class="ligne"><span class="etiq">Mot de passe :</span><span class="val">{_echapper(e.get("mot_de_passe", ""))}</span></p>
+  <p class="ligne petite"><span class="etiq">Email :</span><span class="val">{_echapper(e.get("adresse", ""))}</span></p>
+  <p class="ligne petite"><span class="etiq">Url :</span><span class="val">google.fr</span></p>
   <p class="pied"><span>Appli Rentrée</span><span>Année {_echapper(annee)}</span></p>
 </div>'''
         )
@@ -438,44 +454,49 @@ def fiches_html(
     white-space: nowrap;
     overflow: hidden;
   }}
-  .champ {{
-    width: {CHAMP_L}pt;
-    height: {CHAMP_H}pt;
-    margin: 4.4pt 0 0 2.83pt;
-    background: #fff;
-    border: 0.28pt solid #000;
+  /* Quatre lignes libellées, comme sur les étiquettes de KoXo :
+     « Identifiant : ncorvez », puis le mot de passe, l'adresse et l'URL.
+     Les deux premières portent l'essentiel et restent lisibles de loin ;
+     les deux suivantes sont plus petites, parce qu'une adresse fait
+     jusqu'à quarante-deux caractères — `baptiste.kerangueven@ndecleder.fr`
+     — pour cent soixante-huit points de large. */
+  .ligne {{
+    margin: 3.6pt 0 0 2.83pt;
     font-family: "Segoe UI", Arial, sans-serif;
-    font-size: 11.91pt;
-    line-height: {CHAMP_H}pt;
-    padding-left: 5.7pt;
+    font-size: 9.5pt;
+    line-height: 1.15;
     white-space: nowrap;
     overflow: hidden;
   }}
-  /* Le carre libre a droite des cartouches : KoXo y place ses propres
-     images, on y met celle du service dont ce compte ouvre la porte. */
+  .ligne.petite {{
+    margin-top: 2.6pt;
+    font-size: 7pt;
+    /* Avec son libellé, la plus longue adresse fait quarante-neuf
+       caractères et dépassait la largeur de la carte. On la condense
+       légèrement, comme KoXo le fait déjà pour la ligne du groupe —
+       plutôt que de la tronquer ou de retirer le libellé. */
+    transform: scaleX(0.92);
+    transform-origin: left;
+  }}
+  .etiq {{
+    /* Le libellé s'efface devant la valeur : c'est elle qu'on recopie. */
+    color: #333;
+  }}
+  .val {{
+    margin-left: 0.35em;
+    font-weight: 600;
+  }}
+  /* Le logo va en bas à droite, à hauteur de la ligne « Url ».
+     En haut, il obligeait à réserver quarante points à droite du nom, et
+     « Warren ACQUITTER LE VELLY » s'y trouvait coupé au milieu. Ici il ne
+     longe que la plus courte des quatre lignes, et le nom reprend toute la
+     largeur de la carte. */
   .logo {{
     position: absolute;
-    right: 12pt;
-    top: 68pt;
-    width: 34pt;
-    height: 34pt;
-  }}
-  /* L'adresse de connexion, sous le logo et au-dessus du pied.
-     Positionnée plutôt qu'en flux : elle ne doit pousser ni les cartouches
-     ni le pied, dont les positions reproduisent celles de KoXo.
-     Sept points suffisent — la plus longue adresse de l'établissement fait
-     quarante-deux caractères pour cent soixante-huit points de large. */
-  .adresse {{
-    position: absolute;
-    left: 2.84pt;
-    right: 2.84pt;
+    right: 6pt;
     bottom: 10pt;
-    margin: 0;
-    font-family: "Segoe UI", Arial, sans-serif;
-    font-size: 7pt;
-    line-height: 1.1;
-    white-space: nowrap;
-    overflow: hidden;
+    width: 22pt;
+    height: 22pt;
   }}
   .pied {{
     position: absolute;

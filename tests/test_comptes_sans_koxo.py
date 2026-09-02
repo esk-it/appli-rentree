@@ -264,7 +264,14 @@ def test_une_planche_par_classe(session, site_factory, annee_factory,
 
 def test_un_site_sans_eleve_ne_produit_rien_et_le_dit(session, site_factory,
                                                       annee_factory):
-    from backend.services.coffre import chercher, initialiser
+    """Refuser, plutôt que rendre deux fichiers vides.
+
+    L'ancienne version renvoyait un CSV et une planche vides avec un
+    avertissement. En pratique on enregistre les deux fichiers, on les
+    ouvre, et on cherche ce qui a raté — l'avertissement passe inaperçu
+    entre deux boîtes de dialogue d'enregistrement.
+    """
+    from backend.services.coffre import initialiser
     from backend.services.comptes_sans_koxo import (
         GenerationImpossible,
         preparer_comptes,
@@ -274,12 +281,11 @@ def test_un_site_sans_eleve_ne_produit_rien_et_le_dit(session, site_factory,
     an_cour = annee_factory("2026-2027")
     cle = initialiser(session, MAITRE)
 
-    _, _, rapport = preparer_comptes(
-        session, cle, site_id=site.id, annee_cible_id=an_cour.id,
-        categorie="tous",
-    )
-    assert rapport.nb_generes == 0
-    assert any("Aucune ligne" in a for a in rapport.avertissements)
+    with pytest.raises(GenerationImpossible, match="Aucun compte à fabriquer"):
+        preparer_comptes(
+            session, cle, site_id=site.id, annee_cible_id=an_cour.id,
+            categorie="tous",
+        )
 
 
 def test_la_planche_reprend_les_cotes_relevees_chez_koxo(session):
@@ -434,12 +440,13 @@ def test_l_etiquette_porte_l_adresse_de_connexion(session, nde):
     page = fiches.decode("utf-8")
     for l in _lire(csv_google):
         assert l["Email Address [Required]"] in page
-    assert page.count('class="adresse"') == 3
+    assert page.count('Email :') == 3
+    assert page.count('Url :') == 3
 
 
-def test_l_adresse_ne_pousse_ni_les_cartouches_ni_le_pied(session, nde):
-    """Les positions reproduisent celles de KoXo : l'ajout est posé, pas
-    inséré dans le flux."""
+def test_l_adresse_est_plus_petite_que_l_identifiant(session, nde):
+    """Une adresse fait jusqu'à quarante-deux caractères ; l'identifiant
+    et le mot de passe doivent rester lisibles de loin."""
     from backend.services.coffre import initialiser
     from backend.services.comptes_sans_koxo import preparer_comptes
 
@@ -452,7 +459,61 @@ def test_l_adresse_ne_pousse_ni_les_cartouches_ni_le_pied(session, nde):
     session.commit()
 
     page = fiches.decode("utf-8")
-    bloc = page[page.index(".adresse {") : page.index(".adresse {") + 320]
-    assert "position: absolute" in bloc
-    # Sous le logo (qui s'arrête à 102pt) et au-dessus du pied (2,2pt).
+    # L'adresse et l'URL sont plus petites que l'identifiant et le mot de
+    # passe : une adresse fait jusqu'à quarante-deux caractères.
+    assert 'class="ligne petite"' in page
+    bloc = page[page.index(".ligne.petite {") : page.index(".ligne.petite {") + 420]
+    assert "font-size: 7pt" in bloc
+    # Avec son libellé, la plus longue adresse fait quarante-neuf
+    # caractères : elle est condensée plutôt que tronquée.
+    assert "scaleX" in bloc
+
+
+def test_une_selection_vide_est_refusee_plutot_que_rendue(session, nde):
+    """Rendre deux fichiers vides est pire que refuser : on les enregistre,
+    on les ouvre, et on cherche ce qui a raté.
+
+    La cause est presque toujours la même — l'année source réglée sur
+    l'année cible, auquel cas « nouveaux » ne désigne personne.
+    """
+    from backend.services.coffre import initialiser
+    from backend.services.comptes_sans_koxo import (
+        GenerationImpossible,
+        preparer_comptes,
+    )
+
+    site, an_prec, an_cour = nde
+    cle = initialiser(session, MAITRE)
+    with pytest.raises(GenerationImpossible, match="année source"):
+        preparer_comptes(
+            session, cle, site_id=site.id, annee_cible_id=an_cour.id,
+            annee_source_id=an_cour.id, categorie="nouveaux",
+        )
+
+
+def test_le_logo_ne_rogne_pas_le_nom(session, nde):
+    """En haut à droite, il obligeait à réserver quarante points, et
+    « Warren ACQUITTER LE VELLY » s'y trouvait coupé au milieu.
+
+    En bas, il ne longe que « Url : google.fr », la plus courte des quatre
+    lignes — et le nom reprend toute la largeur de la carte.
+    """
+    from backend.services.coffre import initialiser
+    from backend.services.comptes_sans_koxo import preparer_comptes
+
+    site, an_prec, an_cour = nde
+    cle = initialiser(session, MAITRE)
+    _, fiches, _ = preparer_comptes(
+        session, cle, site_id=site.id, annee_cible_id=an_cour.id,
+        annee_source_id=an_prec.id,
+    )
+    session.commit()
+
+    page = fiches.decode("utf-8")
+    bloc = page[page.index(".logo {") : page.index(".logo {") + 200]
     assert "bottom: 10pt" in bloc
+    assert "top:" not in bloc
+    # Plus aucune réserve à droite du nom ni du groupe.
+    for selecteur in (".identite {", ".groupe {"):
+        style = page[page.index(selecteur) : page.index(selecteur) + 220]
+        assert "padding-right" not in style
