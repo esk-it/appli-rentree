@@ -207,3 +207,33 @@ def test_deux_homonymes_recoivent_des_suffixes_distincts(
     for p in gens:
         session.refresh(p)
     assert len({p.email for p in gens}) == 3
+
+
+def test_un_constat_efface_une_attribution_devenue_fausse(
+    session, site_factory, personne_factory
+):
+    """L'attribution était une décision faute de mieux ; le constat est un
+    fait. La garder ferait resurgir l'ancienne adresse le jour où l'on
+    efface le constat.
+
+    Vécu : le programme avait attribué `hugo.guillou1@`, le compte a été
+    créé dans Google sous `hugo.guillou2@`.
+    """
+    from backend.routers.personnes import EmailPayload, definir_email_constate
+
+    site = site_factory("SU")
+    p = personne_factory(
+        type="eleve", site_id=site.id, id_charlemagne=8695,
+        nom="GUILLOU", prenom="Hugo", login="hguillou2",
+    )
+    p.email_attribuee = "hugo.guillou1@lekreisker.fr"
+    session.commit()
+    assert p.email == "hugo.guillou1@lekreisker.fr"
+
+    definir_email_constate(
+        p.id, EmailPayload(email="hugo.guillou2@lekreisker.fr"), session=session
+    )
+    session.refresh(p)
+    assert p.email_constate == "hugo.guillou2@lekreisker.fr"
+    assert p.email_attribuee is None
+    assert p.email == "hugo.guillou2@lekreisker.fr"

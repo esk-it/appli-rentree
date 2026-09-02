@@ -281,6 +281,13 @@ def definir_email_constate(
                 f"{deja_pris.nom} ({deja_pris.cle_pivot})",
             )
         p.email_constate = adresse
+        # Une adresse attribuée était une décision prise faute de mieux —
+        # un suffixe choisi pour lever une homonymie. Un constat la
+        # remplace : la garder ferait resurgir l'ancienne le jour où l'on
+        # efface le constat. Le second Hugo GUILLOU s'est vu attribuer
+        # `hugo.guillou1@` par le programme, et créer dans Google sous
+        # `hugo.guillou2@` — l'attribution n'avait plus lieu d'être.
+        p.email_attribuee = None
     else:
         p.email_constate = None
 
