@@ -36,9 +36,14 @@
 </script>
 
 {#if !echec && personneId}
+  <!-- Chargement différé : le trombinoscope affiche deux mille cinq cents
+       personnes d'un coup, et sans cet attribut le navigateur demande
+       autant de photos au partage réseau avant d'en montrer une seule. -->
   <img
     {src}
     alt={`${prenom} ${nom}`}
+    loading="lazy"
+    decoding="async"
     class="rounded-full object-cover"
     style="width: {taille}px; height: {taille}px;"
     onerror={() => (echec = true)}

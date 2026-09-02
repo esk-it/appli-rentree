@@ -6,6 +6,8 @@
   import Lock from "@lucide/svelte/icons/lock";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import X from "@lucide/svelte/icons/x";
+  import LayoutGrid from "@lucide/svelte/icons/layout-grid";
+  import Rows3 from "@lucide/svelte/icons/rows-3";
   import Avatar from "$lib/components/Avatar.svelte";
   import Bouton from "$lib/components/Bouton.svelte";
   import CopiableTexte from "$lib/components/CopiableTexte.svelte";
@@ -132,6 +134,21 @@
   let ouverte = $state(/** @type {number|null} */ (null));
   let fiche = $state(/** @type {any} */ (null));
   let ficheEnCours = $state(false);
+
+  /**
+   * Deux façons de regarder les mêmes personnes.
+   *
+   * Le tableau sert à **comparer** : login, adresse, badge et mouvement
+   * alignés, on lit une colonne d'un bout à l'autre. Il ne sert à rien pour
+   * reconnaître quelqu'un — à quarante pixels, un visage n'est qu'une
+   * tache.
+   *
+   * Le trombinoscope sert à **reconnaître** : c'est la vue qu'on veut
+   * devant une classe, pour retrouver un élève dont on a le visage et pas
+   * le nom, ou vérifier qu'une photo est bien la bonne. Les deux ont leur
+   * moment, aucune ne remplace l'autre.
+   */
+  let vue = $state(/** @type {"tableau"|"trombinoscope"} */ ("tableau"));
 
   async function basculer(p) {
     if (p.sans_compte) {
@@ -349,10 +366,202 @@
   la fenêtre : viser le document attraperait aussi les clics des modales
   et de la palette, qui vivent ailleurs dans l'arbre.
 -->
+{#snippet fichePersonne(p)}
+          {#if ficheEnCours}
+            <p class="text-sm text-stone-500 dark:text-stone-400">
+              Lecture de la fiche…
+            </p>
+          {:else if fiche}
+            <div class="flex items-start gap-6">
+              <!-- La photo prend enfin la place qu'elle mérite :
+                   à 40 pixels dans la liste, on ne reconnaît
+                   personne. -->
+              <Avatar
+                personneId={p.id}
+                nom={p.nom}
+                prenom={p.prenom}
+                taille={112}
+              />
+
+              <div class="grid min-w-0 flex-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                  <p class="libelle-champ">Identité</p>
+                  <p class="text-base font-semibold text-stone-900 dark:text-stone-100">
+                    {fiche.personne.prenom} {fiche.personne.nom}
+                  </p>
+                  {#if fiche.personne.nom_usage}
+                    <p class="text-xs text-stone-500 dark:text-stone-400">
+                      nom d'usage : {fiche.personne.nom_usage}
+                    </p>
+                  {/if}
+                  <dl class="mt-2 space-y-0.5 text-xs">
+                    <div class="flex gap-2">
+                      <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Clé pivot</dt>
+                      <dd class="font-mono">{fiche.personne.cle_pivot}</dd>
+                    </div>
+                    <div class="flex gap-2">
+                      <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Badge</dt>
+                      <dd class="font-mono tabular-nums">{fiche.personne.badge}</dd>
+                    </div>
+                    <div class="flex gap-2">
+                      <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Login</dt>
+                      <dd class="font-mono">
+                        {fiche.personne.login_constate ?? fiche.personne.login}
+                        {#if fiche.personne.login_constate && fiche.personne.login_constate !== fiche.personne.login}
+                          <span class="ml-1 text-amber-600 dark:text-amber-400">
+                            constaté dans KoXo
+                          </span>
+                          <span class="ml-1 text-stone-400">
+                            (le référentiel avait calculé « {fiche.personne.login} »,
+                            déjà pris par quelqu'un d'autre chez lui)
+                          </span>
+                        {:else}
+                          <span class="ml-1 text-stone-400" title="Fixé pour toute la scolarité">
+                            figé
+                          </span>
+                        {/if}
+                      </dd>
+                    </div>
+                    {#if fiche.personne.date_entree}
+                      <div class="flex gap-2">
+                        <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Entrée</dt>
+                        <dd class="tabular-nums">{jour(fiche.personne.date_entree)}</dd>
+                      </div>
+                    {/if}
+                    {#if fiche.personne.poste_occupe}
+                      <div class="flex gap-2">
+                        <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Poste</dt>
+                        <dd>{fiche.personne.poste_occupe}</dd>
+                      </div>
+                    {/if}
+                    {#if fiche.personne.matieres}
+                      <div class="flex gap-2">
+                        <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Matières</dt>
+                        <dd>{fiche.personne.matieres}</dd>
+                      </div>
+                    {/if}
+                  </dl>
+                </div>
+
+                <div>
+                  <p class="libelle-champ">Parcours</p>
+                  {#if fiche.parcours.length}
+                    <ol class="space-y-1.5">
+                      {#each fiche.parcours as a, i (a.annee)}
+                        <li class="flex items-baseline gap-2 text-xs">
+                          <span
+                            class="font-mono tabular-nums {i === 0
+                              ? 'text-stone-900 dark:text-stone-100'
+                              : 'text-stone-400 dark:text-stone-500'}"
+                          >
+                            {a.annee}
+                          </span>
+                          <span
+                            class="font-medium {i === 0
+                              ? 'text-emerald-700 dark:text-emerald-400'
+                              : 'text-stone-600 dark:text-stone-400'}"
+                          >
+                            {a.classe ?? "—"}
+                          </span>
+                          {#if a.regime}
+                            <span class="text-stone-400 dark:text-stone-500">
+                              régime {a.regime}
+                            </span>
+                          {/if}
+                        </li>
+                      {/each}
+                    </ol>
+                    {#if fiche.parcours.length === 1}
+                      <p class="mt-1.5 text-xs text-stone-400 dark:text-stone-500">
+                        Une seule année connue — arrivé cette année, ou
+                        ingestion d'une seule campagne.
+                      </p>
+                    {/if}
+                  {:else}
+                    <p class="text-xs text-stone-400 dark:text-stone-500">
+                      Aucune année ingérée pour cette personne.
+                    </p>
+                  {/if}
+                </div>
+
+                <div>
+                  <p class="libelle-champ">Compte Google</p>
+                  {#if fiche.comptes.length}
+                    {#each fiche.comptes as c (c.cible)}
+                      <dl class="space-y-0.5 text-xs">
+                        <div class="flex gap-2">
+                          <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">État</dt>
+                          <dd>
+                            <span
+                              class="rounded-full px-2 py-0.5 {c.etat === 'quarantaine'
+                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+                                : c.etat === 'purge'
+                                  ? 'bg-stone-200 text-stone-700 dark:bg-stone-700 dark:text-stone-300'
+                                  : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'}"
+                            >
+                              {c.etat}
+                            </span>
+                          </dd>
+                        </div>
+                        {#if c.ou_appliquee}
+                          <div class="flex gap-2">
+                            <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">OU appliquée</dt>
+                            <dd class="min-w-0 break-all font-mono">{c.ou_appliquee}</dd>
+                          </div>
+                        {/if}
+                        {#if c.ou_constatee && c.ou_constatee !== c.ou_appliquee}
+                          <div class="flex gap-2">
+                            <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Dans Google</dt>
+                            <dd class="min-w-0 break-all font-mono text-amber-700 dark:text-amber-400">
+                              {c.ou_constatee}
+                            </dd>
+                          </div>
+                        {/if}
+                        {#if c.date_prevue_purge}
+                          <div class="flex gap-2">
+                            <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Suppression</dt>
+                            <dd class="tabular-nums">{jour(c.date_prevue_purge)}</dd>
+                          </div>
+                        {/if}
+                        {#if c.note}
+                          <p class="mt-1 text-stone-500 dark:text-stone-400">{c.note}</p>
+                        {/if}
+                      </dl>
+                    {/each}
+                  {:else}
+                    <p class="text-xs text-stone-400 dark:text-stone-500">
+                      Aucun compte enregistré — il sera créé à l'export
+                      des nouveaux.
+                    </p>
+                  {/if}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="shrink-0 rounded-md p-1 text-stone-400 transition hover:bg-stone-200
+                       hover:text-stone-700 dark:hover:bg-stone-700 dark:hover:text-stone-200"
+                aria-label="Fermer la fiche"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  fermerFiche();
+                }}
+              >
+                <X class="h-4 w-4" />
+              </button>
+            </div>
+          {/if}
+{/snippet}
+
 <section
   class="space-y-4"
   onclickcapture={(e) => {
-    if (ouverte !== null && !e.target.closest("tr")) fermerFiche();
+    // Ce qui garde la fiche ouverte diffère selon la vue : une rangée dans
+    // le tableau, une vignette ou la fiche elle-même dans le trombinoscope.
+    // Sans les trois, cliquer une vignette refermerait ce qu'on vient
+    // d'ouvrir, et le bouton « Fermer » de la fiche serait hors de portée.
+    const dedans = e.target.closest("tr, [data-fiche], [data-vignette]");
+    if (ouverte !== null && !dedans) fermerFiche();
   }}
 >
   <EnTetePage
@@ -436,9 +645,19 @@
         </button>
       {/if}
 
-      <span class="ml-auto text-xs tabular-nums text-stone-500 dark:text-stone-400">
-        <Nombre valeur={listeFiltree.length} duree={300} /> / {source.length}
-      </span>
+      <div class="ml-auto flex items-center gap-3">
+        <Segments
+          bind:valeur={vue}
+          taille="sm"
+          options={[
+            { id: "tableau", label: "Tableau", icon: Rows3 },
+            { id: "trombinoscope", label: "Trombinoscope", icon: LayoutGrid },
+          ]}
+        />
+        <span class="text-xs tabular-nums text-stone-500 dark:text-stone-400">
+          <Nombre valeur={listeFiltree.length} duree={300} /> / {source.length}
+        </span>
+      </div>
     </div>
   </div>
 
@@ -481,6 +700,55 @@
           titre="Aucun résultat"
           message="Aucune personne ne correspond à ces filtres. Élargis la recherche ou retire un filtre."
         />
+      </div>
+    {:else if vue === "trombinoscope"}
+      <!-- La fiche s'ouvre sous la grille, sur toute la largeur : intercalée
+           dans une cellule, elle disloquerait les rangées à chaque clic. -->
+      {#if ouverte !== null}
+        {@const p = listeFiltree.find((x) => x.id === ouverte)}
+        {#if p}
+          <div
+            data-fiche
+            class="anim-apparition-douce border-b border-stone-200 bg-stone-50/80 px-5 py-4 dark:border-stone-700 dark:bg-stone-800/50"
+          >
+            {@render fichePersonne(p)}
+          </div>
+        {/if}
+      {/if}
+      <div class="max-h-[640px] overflow-auto p-3">
+        <div class="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(140px,1fr))]">
+          {#each listeFiltree as p (p.id)}
+            <button
+              type="button"
+              data-vignette
+              class="card-interactive flex flex-col items-center p-2.5 text-center
+                     {ouverte === p.id ? 'ring-2 ring-emerald-500' : ''}"
+              onclick={() => basculer(p)}
+              title="{p.prenom} {p.nom}{p.classe ? ' · ' + p.classe : ''}"
+            >
+              <Avatar
+                personneId={p.sans_compte ? null : p.id}
+                nom={p.nom}
+                prenom={p.prenom}
+                taille={96}
+              />
+              <span class="mt-2 line-clamp-2 text-xs font-semibold leading-tight">
+                {p.prenom}
+              </span>
+              <span class="line-clamp-2 text-xs uppercase leading-tight text-stone-600 dark:text-stone-400">
+                {p.nom}
+              </span>
+              <span class="mt-1 text-[11px] text-stone-500 dark:text-stone-400">
+                {p.classe ?? (p.type === "adulte" ? "adulte" : "—")}
+              </span>
+              {#if anneeId !== null}
+                <span class="mt-1 rounded-full px-2 py-0.5 text-[10px] {TEINTES_MOUVEMENT[p.mouvement]}">
+                  {LIBELLES_MOUVEMENT[p.mouvement]}
+                </span>
+              {/if}
+            </button>
+          {/each}
+        </div>
       </div>
     {:else}
       <div class="max-h-[640px] overflow-auto">
@@ -625,190 +893,7 @@
                 <tr class="border-b border-stone-200 bg-stone-50/80 dark:border-stone-700 dark:bg-stone-800/50">
                   <td colspan="10" class="p-0">
                     <div class="anim-apparition-douce px-5 py-4">
-                      {#if ficheEnCours}
-                        <p class="text-sm text-stone-500 dark:text-stone-400">
-                          Lecture de la fiche…
-                        </p>
-                      {:else if fiche}
-                        <div class="flex items-start gap-6">
-                          <!-- La photo prend enfin la place qu'elle mérite :
-                               à 40 pixels dans la liste, on ne reconnaît
-                               personne. -->
-                          <Avatar
-                            personneId={p.id}
-                            nom={p.nom}
-                            prenom={p.prenom}
-                            taille={112}
-                          />
-
-                          <div class="grid min-w-0 flex-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
-                            <div>
-                              <p class="libelle-champ">Identité</p>
-                              <p class="text-base font-semibold text-stone-900 dark:text-stone-100">
-                                {fiche.personne.prenom} {fiche.personne.nom}
-                              </p>
-                              {#if fiche.personne.nom_usage}
-                                <p class="text-xs text-stone-500 dark:text-stone-400">
-                                  nom d'usage : {fiche.personne.nom_usage}
-                                </p>
-                              {/if}
-                              <dl class="mt-2 space-y-0.5 text-xs">
-                                <div class="flex gap-2">
-                                  <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Clé pivot</dt>
-                                  <dd class="font-mono">{fiche.personne.cle_pivot}</dd>
-                                </div>
-                                <div class="flex gap-2">
-                                  <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Badge</dt>
-                                  <dd class="font-mono tabular-nums">{fiche.personne.badge}</dd>
-                                </div>
-                                <div class="flex gap-2">
-                                  <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Login</dt>
-                                  <dd class="font-mono">
-                                    {fiche.personne.login_constate ?? fiche.personne.login}
-                                    {#if fiche.personne.login_constate && fiche.personne.login_constate !== fiche.personne.login}
-                                      <span class="ml-1 text-amber-600 dark:text-amber-400">
-                                        constaté dans KoXo
-                                      </span>
-                                      <span class="ml-1 text-stone-400">
-                                        (le référentiel avait calculé « {fiche.personne.login} »,
-                                        déjà pris par quelqu'un d'autre chez lui)
-                                      </span>
-                                    {:else}
-                                      <span class="ml-1 text-stone-400" title="Fixé pour toute la scolarité">
-                                        figé
-                                      </span>
-                                    {/if}
-                                  </dd>
-                                </div>
-                                {#if fiche.personne.date_entree}
-                                  <div class="flex gap-2">
-                                    <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Entrée</dt>
-                                    <dd class="tabular-nums">{jour(fiche.personne.date_entree)}</dd>
-                                  </div>
-                                {/if}
-                                {#if fiche.personne.poste_occupe}
-                                  <div class="flex gap-2">
-                                    <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Poste</dt>
-                                    <dd>{fiche.personne.poste_occupe}</dd>
-                                  </div>
-                                {/if}
-                                {#if fiche.personne.matieres}
-                                  <div class="flex gap-2">
-                                    <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Matières</dt>
-                                    <dd>{fiche.personne.matieres}</dd>
-                                  </div>
-                                {/if}
-                              </dl>
-                            </div>
-
-                            <div>
-                              <p class="libelle-champ">Parcours</p>
-                              {#if fiche.parcours.length}
-                                <ol class="space-y-1.5">
-                                  {#each fiche.parcours as a, i (a.annee)}
-                                    <li class="flex items-baseline gap-2 text-xs">
-                                      <span
-                                        class="font-mono tabular-nums {i === 0
-                                          ? 'text-stone-900 dark:text-stone-100'
-                                          : 'text-stone-400 dark:text-stone-500'}"
-                                      >
-                                        {a.annee}
-                                      </span>
-                                      <span
-                                        class="font-medium {i === 0
-                                          ? 'text-emerald-700 dark:text-emerald-400'
-                                          : 'text-stone-600 dark:text-stone-400'}"
-                                      >
-                                        {a.classe ?? "—"}
-                                      </span>
-                                      {#if a.regime}
-                                        <span class="text-stone-400 dark:text-stone-500">
-                                          régime {a.regime}
-                                        </span>
-                                      {/if}
-                                    </li>
-                                  {/each}
-                                </ol>
-                                {#if fiche.parcours.length === 1}
-                                  <p class="mt-1.5 text-xs text-stone-400 dark:text-stone-500">
-                                    Une seule année connue — arrivé cette année, ou
-                                    ingestion d'une seule campagne.
-                                  </p>
-                                {/if}
-                              {:else}
-                                <p class="text-xs text-stone-400 dark:text-stone-500">
-                                  Aucune année ingérée pour cette personne.
-                                </p>
-                              {/if}
-                            </div>
-
-                            <div>
-                              <p class="libelle-champ">Compte Google</p>
-                              {#if fiche.comptes.length}
-                                {#each fiche.comptes as c (c.cible)}
-                                  <dl class="space-y-0.5 text-xs">
-                                    <div class="flex gap-2">
-                                      <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">État</dt>
-                                      <dd>
-                                        <span
-                                          class="rounded-full px-2 py-0.5 {c.etat === 'quarantaine'
-                                            ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
-                                            : c.etat === 'purge'
-                                              ? 'bg-stone-200 text-stone-700 dark:bg-stone-700 dark:text-stone-300'
-                                              : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'}"
-                                        >
-                                          {c.etat}
-                                        </span>
-                                      </dd>
-                                    </div>
-                                    {#if c.ou_appliquee}
-                                      <div class="flex gap-2">
-                                        <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">OU appliquée</dt>
-                                        <dd class="min-w-0 break-all font-mono">{c.ou_appliquee}</dd>
-                                      </div>
-                                    {/if}
-                                    {#if c.ou_constatee && c.ou_constatee !== c.ou_appliquee}
-                                      <div class="flex gap-2">
-                                        <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Dans Google</dt>
-                                        <dd class="min-w-0 break-all font-mono text-amber-700 dark:text-amber-400">
-                                          {c.ou_constatee}
-                                        </dd>
-                                      </div>
-                                    {/if}
-                                    {#if c.date_prevue_purge}
-                                      <div class="flex gap-2">
-                                        <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Suppression</dt>
-                                        <dd class="tabular-nums">{jour(c.date_prevue_purge)}</dd>
-                                      </div>
-                                    {/if}
-                                    {#if c.note}
-                                      <p class="mt-1 text-stone-500 dark:text-stone-400">{c.note}</p>
-                                    {/if}
-                                  </dl>
-                                {/each}
-                              {:else}
-                                <p class="text-xs text-stone-400 dark:text-stone-500">
-                                  Aucun compte enregistré — il sera créé à l'export
-                                  des nouveaux.
-                                </p>
-                              {/if}
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            class="shrink-0 rounded-md p-1 text-stone-400 transition hover:bg-stone-200
-                                   hover:text-stone-700 dark:hover:bg-stone-700 dark:hover:text-stone-200"
-                            aria-label="Fermer la fiche"
-                            onclick={(e) => {
-                              e.stopPropagation();
-                              fermerFiche();
-                            }}
-                          >
-                            <X class="h-4 w-4" />
-                          </button>
-                        </div>
-                      {/if}
+                      {@render fichePersonne(p)}
                     </div>
                   </td>
                 </tr>

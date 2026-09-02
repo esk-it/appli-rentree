@@ -1,0 +1,619 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caler les photos sur les listes</title>
+<style>
+  :root {
+    --fond: #fafaf9; --carte: #fff; --trait: #e7e5e4; --texte: #1c1917;
+    --gris: #78716c; --vert: #059669; --rouge: #e11d48; --bleu: #0284c7;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+         background: var(--fond); color: var(--texte); }
+  header { position: sticky; top: 0; z-index: 10; background: var(--carte);
+           border-bottom: 1px solid var(--trait); padding: 10px 16px;
+           box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+  h1 { font-size: 16px; margin: 0 0 6px; }
+  .rappel { font-size: 12px; color: var(--gris); margin: 0 0 8px; max-width: 95ch; }
+  .barre { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button { font: inherit; padding: 5px 11px; border: 1px solid var(--trait);
+           background: var(--carte); border-radius: 7px; cursor: pointer; }
+  button:hover { border-color: var(--bleu); }
+  button.principal { background: var(--vert); color: #fff; border-color: var(--vert);
+                     font-weight: 600; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .compteur { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .ok { color: var(--vert); } .pasok { color: var(--rouge); }
+  main { padding: 16px; }
+  section.panneau { background: var(--carte); border: 1px solid var(--trait);
+                    border-radius: 10px; padding: 12px; margin-bottom: 14px; }
+  textarea { width: 100%; min-height: 130px; font: 13px/1.5 ui-monospace, Consolas, monospace;
+             border: 1px solid var(--trait); border-radius: 8px; padding: 8px; resize: vertical; }
+  datalist { display: none; }
+  .bilan { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+  .puce { font-size: 12px; border-radius: 7px; padding: 3px 9px; border: 1px solid; }
+  .puce.bon { background: #ecfdf5; border-color: #a7f3d0; color: #065f46; }
+  .puce.mauvais { background: #fef2f2; border-color: #fecaca; color: #9f1239; }
+  .puce b { font-variant-numeric: tabular-nums; }
+  h2.classe { font-size: 14px; margin: 22px 0 8px; padding: 6px 10px;
+              border-left: 4px solid var(--bleu); border-radius: 4px; background: #f5f5f4; }
+  h2.classe.mauvais { border-left-color: var(--rouge); background: #fef2f2; }
+  h2.classe span { font-weight: 400; color: var(--gris); }
+  .grille { display: grid; gap: 8px;
+            grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); }
+  .fiche { background: var(--carte); border: 1px solid var(--trait); border-radius: 9px;
+           padding: 7px; text-align: center; }
+  .fiche.bord { border-color: var(--bleu); box-shadow: 0 0 0 2px #dbeafe; }
+  .fiche.epinglee { border-color: #7c3aed; box-shadow: 0 0 0 2px #ede9fe; }
+  .fiche.hors-export { border-color: #ea580c; box-shadow: 0 0 0 2px #ffedd5; }
+  .propose { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+             background: #fff7ed; border: 1px solid #fed7aa; color: #7c2d12;
+             border-radius: 8px; padding: 7px 10px; font-size: 12px;
+             margin: -2px 0 8px; }
+  .propose button { font-size: 12px; padding: 2px 9px; border-color: #fdba74;
+                    background: #fff; color: #7c2d12; }
+  .fiche.hors-export .meta { color: #c2410c; }
+  .fiche.epinglee .meta { color: #6d28d9; font-weight: 600; }
+  .fiche img { width: 100%; aspect-ratio: 3/4; object-fit: cover; border-radius: 6px;
+               background: #f5f5f4; display: block; }
+  .fiche .nom { font-weight: 600; font-size: 12px; margin-top: 5px; overflow-wrap: anywhere; }
+  .fiche .meta { font-size: 11px; color: var(--gris); }
+  .fiche .gestes { display: flex; gap: 4px; margin-top: 5px; }
+  .fiche .gestes button { flex: 1; font-size: 10.5px; padding: 3px 2px; }
+  .manque { aspect-ratio: 3/4; display: grid; place-items: center; background: #fef2f2;
+            border-radius: 6px; color: #9f1239; font-size: 12px; padding: 6px; }
+  .avertissement { background: #fffbeb; border: 1px solid #fcd34d; color: #78350f;
+                   border-radius: 8px; padding: 9px 11px; font-size: 12.5px; margin: 10px 0; }
+  .reste { background: #fef2f2; border: 1px solid #fecaca; color: #7f1d1d;
+           border-radius: 8px; padding: 9px 11px; font-size: 12.5px; margin-top: 12px; }
+  code { background: #f5f5f4; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Caler les photos sur les listes</h1>
+  <p class="rappel">
+    Les photos sont dans l'ordre de passage — vérifié : <b>aucune inversion</b>
+    entre les numéros et les horodatages, sur les <span id="nbPhotos"></span>
+    photos. Les bornes que tu donnes découpent le lot classe par classe : une
+    classe qui ne tombe pas juste ne décale plus les suivantes.
+    Les listes viennent de <b>Charlemagne</b>, dans son ordre — sauf NDE,
+    absent de l'export, dont les listes viennent du référentiel. Quand une
+    classe compte un élève de moins que de photos, regarde sous son titre :
+    le programme en connaît parfois un que l'export du jour ignore, et un
+    clic l'inscrit.
+    Les fichiers sortiront au format de son dossier photos :
+    <code id="exemple">NOM Prénom.jpg</code>, accents et apostrophes compris.
+  </p>
+  <div class="barre">
+    <span class="compteur" id="etat">—</span>
+    <button id="exporter" class="principal" disabled>Enregistrer la correspondance</button>
+    <button id="oublier">Tout remettre à zéro</button>
+  </div>
+</header>
+
+<main>
+  <section class="panneau">
+    <strong style="font-size:13px">Les bornes de chaque classe</strong>
+    <p class="rappel" style="margin:4px 0 8px">
+      Une ligne par classe, dans l'ordre : <code>classe première dernière</code>.
+      Les numéros seuls suffisent (<code>2_5 1526 1592</code>), le préfixe
+      <code>IMG_</code> est accepté. La première photo du dossier est
+      <code id="premiere"></code>, la dernière <code id="derniere"></code>.
+    </p>
+    <textarea id="bornes" spellcheck="false"
+      placeholder="2_5 1526 1592&#10;2_6 1594 1660&#10;…"></textarea>
+    <div class="bilan" id="bilan"></div>
+  </section>
+
+  <div id="alerte"></div>
+  <div id="sortie"></div>
+</main>
+
+<script>
+const PHOTOS = window.__PHOTOS__;
+const CLASSES = window.__CLASSES__;
+/**
+ * D'où vient chaque liste.
+ *
+ * Charlemagne fait autorité sur la composition des classes, et c'est lui
+ * qu'on vérifie. Le référentiel du programme porte en plus des changements
+ * pas encore redescendus — vingt-quatre classes divergent — et un élève
+ * déplacé ici mais pas là-bas n'était pas dans la salle ce jour-là. Les
+ * classes de NDE ne sont pas dans l'export NDK-SU : elles viennent du
+ * référentiel, et c'est dit sur le titre.
+ */
+const SOURCE = window.__SOURCE__ ?? {};
+/**
+ * Par classe, les élèves que le référentiel y place et que l'export du jour
+ * ne connaît pas — inscrits après sa sortie, ou créés dans le programme.
+ *
+ * Ils restent **hors des listes** tant qu'on ne les demande pas : sur les
+ * onze relevés en 2026, un seul était dans la salle (CAROFF Sarah, BTS_1).
+ * Les ajouter d'office cassait trois classes justes pour en réparer une.
+ */
+const HORS_EXPORT = window.__HORS_EXPORT__ ?? {};
+const MEMOIRE = "alignement-photos-v2";
+
+const NUM = (f) => parseInt(String(f).match(/(\d+)/)[1], 10);
+const NUMS = PHOTOS.map(NUM);
+
+let texteBornes = "";
+let photosSautees = new Set();   // fichiers à écarter
+let elevesSautes = new Set();    // "classe|index" des absents
+/**
+ * Les élèves dont la photo est hors du rang : "classe|index" → numéro.
+ *
+ * Vécu en 2_1 : une élève oubliée au passage a été reprise en fin de
+ * séance. Sa photo porte le dernier numéro de la classe alors qu'elle est
+ * sixième sur la liste — les comptes tombent juste, et pourtant vingt-sept
+ * élèves reçoivent la photo de leur voisin. Ni « absent » ni « photo en
+ * trop » ne rattrapent ça : il faut pouvoir clouer une photo sur un nom.
+ */
+let epingles = {};
+/** Les « hors export » qu'on a choisi d'inscrire : « classe|badge ». */
+let ajoutes = new Set();
+
+const cleEleve = (e) => e.classe + "|" + e.index;
+const fichierDuNumero = (n) => PHOTOS[NUMS.indexOf(n)] ?? null;
+
+/**
+ * Le nom sous lequel Charlemagne range ses photos.
+ *
+ * Relevé dans son dossier : `NOM Prénom.jpg`, avec les accents, les
+ * apostrophes et les traits d'union tels quels — `ARGOUARC'H Tifenn.jpg`,
+ * `ABALLÉA--MINGAM Quentin.jpg`, `ABAGIU Ion Bogdan.jpg`. Le nom et le
+ * prénom sont repris de son propre export, sans être retouchés : c'est lui
+ * qui relira ces fichiers.
+ */
+const nomCible = (e) => `${e.nom} ${e.prenom}.jpg`;
+
+function lire() {
+  try {
+    const d = JSON.parse(localStorage.getItem(MEMOIRE) || "{}");
+    texteBornes = d.texteBornes ?? "";
+    photosSautees = new Set(d.photosSautees ?? []);
+    elevesSautes = new Set(d.elevesSautes ?? []);
+    epingles = d.epingles ?? {};
+    ajoutes = new Set(d.ajoutes ?? []);
+  } catch (e) { /* file:// peut refuser le stockage : on repart de zéro */ }
+}
+function ecrire() {
+  try {
+    localStorage.setItem(MEMOIRE, JSON.stringify({
+      texteBornes, photosSautees: [...photosSautees],
+      elevesSautes: [...elevesSautes], epingles, ajoutes: [...ajoutes],
+    }));
+  } catch (e) { /* sans mémoire, l'outil marche quand même */ }
+}
+
+/**
+ * Analyse le texte des bornes.
+ *
+ * Tolérant sur la forme — séparateurs, préfixe IMG_, casse — parce qu'une
+ * liste recopiée à la main l'est rarement deux fois pareil. Intolérant sur
+ * le fond : une classe inconnue ou une borne absente du dossier est dite,
+ * pas devinée.
+ */
+function analyser(texte) {
+  const lignes = [], soucis = [];
+  texte.split(/\r?\n/).forEach((brute, i) => {
+    const l = brute.trim();
+    if (!l || l.startsWith("#")) return;
+    const bouts = l.split(/[\s;,\t]+/).filter(Boolean);
+    if (bouts.length < 3) {
+      soucis.push(`ligne ${i + 1} : « ${l} » — il faut la classe, la première et la dernière photo`);
+      return;
+    }
+    const code = bouts[0];
+    const a = parseInt(String(bouts[1]).replace(/\D/g, ""), 10);
+    const b = parseInt(String(bouts[2]).replace(/\D/g, ""), 10);
+    if (!CLASSES[code]) {
+      soucis.push(`ligne ${i + 1} : classe « ${code} » inconnue du référentiel`);
+      return;
+    }
+    if (!Number.isFinite(a) || !Number.isFinite(b)) {
+      soucis.push(`ligne ${i + 1} : numéros illisibles`);
+      return;
+    }
+    if (a > b) {
+      soucis.push(`ligne ${i + 1} (${code}) : ${a} est après ${b}`);
+      return;
+    }
+    if (!NUMS.includes(a)) soucis.push(`ligne ${i + 1} (${code}) : IMG_${a} n'est pas dans le dossier`);
+    if (!NUMS.includes(b)) soucis.push(`ligne ${i + 1} (${code}) : IMG_${b} n'est pas dans le dossier`);
+    lignes.push({ code, a, b });
+  });
+
+  // Deux classes ne peuvent pas se partager une photo.
+  const triees = [...lignes].sort((x, y) => x.a - y.a);
+  for (let i = 1; i < triees.length; i++) {
+    if (triees[i].a <= triees[i - 1].b) {
+      soucis.push(`${triees[i - 1].code} et ${triees[i].code} se chevauchent`);
+    }
+  }
+  return { lignes, soucis };
+}
+
+function photosDe(borne) {
+  return PHOTOS.filter((f, i) => NUMS[i] >= borne.a && NUMS[i] <= borne.b
+                                 && !photosSautees.has(f));
+}
+/** Le tri de Charlemagne : accents ignorés, apostrophes ignorées. */
+function cleTri(e) {
+  const plier = (s) => (s || "").normalize("NFD").replace(/[̀-ͯ']/g, "").toUpperCase();
+  return plier(e.nom) + " " + plier(e.prenom);
+}
+
+/**
+ * La liste d'une classe : celle de Charlemagne, plus ce qu'on y a ajouté.
+ *
+ * Les élèves que le référentiel place ici mais que l'export du jour ignore
+ * ne sont **pas** dans la liste par défaut. Les y mettre d'office avait
+ * cassé trois classes qui tombaient juste, pour en réparer une seule : sur
+ * onze cas, dix n'étaient pas dans la salle. C'est donc un ajout à la
+ * demande, classe par classe.
+ *
+ * L'ajouté est **inséré à sa place alphabétique**, sans retrier le reste :
+ * l'ordre de Charlemagne est celui de l'appel, et le rejouer avec une autre
+ * collation décalerait tout.
+ */
+function elevesDe(code) {
+  const base = (CLASSES[code] ?? []).map((e, i) => ({ ...e, classe: code, index: i }));
+  for (const [j, e] of (HORS_EXPORT[code] ?? []).entries()) {
+    if (!ajoutes.has(code + "|" + e.badge)) continue;
+    const venu = { ...e, classe: code, index: "x" + j, hors_export: true };
+    const ou = base.findIndex((x) => cleTri(x) > cleTri(venu));
+    base.splice(ou === -1 ? base.length : ou, 0, venu);
+  }
+  return base.filter((e) => !elevesSautes.has(code + "|" + e.index));
+}
+
+/**
+ * Attribue à chaque borne la tranche de liste qui lui revient.
+ *
+ * Une classe peut apparaître sur deux lignes : la séance du soir a servi
+ * de rattrapage, et une partie de la classe y est repassée. Chaque bloc
+ * prend alors la suite du précédent, et c'est le **total par classe** qui
+ * doit tomber juste — pas chaque bloc pris isolément.
+ */
+function repartir(lignes) {
+  const occurrences = {};
+  lignes.forEach((b) => { occurrences[b.code] = (occurrences[b.code] ?? 0) + 1; });
+
+  const consomme = {};
+  return lignes.map((b) => {
+    const tous = elevesDe(b.code);
+    const photos = photosDe(b);
+    const depart = consomme[b.code] ?? 0;
+    // Seule (ou dernière) occurrence : elle prend tout le reste, pour que
+    // le déséquilibre se voie au lieu d'être rogné en silence.
+    const derniere = depart + photos.length >= tous.length || occurrences[b.code] === 1;
+    const eleves = derniere ? tous.slice(depart)
+                            : tous.slice(depart, depart + photos.length);
+    consomme[b.code] = depart + eleves.length;
+
+    // Les épinglées sortent du flux séquentiel des deux côtés : ni la photo
+    // ne se propose au voisin, ni l'élève ne prend celle du rang.
+    const clouees = new Set();
+    eleves.forEach((e) => {
+      const n = epingles[cleEleve(e)];
+      const f = n == null ? null : fichierDuNumero(n);
+      if (f && photos.includes(f)) clouees.add(f);
+    });
+    const pool = photos.filter((f) => !clouees.has(f));
+
+    let k = 0;
+    const paires = eleves.map((e) => {
+      const n = epingles[cleEleve(e)];
+      if (n == null) return { eleve: e, photo: pool[k++] ?? null, epinglee: false };
+      const f = fichierDuNumero(n);
+      return {
+        eleve: e, epinglee: true,
+        photo: f && photos.includes(f) ? f : null,
+        souci: f
+          ? (photos.includes(f) ? null : `IMG_${n} est hors de la plage de ${b.code}`)
+          : `IMG_${n} n'existe pas dans le dossier`,
+      };
+    });
+    return { ...b, photos, eleves, paires, restantes: pool.slice(k),
+             multiple: occurrences[b.code] > 1 };
+  });
+}
+
+function rendre() {
+  document.getElementById("bornes").value = texteBornes;
+  const { lignes, soucis } = analyser(texteBornes);
+
+  const blocs = repartir(lignes);
+
+  // Bilan par classe — cumulé, car une classe peut tenir sur deux lignes.
+  const cumul = {};
+  blocs.forEach((b) => {
+    const c = cumul[b.code] ?? (cumul[b.code] = { photos: 0, eleves: 0, orphelins: 0 });
+    c.photos += b.photos.length;
+    c.eleves += b.eleves.length;
+    // Un épinglage hors plage laisse un élève sans photo alors que les
+    // comptes tombent juste : le compter à part, sinon la pastille ment.
+    c.orphelins += b.paires.filter((p) => !p.photo).length + b.restantes.length;
+  });
+  const codes = Object.keys(cumul);
+
+  const bilan = document.getElementById("bilan");
+  bilan.innerHTML = "";
+  let totalP = 0, justes = 0;
+  codes.forEach((code) => {
+    const c = cumul[code];
+    totalP += c.photos;
+    const bon = c.photos === c.eleves && c.orphelins === 0;
+    if (bon) justes++;
+    const s = document.createElement("span");
+    s.className = "puce " + (bon ? "bon" : "mauvais");
+    s.innerHTML = bon
+      ? `${code} <b>${c.photos}</b> ✓`
+      : c.photos === c.eleves
+        ? `${code} <b>${c.orphelins}</b> sans correspondance`
+        : `${code} <b>${c.photos}</b> photo(s) / <b>${c.eleves}</b> élève(s)`;
+    bilan.appendChild(s);
+  });
+
+  document.getElementById("etat").innerHTML = codes.length
+    ? `<span class="${justes === codes.length ? "ok" : "pasok"}">` +
+      `${justes}/${codes.length} classe(s) équilibrée(s)</span> · ` +
+      `${totalP} photo(s) sur ${PHOTOS.length}`
+    : "aucune borne saisie";
+  document.getElementById("exporter").disabled =
+    !(codes.length && justes === codes.length && !soucis.length);
+
+  const alerte = document.getElementById("alerte");
+  alerte.innerHTML = "";
+  if (soucis.length) {
+    const d = document.createElement("div");
+    d.className = "avertissement";
+    d.innerHTML = "<b>À revoir dans les bornes :</b><br>" +
+      soucis.map((s) => "· " + s).join("<br>");
+    alerte.appendChild(d);
+  }
+
+  // Les fiches, classe par classe
+  const sortie = document.getElementById("sortie");
+  sortie.innerHTML = "";
+  const utilisees = new Set();
+
+  blocs.forEach((b) => {
+    const { photos, eleves } = b;
+    photos.forEach((f) => utilisees.add(f));
+    const bon = photos.length === eleves.length;
+
+    const titre = document.createElement("h2");
+    titre.className = "classe" + (bon ? "" : " mauvais");
+    titre.innerHTML = `${b.code} <span>— IMG_${b.a} à IMG_${b.b} · ` +
+      `${photos.length} photo(s), ${eleves.length} élève(s)` +
+      (SOURCE[b.code] === "référentiel" ? " · liste du référentiel" : "") +
+      (b.multiple ? " · bloc d'une classe en deux fois" : "") +
+      (bon ? "" : photos.length < eleves.length
+        ? ` · ${eleves.length - photos.length} absent(s) à marquer`
+        : ` · ${photos.length - eleves.length} photo(s) à écarter`) + "</span>";
+    sortie.appendChild(titre);
+
+    // Les élèves que le programme place ici et que l'export du jour ignore.
+    // Proposés, jamais imposés : dix des onze relevés en 2026 n'étaient pas
+    // dans la salle, et les inscrire d'office cassait des classes justes.
+    const candidats = (HORS_EXPORT[b.code] ?? [])
+      .filter((e) => !ajoutes.has(b.code + "|" + e.badge));
+    if (candidats.length && !b.multiple) {
+      const d = document.createElement("div");
+      d.className = "propose";
+      d.innerHTML = `<span>Connu${candidats.length > 1 ? "s" : ""} du programme,
+        absent${candidats.length > 1 ? "s" : ""} de l'export du jour :</span> `;
+      candidats.forEach((e) => {
+        const b2 = document.createElement("button");
+        b2.textContent = `+ ${e.nom} ${e.prenom}`;
+        b2.title = "L'inscrire dans cette classe, à sa place alphabétique";
+        b2.onclick = () => {
+          ajoutes.add(b.code + "|" + e.badge);
+          ecrire(); rendre();
+        };
+        d.appendChild(b2);
+      });
+      sortie.appendChild(d);
+    }
+
+    const g = document.createElement("div");
+    g.className = "grille";
+    sortie.appendChild(g);
+
+    const total = b.paires.length + b.restantes.length;
+    b.paires.forEach((p, i) => {
+      const { eleve: e, photo: f } = p;
+      const carte = document.createElement("div");
+      carte.className = "fiche" + (i === 0 || i === total - 1 ? " bord" : "")
+                                + (p.epinglee ? " epinglee" : "")
+                                + (e.hors_export ? " hors-export" : "");
+
+      if (f) {
+        // Le titre porte le nom de sortie exact : c'est lui qui compte pour
+        // Charlemagne, et il vaut mieux le voir avant d'avoir copié 368
+        // fichiers.
+        carte.title = `${f}  →  ${nomCible(e)}`;
+        carte.innerHTML =
+          `<img loading="lazy" src="_vignettes/${f}" alt="">
+           <div class="nom">${e.nom} ${e.prenom}</div>
+           <div class="meta">${f.replace(/\.[^.]+$/, "")}` +
+          (p.epinglee ? " · épinglée" : "") +
+          (e.hors_export ? " · hors export" : "") +
+          (e.photo ? " · déjà une photo" : "") + "</div>";
+      } else {
+        carte.innerHTML =
+          `<div class="manque">${p.souci ?? "aucune photo pour cet élève"}</div>
+           <div class="nom">${e.nom} ${e.prenom}</div>
+           <div class="meta">${p.souci ? "épinglage à revoir" : "absent ce jour-là ?"}</div>`;
+      }
+
+      const gestes = document.createElement("div");
+      gestes.className = "gestes";
+      if (f && !p.epinglee) {
+        const bp = document.createElement("button");
+        bp.textContent = "photo en trop";
+        bp.title = "Écarter cette photo et décaler les suivantes de cette classe";
+        bp.onclick = () => { photosSautees.add(f); ecrire(); rendre(); };
+        gestes.appendChild(bp);
+      }
+      if (p.epinglee) {
+        const bd = document.createElement("button");
+        bd.textContent = "déjà épinglée";
+        bd.title = "Rendre cet élève au rang normal";
+        bd.onclick = () => { delete epingles[cleEleve(e)]; ecrire(); rendre(); };
+        gestes.appendChild(bd);
+      } else {
+        const bn = document.createElement("button");
+        bn.textContent = "photo à part";
+        bn.title = "Cet élève a été repris hors du rang : donner son numéro";
+        bn.onclick = () => {
+          const rep = prompt(
+            `Quel numéro de photo pour ${e.nom} ${e.prenom} ?\n` +
+            "(le numéro seul, ou IMG_2009)", "");
+          if (rep === null) return;
+          const n = parseInt(String(rep).replace(/\D/g, ""), 10);
+          if (!Number.isFinite(n)) return;
+          epingles[cleEleve(e)] = n;
+          ecrire(); rendre();
+        };
+        gestes.appendChild(bn);
+
+        const be = document.createElement("button");
+        if (e.hors_export) {
+          be.textContent = "retirer";
+          be.title = "Le sortir de la liste : il n'était pas dans la salle";
+          be.onclick = () => {
+            ajoutes.delete(e.classe + "|" + e.badge);
+            ecrire(); rendre();
+          };
+        } else {
+          be.textContent = "absent";
+          be.title = "Cet élève n'a pas été photographié : le retirer de la liste";
+          be.onclick = () => { elevesSautes.add(cleEleve(e)); ecrire(); rendre(); };
+        }
+        gestes.appendChild(be);
+      }
+      carte.appendChild(gestes);
+      g.appendChild(carte);
+    });
+
+    // Les photos que personne n'a prises dans cette classe
+    b.restantes.forEach((f, j) => {
+      const carte = document.createElement("div");
+      carte.className = "fiche" + (b.paires.length + j === total - 1 ? " bord" : "");
+      carte.innerHTML =
+        `<img loading="lazy" src="_vignettes/${f}" alt="">
+         <div class="nom" style="color:#9f1239">photo sans élève</div>
+         <div class="meta">${f.replace(/\.[^.]+$/, "")}</div>`;
+      const gestes = document.createElement("div");
+      gestes.className = "gestes";
+      const bp = document.createElement("button");
+      bp.textContent = "photo en trop";
+      bp.onclick = () => { photosSautees.add(f); ecrire(); rendre(); };
+      gestes.appendChild(bp);
+      carte.appendChild(gestes);
+      g.appendChild(carte);
+    });
+  });
+
+  // Ce qui a été écarté, pour pouvoir revenir dessus
+  const nbEpingles = Object.keys(epingles).length;
+  if (nbEpingles) {
+    const d = document.createElement("div");
+    d.className = "reste";
+    d.style.background = "#eff6ff";
+    d.style.borderColor = "#bfdbfe";
+    d.style.color = "#1e3a8a";
+    d.innerHTML = "<b>Épinglés hors du rang</b> — clique pour rendre au rang.<br>";
+    Object.entries(epingles).forEach(([k, n]) => {
+      const [cl, idx] = k.split("|");
+      const e = CLASSES[cl]?.[+idx];
+      if (!e) return;
+      const x = document.createElement("button");
+      x.style.margin = "3px 3px 0 0";
+      x.textContent = `${e.nom} ${e.prenom} (${cl}) → IMG_${n}`;
+      x.onclick = () => { delete epingles[k]; ecrire(); rendre(); };
+      d.appendChild(x);
+    });
+    sortie.appendChild(d);
+  }
+
+  if (photosSautees.size || elevesSautes.size) {
+    const d = document.createElement("div");
+    d.className = "reste";
+    d.innerHTML = "<b>Écarté</b> — clique pour remettre.<br>";
+    [...photosSautees].forEach((f) => {
+      const x = document.createElement("button");
+      x.style.margin = "3px 3px 0 0";
+      x.textContent = "photo " + f.replace(/\.[^.]+$/, "");
+      x.onclick = () => { photosSautees.delete(f); ecrire(); rendre(); };
+      d.appendChild(x);
+    });
+    [...elevesSautes].forEach((k) => {
+      const [cl, idx] = k.split("|");
+      const e = CLASSES[cl]?.[+idx];
+      if (!e) return;
+      const x = document.createElement("button");
+      x.style.margin = "3px 3px 0 0";
+      x.textContent = `${e.nom} ${e.prenom} (${cl})`;
+      x.onclick = () => { elevesSautes.delete(k); ecrire(); rendre(); };
+      d.appendChild(x);
+    });
+    sortie.appendChild(d);
+  }
+
+  // Les photos qu'aucune borne ne réclame
+  const orphelines = PHOTOS.filter((f) => !utilisees.has(f) && !photosSautees.has(f));
+  if (lignes.length && orphelines.length) {
+    const d = document.createElement("div");
+    d.className = "reste";
+    d.innerHTML = `<b>${orphelines.length} photo(s) hors de toute borne</b> — ` +
+      `il manque des classes. De <code>${orphelines[0]}</code> à ` +
+      `<code>${orphelines[orphelines.length - 1]}</code>.`;
+    sortie.appendChild(d);
+  }
+}
+
+document.getElementById("bornes").addEventListener("input", (ev) => {
+  texteBornes = ev.target.value;
+  ecrire();
+  rendre();
+});
+
+document.getElementById("exporter").onclick = () => {
+  const out = ["fichier;nom_cible;classe;badge"];
+  repartir(analyser(texteBornes).lignes).forEach((b) => {
+    b.paires.forEach((p) => {
+      if (p.photo) {
+        out.push(`${p.photo};${nomCible(p.eleve)};${b.code};${p.eleve.badge}`);
+      }
+    });
+  });
+  const blob = new Blob(["﻿" + out.join("\r\n") + "\r\n"],
+                        { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "correspondance_photos.csv";
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+};
+
+document.getElementById("oublier").onclick = () => {
+  if (!confirm("Effacer les bornes et tous les écarts ?")) return;
+  texteBornes = ""; photosSautees = new Set(); elevesSautes = new Set();
+  ecrire(); rendre();
+};
+
+document.getElementById("nbPhotos").textContent = PHOTOS.length;
+document.getElementById("premiere").textContent = PHOTOS[0];
+document.getElementById("derniere").textContent = PHOTOS[PHOTOS.length - 1];
+lire();
+rendre();
+</script>
+</body>
+</html>
