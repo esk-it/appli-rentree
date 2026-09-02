@@ -36,6 +36,7 @@ from backend.services.exports_google import (
 from backend.services.exports_google_groupes import generer_csv_groupes_google
 from backend.services.exports_jpm import generer_csv_jpm
 from backend.services.exports_koxo import generer_csv_koxo
+from backend.services.google_api import ClientGoogle, charger_config
 from backend.services.journal import journaliser
 from backend.services.repartition_pmb import (
     RepartitionImpossible,
@@ -617,6 +618,136 @@ def repartir_pmb(
         inconnus_du_referentiel=[
             LignePmbOut(**vars(i)) for i in r.inconnus_du_referentiel
         ],
+    )
+
+
+# ---------------------------------------------------------------------------
+# Retour vers Charlemagne — les adresses qu'il ne connaît pas
+# ---------------------------------------------------------------------------
+
+
+class AdressesCharlemagnePayload(BaseModel):
+    fichier_base64: str
+    annee_libelle: str = ""
+
+
+class ConstatAdresseOut(BaseModel):
+    badge: str
+    nom: str
+    prenom: str
+    classe: str
+    adresse_charlemagne: str
+    adresse_referentiel: str
+    origine: str
+    detail: str
+
+
+class AdressesCharlemagneReponse(BaseModel):
+    nb_lignes_lues: int
+    nb_deja_bonnes: int
+    nb_a_importer: int
+    google_consulte: bool
+    nom_fichier: str
+    contenu_base64: str
+    a_remplir: list[ConstatAdresseOut]
+    a_corriger: list[ConstatAdresseOut]
+    a_verifier: list[ConstatAdresseOut]
+    alias_dans_charlemagne: list[ConstatAdresseOut]
+    referentiel_a_tort: list[ConstatAdresseOut]
+    adresse_personnelle: list[ConstatAdresseOut]
+    conflit: list[ConstatAdresseOut]
+    hors_referentiel: list[ConstatAdresseOut]
+    sans_adresse_nulle_part: list[ConstatAdresseOut]
+
+
+@router.post("/charlemagne-adresses", response_model=AdressesCharlemagneReponse)
+def adresses_pour_charlemagne(
+    payload: AdressesCharlemagnePayload, session: Session = Depends(db_session)
+) -> AdressesCharlemagneReponse:
+    """Dresse les adresses à renvoyer dans Charlemagne, vérifiées dans Google.
+
+    Charlemagne est la source pour l'état civil et la classe, pas pour
+    l'adresse : les comptes se créent ici, après son export de rentrée. Sa
+    colonne reste donc vide pour toute la promotion entrante, et cette
+    colonne se propage — c'est elle qu'il réexporte vers PMB et SoHappy.
+
+    L'annuaire Google est lu **avant** de proposer quoi que ce soit : la
+    plupart des adresses du référentiel sont calculées, et pousser un
+    calcul dans Charlemagne propagerait l'erreur au lieu de la corriger.
+    """
+    from backend.services.adresses_charlemagne import confronter_adresses
+
+    try:
+        brut = base64.b64decode(payload.fichier_base64)
+    except Exception as e:
+        raise HTTPException(400, f"Base64 invalide : {e}") from e
+
+    # Les deux étapes sont séparées : une configuration absente n'est pas une
+    # panne de Google, et une faute de programmation ici ne doit pas se
+    # déguiser en « Lecture Google impossible » — un message qui enverrait
+    # chercher la panne du mauvais côté.
+    try:
+        client = ClientGoogle(charger_config(session))
+    except ValueError as e:
+        raise HTTPException(
+            400,
+            f"{e} — sans l'annuaire Google, aucune adresse ne peut être "
+            "vérifiée, et le fichier ne serait qu'une liste de suppositions.",
+        ) from None
+
+    try:
+        comptes = client.lister_utilisateurs()
+    except Exception as e:
+        raise HTTPException(
+            502, f"Lecture Google impossible : {type(e).__name__}: {e}"
+        ) from None
+
+    try:
+        r = confronter_adresses(
+            session, brut, comptes_google=comptes,
+            annee_libelle=payload.annee_libelle,
+        )
+    except RepartitionImpossible as e:
+        raise HTTPException(400, str(e)) from None
+
+    def _sortir(lignes) -> list[ConstatAdresseOut]:
+        return [ConstatAdresseOut(**vars(c)) for c in lignes]
+
+    try:
+        journaliser(
+            session,
+            type_operation="export",
+            cible="charlemagne",
+            annee_libelle=payload.annee_libelle or None,
+            parametres={"source": "colonne Email de Charlemagne"},
+            resultat={
+                "nb_lignes_lues": r.nb_lignes_lues,
+                "nb_deja_bonnes": r.nb_deja_bonnes,
+                "nb_a_importer": r.nb_a_importer,
+                "nb_a_verifier": len(r.a_verifier),
+                "nb_adresses_personnelles": len(r.adresse_personnelle),
+            },
+        )
+        session.commit()
+    except Exception:  # pragma: no cover — le journal ne doit rien casser
+        session.rollback()
+
+    return AdressesCharlemagneReponse(
+        nb_lignes_lues=r.nb_lignes_lues,
+        nb_deja_bonnes=r.nb_deja_bonnes,
+        nb_a_importer=r.nb_a_importer,
+        google_consulte=r.google_consulte,
+        nom_fichier=r.nom_fichier,
+        contenu_base64=base64.b64encode(r.csv_a_importer).decode("ascii"),
+        a_remplir=_sortir(r.a_remplir),
+        a_corriger=_sortir(r.a_corriger),
+        a_verifier=_sortir(r.a_verifier),
+        alias_dans_charlemagne=_sortir(r.alias_dans_charlemagne),
+        referentiel_a_tort=_sortir(r.referentiel_a_tort),
+        adresse_personnelle=_sortir(r.adresse_personnelle),
+        conflit=_sortir(r.conflit),
+        hors_referentiel=_sortir(r.hors_referentiel),
+        sans_adresse_nulle_part=_sortir(r.sans_adresse_nulle_part),
     )
 
 

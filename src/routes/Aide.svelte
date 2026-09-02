@@ -700,6 +700,14 @@
             et l'onglet PMB le <strong>coupe par établissement</strong> — son
             export porte les trois sites en vrac, alors que PMB a une instance
             par établissement.</li>
+          <li><strong>Charlemagne</strong> — le retour : les adresses que
+            Charlemagne ne connaît pas. Il fait autorité sur l'état civil, la
+            classe et le badge, pas sur l'adresse — les comptes se créent ici,
+            après son export de rentrée, et sa colonne <code>Email</code> reste
+            vide pour toute la promotion entrante. L'annuaire Google est lu
+            avant que la moindre adresse soit proposée : la plupart de celles
+            du référentiel sont <em>calculées</em>, et pousser un calcul dans
+            Charlemagne y propagerait l'erreur.</li>
           <li><strong>JPM/SmartAir</strong> — CSV différentiel (<code>Op = a/b/m</code>)
             pour les badges d'accès.</li>
           <li><strong>Groupes Google</strong> — CSV 4 colonnes d'appartenances :

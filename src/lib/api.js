@@ -933,6 +933,24 @@ export const exportsCible = {
       }),
     );
   },
+  /**
+   * Les adresses à renvoyer dans Charlemagne, vérifiées dans Google.
+   *
+   * Charlemagne n'est pas la source pour l'adresse : les comptes se créent
+   * ici, après son export de rentrée. Sa colonne reste donc vide pour toute
+   * la promotion entrante — et c'est cette colonne qu'il réexporte ensuite
+   * vers PMB et SoHappy.
+   */
+  async charlemagneAdresses({ fichier, anneeLibelle = "" }) {
+    if (!fichier) throw new Error("Fichier Charlemagne requis");
+    const fichier_base64 = arrayBufferEnBase64(await fichier.arrayBuffer());
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/charlemagne-adresses`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fichier_base64, annee_libelle: anneeLibelle }),
+      }),
+    );
+  },
   async jpm({ siteId, anneeCibleId, anneeSourceId, enregistrerPrevus = false }) {
     return jsonOrThrow(
       await fetch(`${BASE}/exports/jpm`, {

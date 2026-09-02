@@ -24,8 +24,15 @@
   let listeAnnees = $state([]);
 
   let cible = $state(
-    /** @type {"koxo"|"google"|"groupes"|"pmb"|"jpm"|"cardstudio"} */ ("koxo"),
+    /** @type {"koxo"|"google"|"groupes"|"pmb"|"charlemagne"|"jpm"|"cardstudio"} */ ("koxo"),
   );
+
+  /**
+   * Les deux cibles qui partent d'un fichier de Charlemagne au lieu d'en
+   * produire un : la répartition PMB et le retour des adresses. Elles
+   * n'ont ni site ni catégorie à choisir — tout est dans le fichier.
+   */
+  let partDunFichier = $derived(cible === "pmb" || cible === "charlemagne");
 
   // Groupes Google : quelles familles inclure
   let inclureEleves = $state(true);
@@ -313,7 +320,7 @@
    * du lycée, le fichier y fait entrer les classes du collège — c'est
    * arrivé, et la documentaliste a vu ses effectifs doubler.
    */
-  let fichierPmb = $state(/** @type {File|null} */ (null));
+  let fichierCharlemagne = $state(/** @type {File|null} */ (null));
   let rapportPmb = $state(/** @type {any} */ (null));
 
   /**
@@ -330,19 +337,64 @@
   );
 
   async function repartirPmb() {
-    if (!fichierPmb || !anneeCibleId) return;
+    if (!fichierCharlemagne || !anneeCibleId) return;
     chargement = true;
     erreur = "";
     rapportPmb = null;
     try {
       const anneeLibelle =
         listeAnnees.find((a) => a.id === anneeCibleId)?.libelle ?? "";
-      rapportPmb = await exportsCible.pmb({ fichier: fichierPmb, anneeLibelle });
+      rapportPmb = await exportsCible.pmb({ fichier: fichierCharlemagne, anneeLibelle });
       notify.succes(
         `${rapportPmb.nb_reparties} ligne(s) réparties en ` +
           `${rapportPmb.paquets.length} fichier(s) — à enregistrer ci-dessous`,
         { duree: 8000 },
       );
+    } catch (e) {
+      erreur = String(e).replace(/^Error:\s*/, "");
+      notify.erreur(erreur, { duree: 12000 });
+    } finally {
+      chargement = false;
+    }
+  }
+
+  /**
+   * Les adresses à renvoyer dans Charlemagne.
+   *
+   * Charlemagne est la source pour l'état civil et la classe ; il ne l'est
+   * pas pour l'adresse, qui se crée ici après son export de rentrée. Sa
+   * colonne reste donc vide pour toute la promotion entrante — et c'est
+   * elle qu'il réexporte ensuite vers PMB et SoHappy.
+   *
+   * L'annuaire Google est lu avant que quoi que ce soit soit proposé : la
+   * plupart des adresses du référentiel sont **calculées**, et pousser un
+   * calcul dans Charlemagne y propagerait l'erreur.
+   */
+  let rapportAdresses = $state(/** @type {any} */ (null));
+
+  async function confronterAdresses() {
+    if (!fichierCharlemagne) return;
+    chargement = true;
+    erreur = "";
+    rapportAdresses = null;
+    try {
+      const anneeLibelle =
+        listeAnnees.find((a) => a.id === anneeCibleId)?.libelle ?? "";
+      rapportAdresses = await exportsCible.charlemagneAdresses({
+        fichier: fichierCharlemagne, anneeLibelle,
+      });
+      const n = rapportAdresses.nb_a_importer;
+      if (n === 0) {
+        notify.succes(
+          "Rien à renvoyer : Charlemagne connaît déjà toutes les adresses.",
+          { duree: 8000 },
+        );
+      } else {
+        notify.succes(
+          `${n} adresse(s) à renvoyer, toutes vérifiées dans Google.`,
+          { duree: 8000 },
+        );
+      }
     } catch (e) {
       erreur = String(e).replace(/^Error:\s*/, "");
       notify.erreur(erreur, { duree: 12000 });
@@ -469,13 +521,14 @@
           { id: "google", label: "Google" },
           { id: "groupes", label: "Groupes" },
           { id: "pmb", label: "PMB" },
+          { id: "charlemagne", label: "Charlemagne" },
           { id: "jpm", label: "JPM" },
           { id: "cardstudio", label: "CardStudio" },
         ]}
       />
     </div>
 
-    {#if cible !== "pmb"}
+    {#if !partDunFichier}
     <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
       <label class="block">
         <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">
@@ -519,6 +572,61 @@
     </div>
     {/if}
 
+    {#if cible === "charlemagne"}
+      <div class="rounded-lg border-2 border-dashed border-sky-300 bg-sky-50/40 p-3 dark:border-sky-700 dark:bg-sky-900/10">
+        <p class="mb-2 text-xs font-medium text-sky-900 dark:text-sky-200">
+          Renvoyer à Charlemagne les adresses qu'il ne connaît pas
+        </p>
+        <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
+          Charlemagne fait autorité sur l'état civil, la classe et le badge.
+          Pas sur l'adresse : les comptes se créent <strong>ici</strong>, après
+          son export de rentrée. Sa colonne <code>Email</code> reste donc vide
+          pour toute la promotion entrante — et c'est cette colonne qu'il
+          réexporte ensuite vers PMB et SoHappy.
+        </p>
+        <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
+          Dépose le même fichier que pour PMB. L'annuaire <strong>Google est
+          lu</strong> avant que la moindre adresse soit proposée : la plupart
+          de celles du référentiel sont <em>calculées</em>, et pousser un
+          calcul dans Charlemagne y propagerait l'erreur au lieu de la
+          corriger.
+        </p>
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
+            <Upload class="h-3.5 w-3.5" />
+            {fichierCharlemagne?.name ?? "Choisir l'export de Charlemagne (.csv)"}
+            <input
+              type="file"
+              accept=".csv"
+              onchange={(e) => {
+                const champ = /** @type {HTMLInputElement} */ (e.target);
+                fichierCharlemagne = champ.files?.[0] ?? null;
+                rapportAdresses = null;
+              }}
+              class="hidden"
+            />
+          </label>
+          {#if fichierCharlemagne}
+            <button
+              class="text-xs text-stone-500 hover:text-red-600"
+              onclick={() => { fichierCharlemagne = null; rapportAdresses = null; }}
+            >
+              × retirer
+            </button>
+          {/if}
+        </div>
+        <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
+          Il suffit que le fichier porte <code>Num Badge</code> et
+          <code>Email</code> : l'export PMB convient tel quel. La lecture de
+          l'annuaire prend une minute et ne modifie rien. Le fichier rendu
+          s'appellera
+          <strong class="font-mono text-stone-700 dark:text-stone-300">
+            Charlemagne_adresses_{anneeLibelleChoisie || "…"}.csv
+          </strong>
+        </p>
+      </div>
+    {/if}
+
     {#if cible === "pmb"}
       <div class="rounded-lg border-2 border-dashed border-sky-300 bg-sky-50/40 p-3 dark:border-sky-700 dark:bg-sky-900/10">
         <p class="mb-2 text-xs font-medium text-sky-900 dark:text-sky-200">
@@ -539,22 +647,22 @@
         <div class="flex flex-wrap items-center gap-2">
           <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
             <Upload class="h-3.5 w-3.5" />
-            {fichierPmb?.name ?? "Choisir l'export PMB de Charlemagne (.csv)"}
+            {fichierCharlemagne?.name ?? "Choisir l'export PMB de Charlemagne (.csv)"}
             <input
               type="file"
               accept=".csv"
               onchange={(e) => {
                 const champ = /** @type {HTMLInputElement} */ (e.target);
-                fichierPmb = champ.files?.[0] ?? null;
+                fichierCharlemagne = champ.files?.[0] ?? null;
                 rapportPmb = null;
               }}
               class="hidden"
             />
           </label>
-          {#if fichierPmb}
+          {#if fichierCharlemagne}
             <button
               class="text-xs text-stone-500 hover:text-red-600"
-              onclick={() => { fichierPmb = null; rapportPmb = null; }}
+              onclick={() => { fichierCharlemagne = null; rapportPmb = null; }}
             >
               × retirer
             </button>
@@ -775,9 +883,10 @@
       {/if}
     </div>
 
-    <!-- Rien ici pour PMB : le programme n'y fabrique pas de CSV, et le
-         encadré du haut dit déjà d'où le fichier doit venir. -->
-    {#if cible !== "pmb"}
+    <!-- Rien ici pour les deux onglets qui partent d'un fichier : le
+         programme n'y fabrique pas de CSV, et l'encadré du haut dit déjà
+         d'où le fichier doit venir. -->
+    {#if !partDunFichier}
     <div class="rounded-lg border border-stone-200 bg-stone-50 p-3 text-xs dark:border-stone-700 dark:bg-stone-800">
       <div class="flex items-start gap-2 text-stone-700 dark:text-stone-300">
         <Info class="mt-0.5 h-4 w-4 shrink-0" />
@@ -882,10 +991,20 @@
           variante="primary"
           icon={FileDown}
           occupe={chargement}
-          disabled={!fichierPmb || !anneeCibleId}
+          disabled={!fichierCharlemagne || !anneeCibleId}
           onclick={repartirPmb}
         >
           Répartir par établissement
+        </Bouton>
+      {:else if cible === "charlemagne"}
+        <Bouton
+          variante="primary"
+          icon={FileDown}
+          occupe={chargement}
+          disabled={!fichierCharlemagne}
+          onclick={confronterAdresses}
+        >
+          Confronter à Google
         </Bouton>
       {:else}
         <Bouton
@@ -901,6 +1020,99 @@
         </Bouton>
       {/if}
     </div>
+
+    {#if rapportAdresses}
+      {@const r = rapportAdresses}
+      <div class="space-y-3 rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
+        <p class="text-xs text-stone-600 dark:text-stone-400">
+          {r.nb_lignes_lues} ligne(s) lues · {r.nb_deja_bonnes} déjà justes ·
+          <strong class="tabular-nums">{r.nb_a_importer}</strong> à renvoyer.
+        </p>
+
+        {#if r.nb_a_importer > 0}
+          <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-300 bg-white p-2.5 dark:border-emerald-800 dark:bg-stone-900">
+            <div class="min-w-0">
+              <p class="text-sm font-medium">
+                {r.a_remplir.length} adresse(s) à remplir
+                {#if r.a_corriger.length}
+                  · {r.a_corriger.length} à corriger
+                {/if}
+              </p>
+              <p class="text-xs text-stone-500 dark:text-stone-400">
+                Toutes vues dans l'annuaire Google — aucune supposition.
+              </p>
+            </div>
+            <Bouton
+              icon={Download}
+              taille="sm"
+              onclick={() =>
+                enregistrerPaquet({
+                  nom_fichier: r.nom_fichier,
+                  contenu_base64: r.contenu_base64,
+                })}
+            >
+              {r.nom_fichier}
+            </Bouton>
+          </div>
+        {:else}
+          <p class="rounded-lg border border-emerald-300 bg-white p-2.5 text-sm dark:border-emerald-800 dark:bg-stone-900">
+            Rien à renvoyer : Charlemagne connaît déjà toutes les adresses
+            que le programme peut confirmer.
+          </p>
+        {/if}
+
+        {#each [
+          { cle: "a_corriger", titre: "Adresses fausses dans Charlemagne", ton: "danger",
+            mot: "Elles n'existent pas dans Google. Elles sont dans le fichier ci-dessus." },
+          { cle: "a_verifier", titre: "Non vérifiables", ton: "attention",
+            mot: "L'adresse du référentiel n'a pas été trouvée dans Google : rien n'est proposé." },
+          { cle: "conflit", titre: "Deux comptes distincts", ton: "danger",
+            mot: "Charlemagne et le référentiel désignent des comptes différents — à trancher à la main." },
+          { cle: "adresse_personnelle", titre: "Adresse de famille dans le champ", ton: "attention",
+            mot: "Écraser est peut-être ce qu'il faut, mais c'est une décision sans retour : ces lignes ne sont pas dans le fichier." },
+          { cle: "referentiel_a_tort", titre: "À corriger ici, pas dans Charlemagne", ton: "attention",
+            mot: "Google donne raison à Charlemagne." },
+          { cle: "alias_dans_charlemagne", titre: "Alias du bon compte", ton: "neutre",
+            mot: "Le courrier arrive : rien à faire." },
+          { cle: "sans_adresse_nulle_part", titre: "Aucune adresse nulle part", ton: "attention",
+            mot: "Ni Charlemagne ni le référentiel n'en connaissent." },
+          { cle: "hors_referentiel", titre: "Inconnus du programme", ton: "neutre",
+            mot: "Dans Charlemagne, jamais ingérés ici — une ingestion les prendra." },
+        ] as bloc (bloc.cle)}
+          {#if r[bloc.cle].length}
+            <details
+              class="rounded-lg border p-2.5 {bloc.ton === 'danger'
+                ? 'border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30'
+                : bloc.ton === 'attention'
+                  ? 'border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30'
+                  : 'border-stone-300 bg-white dark:border-stone-600 dark:bg-stone-900'}"
+              open={bloc.ton === "danger"}
+            >
+              <summary class="cursor-pointer text-xs font-medium">
+                {bloc.titre}
+                <span class="text-stone-500 dark:text-stone-400">
+                  — {r[bloc.cle].length}
+                </span>
+              </summary>
+              <p class="mt-1 text-xs text-stone-600 dark:text-stone-400">{bloc.mot}</p>
+              <ul class="mt-1.5 space-y-0.5">
+                {#each r[bloc.cle] as c (c.badge + bloc.cle)}
+                  <li class="text-xs">
+                    <span class="font-medium">{c.prenom} {c.nom}</span>
+                    <span class="text-stone-500 dark:text-stone-400">
+                      · badge {c.badge}{c.classe ? ` · ${c.classe}` : ""}
+                    </span>
+                    {#if c.detail}
+                      <span class="block text-stone-500 dark:text-stone-400">{c.detail}</span>
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            </details>
+          {/if}
+        {/each}
+      </div>
+    {/if}
 
     {#if rapportPmb}
       <div class="space-y-3 rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">

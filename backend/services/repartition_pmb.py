@@ -54,14 +54,18 @@ fichiers produits vaut le fichier d'origine, aux lignes écartées près.
 """
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
 
 from backend.models import Personne, Site, TableCorrespondance
-
-BOM_UTF8 = b"\xef\xbb\xbf"
+from backend.services.csv_charlemagne import (
+    BOM_UTF8,
+    champs as _champs,
+    decoder as _decoder,
+    lignes_du_fichier as _lignes,
+    lire,
+)
 
 COLONNES_REQUISES = ("Num Badge", "Code classe")
 """Le strict nécessaire pour répartir. Les onze autres passent sans être lues."""
@@ -218,39 +222,11 @@ def repartir_export_pmb(
 # ---------------------------------------------------------------------------
 
 
-def _decoder(contenu: bytes) -> str:
-    """Charlemagne écrit tantôt en UTF-8 avec BOM, tantôt en Windows-1252."""
-    for encodage in ("utf-8-sig", "cp1252"):
-        try:
-            return contenu.decode(encodage)
-        except UnicodeDecodeError:
-            continue
-    return contenu.decode("utf-8", errors="replace")
-
-
-def _lignes(texte: str) -> list[str]:
-    """Découpe sur les seules fins de ligne.
-
-    `str.splitlines` coupe aussi sur la tabulation verticale et le saut de
-    page, qu'une adresse mal saisie peut contenir : une ligne se
-    retrouverait scindée en deux, et l'élève écarté pour « 3 colonnes au
-    lieu de 13 ».
-    """
-    return texte.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-
-
-def _champs(ligne: str) -> list[str]:
-    return next(csv.reader([ligne], delimiter=";"), [])
-
-
 def _ecart(champs: list[str], reperes: _Reperes, motif: str) -> LigneEcartee:
-    def lire(i: int | None) -> str:
-        return champs[i].strip() if i is not None and i < len(champs) else ""
-
     return LigneEcartee(
-        badge=lire(reperes.badge), nom=lire(reperes.nom),
-        prenom=lire(reperes.prenom), code_classe=lire(reperes.classe),
-        motif=motif,
+        badge=lire(champs, reperes.badge), nom=lire(champs, reperes.nom),
+        prenom=lire(champs, reperes.prenom),
+        code_classe=lire(champs, reperes.classe), motif=motif,
     )
 
 
