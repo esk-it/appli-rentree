@@ -5,6 +5,8 @@
   import PlayCircle from "@lucide/svelte/icons/play-circle";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
+  import { SvelteSet } from "svelte/reactivity";
+  import Bouton from "$lib/components/Bouton.svelte";
   import { annees, ingestion, sites } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -19,6 +21,69 @@
   let rapport = $state(/** @type {null | any} */ (null));
   let chargement = $state(false);
   let erreur = $state("");
+
+  /**
+   * Les disparus qu'on a décidé de retirer.
+   *
+   * Rien n'est coché au départ, et c'est délibéré : le geste efface un
+   * snapshot, et tous les disparus ne sont pas partis. À la rentrée 2026,
+   * quatre des cinq ne s'étaient pas présentés — la cinquième était bien
+   * là, c'est Charlemagne qui ne l'avait pas encore inscrite.
+   */
+  let aRetirer = $state(new SvelteSet());
+  let retraitEnCours = $state(false);
+
+  function basculerRetrait(id) {
+    if (aRetirer.has(id)) aRetirer.delete(id);
+    else aRetirer.add(id);
+  }
+
+  function toutCocher() {
+    const tous = (rapport?.disparus ?? []).map((d) => d.personne_id);
+    if (aRetirer.size === tous.length) aRetirer.clear();
+    else for (const id of tous) aRetirer.add(id);
+  }
+
+  async function retirerLesDisparus() {
+    if (!aRetirer.size || !rapport) return;
+    const noms = (rapport.disparus ?? [])
+      .filter((d) => aRetirer.has(d.personne_id))
+      .map((d) => `${d.prenom} ${d.nom}`);
+    if (
+      !confirm(
+        `Retirer ${noms.length} personne(s) de ${rapport.annee_libelle} ?\n\n` +
+          noms.join("\n") +
+          "\n\nLeur snapshot de l'année et leur classe sont effacés. " +
+          "La personne, son login et son compte ne bougent pas.",
+      )
+    ) {
+      return;
+    }
+    retraitEnCours = true;
+    try {
+      const r = await ingestion.retirerDeLannee({
+        personneIds: [...aRetirer],
+        libelleAnnee: rapport.annee_libelle,
+        mode: "reel",
+      });
+      notify.succes(
+        `${r.nb_retires} personne(s) retirée(s) de ${r.annee_libelle}. ` +
+          "Passe par Traiter les sortants pour leurs comptes.",
+        { duree: 9000 },
+      );
+      // La liste a été traitée : la retirer du rapport plutôt que de laisser
+      // un bouton qui ne ferait plus rien.
+      const traites = new Set(r.retires.map((x) => x.personne_id));
+      rapport.disparus = rapport.disparus.filter(
+        (d) => !traites.has(d.personne_id),
+      );
+      aRetirer.clear();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 12000 });
+    } finally {
+      retraitEnCours = false;
+    }
+  }
 
   // Suggère une année scolaire par défaut : celle en cours (juillet+ → N/N+1)
   function anneeParDefaut() {
@@ -249,6 +314,63 @@
               Ouvrir la Table de correspondance
             </button>
           {/if}
+        </div>
+      {/if}
+
+      <!-- Le référentiel ne supprime jamais personne — c'est ce qui protège
+           les logins. Mais il ne savait pas non plus désinscrire : un élève
+           ingéré en août puis disparu de l'export restait dans sa dernière
+           classe connue, à gonfler l'effectif et à garder un compte actif. -->
+      {#if rapport.disparus?.length > 0}
+        <div class="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm dark:border-orange-800 dark:bg-orange-900/20">
+          <p class="font-medium text-orange-900 dark:text-orange-200">
+            {rapport.disparus.length} personne(s) inscrite(s) ici, absente(s) de cet export
+          </p>
+          <p class="mt-1 text-xs text-stone-700 dark:text-stone-300">
+            Charlemagne ne les porte plus — ni avec une classe, ni sans. Elles
+            ne se sont probablement pas présentées. Les retirer de l'année
+            efface leur snapshot et leur classe ; leur compte n'est pas touché,
+            mais <strong>Traiter les sortants</strong> le verra ensuite.
+          </p>
+          <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
+            Coche seulement celles qui sont vraiment parties. Si cet export ne
+            couvre qu'une partie de l'établissement, ignore cette liste.
+          </p>
+
+          <ul class="mt-2 space-y-1">
+            {#each rapport.disparus as d (d.personne_id)}
+              <li>
+                <label class="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 hover:bg-orange-100/60 dark:hover:bg-orange-900/30">
+                  <input
+                    type="checkbox"
+                    checked={aRetirer.has(d.personne_id)}
+                    onchange={() => basculerRetrait(d.personne_id)}
+                  />
+                  <span class="text-sm">
+                    <strong>{d.prenom} {d.nom}</strong>
+                    <span class="text-stone-500 dark:text-stone-400">
+                      · {d.classe ?? "sans classe"} · {d.site ?? "—"} · badge {d.badge}
+                    </span>
+                  </span>
+                </label>
+              </li>
+            {/each}
+          </ul>
+
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <button class="btn-secondary text-xs" onclick={toutCocher}>
+              {aRetirer.size === rapport.disparus.length ? "Tout décocher" : "Tout cocher"}
+            </button>
+            <Bouton
+              variante="danger"
+              taille="sm"
+              occupe={retraitEnCours}
+              disabled={aRetirer.size === 0}
+              onclick={retirerLesDisparus}
+            >
+              Retirer {aRetirer.size} personne(s) de {rapport.annee_libelle}
+            </Bouton>
+          </div>
         </div>
       {/if}
 

@@ -86,6 +86,18 @@ class CollisionLoginIngestion:
 
 
 @dataclass
+class PersonneDisparue:
+    """Quelqu'un que le référentiel inscrit à l'année, et que l'export ignore."""
+
+    personne_id: int
+    badge: int | None
+    nom: str
+    prenom: str
+    classe: str | None
+    site: str | None
+
+
+@dataclass
 class RapportIngestion:
     type_personne: str
     annee_libelle: str
@@ -110,6 +122,14 @@ class RapportIngestion:
     classes_inconnues: list[str] = field(default_factory=list)
     """Codes classes présents dans l'export mais absents de TableCorrespondance
     (élèves uniquement)."""
+
+    disparus: list[PersonneDisparue] = field(default_factory=list)
+    """Inscrits à cette année dans le référentiel, absents de cet export.
+
+    Charlemagne ne les porte plus — ni avec une classe, ni sans. Le
+    référentiel, lui, ne supprime jamais : sans ce relevé, ils resteraient
+    indéfiniment dans leur dernière classe connue, à gonfler les effectifs
+    et à garder un compte Google actif."""
 
     homonymes_intra_export: list[HomonymeDansExport] = field(default_factory=list)
     collisions_login: list[CollisionLoginIngestion] = field(default_factory=list)
@@ -419,6 +439,12 @@ def _ingerer_eleves(
         )
 
     # f. Boucle d'ingestion
+    #
+    # On note qui le fichier porte — y compris les lignes sans classe, que
+    # Charlemagne connaît encore. Ce que ce relevé ne contient pas à la fin
+    # de la boucle, l'export ne le connaît plus.
+    ids_vus: set[int] = set()
+    sites_vus: set[int] = set()
     for ligne in lignes:
         id_ch = _int(ligne.get("id_charlemagne"))
         nom = _s(ligne.get("nom"))
@@ -437,6 +463,7 @@ def _ingerer_eleves(
         # pas faite, sans classe ni site — et les ferait passer pour des
         # sortants de cette rentrée-ci alors qu'ils sont partis avant.
         if not code_classe:
+            _noter_vu(session, id_ch, ids_vus)
             # Le compte de ces personnes n'est pas touché ici. Mettre en
             # quarantaine depuis une ingestion serait un effet de bord : sur
             # l'export 2026-2027, ces lignes sont les sortants de la rentrée
@@ -453,6 +480,8 @@ def _ingerer_eleves(
             rapport.nb_lignes_ignorees += 1
             continue
 
+        sites_vus.add(site_id)
+
         _traiter_ligne_eleve(
             session=session,
             ligne=ligne,
@@ -465,14 +494,97 @@ def _ingerer_eleves(
             rapport=rapport,
             maj_etat_courant=maj_etat_courant,
         )
+        # Après le traitement, pas avant : un entrant que cette ligne vient
+        # de créer n'existait pas encore, et serait sorti porté disparu de
+        # l'export qui l'amène.
+        _noter_vu(session, id_ch, ids_vus)
 
-    # g. Commit ou rollback selon le mode
+    # g. Qui le référentiel inscrit encore et que l'export ne porte plus
+    rapport.disparus = _relever_disparus(
+        session, annee=annee, type_personne="eleve",
+        ids_vus=ids_vus, sites_vus=sites_vus,
+    )
+
+    # h. Commit ou rollback selon le mode
     if mode == "reel" and not rapport.est_bloquee:
         session.commit()
     else:
         session.rollback()
 
     return rapport
+
+
+def _noter_vu(session: Session, id_charlemagne: int, ids_vus: set[int]) -> None:
+    """Retient la personne du référentiel que cette ligne désigne.
+
+    L'appariement se fait sur l'identifiant Charlemagne : c'est la clé que
+    l'export porte, et la seule que le référentiel garde figée. Une ligne
+    qui ne correspond à personne — un entrant que l'ingestion va créer —
+    n'a rien à noter : elle ne peut pas être portée disparue.
+    """
+    p = (
+        session.query(Personne.id)
+        .filter(Personne.id_charlemagne == id_charlemagne, Personne.type == "eleve")
+        .first()
+    )
+    if p is not None:
+        ids_vus.add(p[0])
+
+
+def _relever_disparus(
+    session: Session,
+    *,
+    annee,
+    type_personne: str,
+    ids_vus: set[int],
+    sites_vus: set[int],
+) -> list[PersonneDisparue]:
+    """Les inscrits de l'année que cet export ne porte plus.
+
+    ## Pourquoi ça ne peut se voir qu'ici
+
+    Une ingestion ne réécrit un snapshot que si l'état a changé : sur
+    l'export de septembre 2026, mille six cent soixante-trois personnes ont
+    été mises à jour pour quatre-vingt-deux snapshots créés. La date du
+    dernier snapshot ne dit donc pas si quelqu'un était dans le fichier — il
+    faut le fichier en main, c'est-à-dire ici.
+
+    ## Le garde-fou
+
+    Un export NDK+SU ne parle pas de NDE : sans restriction, ses cent
+    vingt-sept élèves passeraient pour disparus. Le relevé se limite donc
+    aux **sites que cet export couvre**, et au type de population ingéré.
+
+    Il reste une limite, dite à l'écran : un export partiel — une seule
+    classe, un seul niveau — fera passer tous les autres pour disparus. Le
+    relevé informe, il n'agit pas.
+    """
+    if not sites_vus:
+        return []
+
+    lignes = (
+        session.query(Personne, Site.nom)
+        .outerjoin(Site, Site.id == Personne.site_id)
+        .filter(
+            Personne.type == type_personne,
+            Personne.site_id.in_(sites_vus),
+            Personne.id.notin_(ids_vus or {0}),
+            Personne.id.in_(
+                session.query(Snapshot.personne_id).filter(
+                    Snapshot.annee_scolaire_id == annee.id
+                )
+            ),
+        )
+        .order_by(Personne.classe, Personne.nom, Personne.prenom)
+        .all()
+    )
+    return [
+        PersonneDisparue(
+            personne_id=p.id, badge=p.badge, nom=p.nom, prenom=p.prenom,
+            classe=p.classe, site=nom_site,
+        )
+        for p, nom_site in lignes
+    ]
 
 
 def _traiter_ligne_eleve(

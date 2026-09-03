@@ -49,6 +49,8 @@ class RapportOut(BaseModel):
     nb_snapshots_crees: int
     nb_snapshots_identiques: int
     classes_inconnues: list[str]
+    disparus: list[dict] = []
+    """Inscrits à l'année dans le référentiel, absents de cet export."""
     homonymes_intra_export: list[dict]
     collisions_login: list[dict]
     erreurs: list[str]
@@ -225,3 +227,94 @@ def lister_fichiers() -> list[dict]:
                 }
             )
     return fichiers
+
+
+# ---------------------------------------------------------------------------
+# Désinscription — les disparus de l'export
+# ---------------------------------------------------------------------------
+
+
+class RetirerPayload(BaseModel):
+    """Les personnes à retirer d'une année, et le millésime concerné."""
+
+    personne_ids: list[int]
+    libelle_annee: str
+    mode: str = "simulation"
+
+
+class RetireOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    classe_avant: str | None
+
+
+class RetirerReponse(BaseModel):
+    annee_libelle: str
+    mode: str
+    nb_retires: int
+    retires: list[RetireOut]
+    ignores: list[str]
+
+
+@router.post("/retirer-de-lannee", response_model=RetirerReponse)
+def retirer_de_lannee_endpoint(
+    payload: RetirerPayload, session: Session = Depends(db_session)
+) -> RetirerReponse:
+    """Retire ces personnes de l'année : snapshot supprimé, classe effacée.
+
+    C'est le geste qui manquait pour un élève inscrit en août puis disparu
+    de l'export de septembre : le référentiel ne supprime jamais personne —
+    ce qui protège son login — mais il ne savait pas non plus désinscrire.
+
+    Une fois le snapshot retiré, la réconciliation la voit comme sortante et
+    « Traiter les sortants » s'occupe de son compte. Rien n'est fait au
+    compte ici : un import ne décide pas du sort d'un compte, et une
+    désinscription pas davantage.
+    """
+    from backend.models import AnneeScolaire
+    from backend.services.desinscription import retirer_de_lannee
+
+    annee = (
+        session.query(AnneeScolaire)
+        .filter_by(libelle=payload.libelle_annee)
+        .one_or_none()
+    )
+    if annee is None:
+        raise HTTPException(404, f"Année introuvable : {payload.libelle_annee}")
+
+    try:
+        r = retirer_de_lannee(
+            session, payload.personne_ids, annee_id=annee.id, mode=payload.mode
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    if payload.mode == "reel" and r.nb_retires:
+        try:
+            from backend.services.journal import journaliser
+
+            journaliser(
+                session,
+                type_operation="desinscription",
+                cible="referentiel",
+                annee_libelle=r.annee_libelle,
+                mode=payload.mode,
+                parametres={"nb_demandes": len(payload.personne_ids)},
+                resultat={
+                    "nb_retires": r.nb_retires,
+                    "nb_ignores": len(r.ignores),
+                    "personnes": [f"{x.prenom} {x.nom}" for x in r.retires],
+                },
+            )
+            session.commit()
+        except Exception:  # pragma: no cover — le journal ne doit rien casser
+            session.rollback()
+
+    return RetirerReponse(
+        annee_libelle=r.annee_libelle,
+        mode=r.mode,
+        nb_retires=r.nb_retires,
+        retires=[RetireOut(**vars(x)) for x in r.retires],
+        ignores=r.ignores,
+    )

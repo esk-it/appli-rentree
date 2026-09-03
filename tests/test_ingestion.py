@@ -650,3 +650,113 @@ class TestExportAvecSortants:
 
         assert rapport.nb_lignes_sans_classe == 1
         assert session.query(CompteCible).count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Les disparus : inscrits au référentiel, absents de l'export
+# ---------------------------------------------------------------------------
+
+
+class TestDisparus:
+    """Charlemagne ne les porte plus ; le référentiel, qui ne supprime
+    jamais, les gardait indéfiniment dans leur dernière classe connue.
+
+    Dix cas à la rentrée 2026 — dont une élève qui faisait compter 1_G4 à
+    trente-quatre au lieu de trente-trois.
+    """
+
+    def test_un_inscrit_absent_de_l_export_est_releve(
+        self, session, table_corr, sites_amorces
+    ):
+        df = _df_eleves(
+            {"id_charlemagne": 5292, "num_badge": 52920, "nom": "PRESENT",
+             "prenom": "Anna", "code_classe": "2_1"},
+        )
+        _ingerer_eleves(session, df, "2025-2026", "reel", _rapport_vide())
+
+        # Un second export, où Anna n'est plus, mais quelqu'un d'autre est là.
+        df2 = _df_eleves(
+            {"id_charlemagne": 6000, "num_badge": 60000, "nom": "AUTRE",
+             "prenom": "Bob", "code_classe": "2_1"},
+        )
+        r = _ingerer_eleves(session, df2, "2025-2026", "reel", _rapport_vide())
+
+        assert [(d.nom, d.prenom, d.classe) for d in r.disparus] == [
+            ("PRESENT", "Anna", "2_1")
+        ]
+
+    def test_une_ligne_sans_classe_ne_compte_pas_pour_disparue(
+        self, session, table_corr
+    ):
+        """Charlemagne la porte encore, avec sa classe de l'an dernier : il
+        la connaît, elle n'a pas disparu. C'est une sortante, et l'ingestion
+        l'écarte déjà pour cette raison."""
+        df = _df_eleves(
+            {"id_charlemagne": 5292, "num_badge": 52920, "nom": "SORTANT",
+             "prenom": "Léa", "code_classe": "2_1"},
+        )
+        _ingerer_eleves(session, df, "2025-2026", "reel", _rapport_vide())
+
+        df2 = _df_eleves(
+            {"id_charlemagne": 5292, "num_badge": 52920, "nom": "SORTANT",
+             "prenom": "Léa", "code_classe": None,
+             "code_classe_precedente": "2_1"},
+            {"id_charlemagne": 6000, "num_badge": 60000, "nom": "AUTRE",
+             "prenom": "Bob", "code_classe": "2_1"},
+        )
+        r = _ingerer_eleves(session, df2, "2025-2026", "reel", _rapport_vide())
+        assert r.nb_lignes_sans_classe == 1
+        assert r.disparus == []
+
+    def test_un_autre_site_n_est_pas_porte_disparu(
+        self, session, table_corr, sites_amorces
+    ):
+        """Un export NDK+SU ne parle pas de NDE : sans ce garde-fou, ses
+        cent vingt-sept élèves passeraient pour disparus."""
+        df = _df_eleves(
+            {"id_charlemagne": 7000, "num_badge": 70000, "nom": "CLEDER",
+             "prenom": "Yann", "code_classe": "3F"},
+        )
+        _ingerer_eleves(session, df, "2025-2026", "reel", _rapport_vide())
+
+        df2 = _df_eleves(
+            {"id_charlemagne": 6000, "num_badge": 60000, "nom": "AUTRE",
+             "prenom": "Bob", "code_classe": "2_1"},
+        )
+        r = _ingerer_eleves(session, df2, "2025-2026", "reel", _rapport_vide())
+        assert r.disparus == [], "NDE n'est pas couvert par cet export"
+
+    def test_une_autre_annee_n_est_pas_concernee(self, session, table_corr):
+        df = _df_eleves(
+            {"id_charlemagne": 5292, "num_badge": 52920, "nom": "ANCIEN",
+             "prenom": "Zoé", "code_classe": "2_1"},
+        )
+        _ingerer_eleves(session, df, "2024-2025", "reel", _rapport_vide())
+
+        df2 = _df_eleves(
+            {"id_charlemagne": 6000, "num_badge": 60000, "nom": "AUTRE",
+             "prenom": "Bob", "code_classe": "2_1"},
+        )
+        r = _ingerer_eleves(session, df2, "2025-2026", "reel",
+                            RapportIngestion(type_personne="eleve",
+                                             annee_libelle="2025-2026", mode="reel"))
+        assert r.disparus == []
+
+    def test_la_simulation_releve_aussi(self, session, table_corr):
+        """C'est même là qu'on veut le voir : avant d'écrire."""
+        df = _df_eleves(
+            {"id_charlemagne": 5292, "num_badge": 52920, "nom": "PRESENT",
+             "prenom": "Anna", "code_classe": "2_1"},
+        )
+        _ingerer_eleves(session, df, "2025-2026", "reel", _rapport_vide())
+
+        df2 = _df_eleves(
+            {"id_charlemagne": 6000, "num_badge": 60000, "nom": "AUTRE",
+             "prenom": "Bob", "code_classe": "2_1"},
+        )
+        r = _ingerer_eleves(
+            session, df2, "2025-2026", "simulation",
+            RapportIngestion(type_personne="eleve", annee_libelle="2025-2026",
+                             mode="simulation"),
+        )
+        assert [d.nom for d in r.disparus] == ["PRESENT"]

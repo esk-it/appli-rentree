@@ -40,6 +40,10 @@ TYPES_OPERATION = (
     # l'expliquer. En août prochain, quand le référentiel ne collera pas à
     # Charlemagne, c'est le journal qui dira pourquoi.
     "mouvement",
+    # Retirer quelqu'un d'une année efface un snapshot : c'est le seul
+    # geste du programme qui enlève une donnée du référentiel, et il doit
+    # laisser une trace de qui a été retiré.
+    "desinscription",
 )
 
 

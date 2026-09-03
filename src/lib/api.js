@@ -295,6 +295,27 @@ function arrayBufferEnBase64(buffer) {
 }
 
 export const ingestion = {
+  /**
+   * Retire des personnes d'une année : snapshot supprimé, classe effacée.
+   *
+   * Le référentiel ne supprime jamais personne — c'est ce qui protège les
+   * logins — mais il ne savait pas non plus désinscrire. Un élève ingéré en
+   * août puis disparu de l'export de septembre restait dans sa dernière
+   * classe connue, à gonfler l'effectif et à garder un compte actif.
+   *
+   * Le compte n'est pas touché ici : une fois le snapshot retiré, la
+   * réconciliation le voit sortant et « Traiter les sortants » s'en charge.
+   */
+  async retirerDeLannee({ personneIds, libelleAnnee, mode = "simulation" }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/ingestion/retirer-de-lannee`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          personne_ids: personneIds, libelle_annee: libelleAnnee, mode,
+        }),
+      }),
+    );
+  },
   async fichiersDispo() {
     return jsonOrThrow(await fetch(`${BASE}/ingestion/fichiers-dispo`));
   },
