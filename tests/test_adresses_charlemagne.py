@@ -217,7 +217,10 @@ def test_une_adresse_personnelle_est_signalee_sans_etre_ecrasee(session, eleve):
 # ---------------------------------------------------------------------------
 
 
-def test_le_fichier_porte_le_badge_et_l_adresse(session, eleve):
+def test_le_fichier_porte_l_identifiant_pas_le_badge(session, eleve):
+    """Charlemagne apparie sur son identifiant élève, et répond « Aucun
+    élève avec l'identifiant 99350 n'a été trouvé » quand on lui donne un
+    badge. Les 366 lignes du premier envoi ont été refusées pour ça."""
     from backend.services.adresses_charlemagne import (
         COLONNES_RETOUR,
         confronter_adresses,
@@ -231,10 +234,32 @@ def test_le_fichier_porte_le_badge_et_l_adresse(session, eleve):
     texte = r.csv_a_importer.decode("utf-8-sig")
     lues = list(csv.reader(io.StringIO(texte), delimiter=";"))
     assert lues[0] == list(COLONNES_RETOUR)
-    assert lues[1] == [str(eleve.badge), "ELEVE", "DUPONT", "Alice",
-                       "alice.dupont@lekreisker.fr"]
+    assert lues[1] == [str(eleve.id_charlemagne), "ELEVE",
+                       "alice.dupont@lekreisker.fr", ""]
+    assert lues[1][0] != str(eleve.badge), "le badge n'est pas l'identifiant"
     assert r.csv_a_importer.startswith(b"\xef\xbb\xbf")
     assert r.nom_fichier == "Charlemagne_adresses_2026-2027.csv"
+
+
+def test_l_email_en_troisieme_colonne_le_telephone_en_quatrieme(session, eleve):
+    """Les positions comptent, et le rapport d'erreur de Charlemagne les
+    nomme : « l'adresse email est invalide dans la 3ème colonne ». Y
+    glisser le nom et le prénom pour se relire décalait tout."""
+    from backend.services.adresses_charlemagne import (
+        COLONNES_RETOUR,
+        confronter_adresses,
+    )
+
+    assert COLONNES_RETOUR == ("Identifiant", "Type", "Email", "Téléphone")
+    r = confronter_adresses(
+        session, _fichier(_ligne(eleve.badge, "DUPONT", "Alice", "2_1")),
+        comptes_google=[_compte("alice.dupont@lekreisker.fr")],
+    )
+    lues = list(csv.reader(io.StringIO(r.csv_a_importer.decode("utf-8-sig")),
+                           delimiter=";"))
+    assert lues[1][2] == "alice.dupont@lekreisker.fr"
+    assert lues[1][3] == "", "le référentiel ne connaît pas les téléphones"
+    assert len(lues[1]) == 4, "une colonne de plus décalerait les suivantes"
 
 
 def test_le_type_est_en_deuxieme_colonne(session, eleve):

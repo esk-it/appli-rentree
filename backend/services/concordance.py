@@ -138,23 +138,7 @@ def croiser(
     if annee is None:
         raise ConcordanceImpossible(f"Année introuvable : {annee_id}")
 
-    lignes = lignes_du_fichier(decoder(contenu_charlemagne))
-    if not lignes:
-        raise ConcordanceImpossible("Le fichier de Charlemagne est vide.")
-    entete = champs(lignes[0])
-    manquantes = [c for c in COLONNES_REQUISES if c not in entete]
-    if manquantes:
-        raise ConcordanceImpossible(
-            "Ce fichier ne porte pas les colonnes attendues : il y manque "
-            + " et ".join(f"« {c} »" for c in manquantes)
-            + ". L'en-tête lu commence par : "
-            + ", ".join(entete[:4] or ["(rien)"])
-            + "."
-        )
-
-    i_badge, i_classe = entete.index("Num Badge"), entete.index("Code classe")
-    i_nom = entete.index("Nom") if "Nom" in entete else None
-    i_prenom = entete.index("Prénom") if "Prénom" in entete else None
+    source = _lire_source(contenu_charlemagne)
 
     par_badge = {
         str(p.badge): p
@@ -174,28 +158,23 @@ def croiser(
         koxo_fourni=lignes_koxo is not None,
     )
 
-    for brute in lignes[1:]:
-        if not brute.strip():
-            continue
-        cellules = champs(brute)
-        if len(cellules) <= max(i_badge, i_classe):
-            continue
-        classe_ch = lire(cellules, i_classe)
+    for enr in source:
+        classe_ch = enr["classe"]
         if not classe_ch:
             # Sans classe chez Charlemagne, l'élève n'est pas inscrit cette
             # année : c'est un sortant, et il se traite ailleurs.
             continue
         rapport.nb_lignes_lues += 1
 
-        badge = lire(cellules, i_badge)
+        badge = enr["badge"]
         p = par_badge.get(badge)
         adresse = (p.email or "").strip().lower() if p is not None else ""
 
         ligne = LigneConcordance(
             personne_id=p.id if p is not None else None,
             badge=badge,
-            nom=lire(cellules, i_nom) or (p.nom if p else ""),
-            prenom=lire(cellules, i_prenom) or (p.prenom if p else ""),
+            nom=enr["nom"] or (p.nom if p else ""),
+            prenom=enr["prenom"] or (p.prenom if p else ""),
             site=sites.get(p.site_id) if p is not None else None,
             charlemagne=classe_ch,
             referentiel=(p.classe or None) if p is not None else None,
@@ -213,6 +192,120 @@ def croiser(
 
     rapport.lignes.sort(key=lambda l: (l.propose or "", l.nom, l.prenom))
     return rapport
+
+
+def _lire_source(contenu: bytes) -> list[dict]:
+    """Les lignes de Charlemagne, quel que soit le format qu'il a produit.
+
+    Charlemagne exporte en **HTML** pour « Gestion de bases », en XLSX
+    ailleurs, et le CDI en CSV. L'écran acceptait les trois ; le service ne
+    lisait que le CSV, et répondait « l'en-tête lu commence par : <HTML> »
+    — un message juste, sur un fichier parfaitement valide.
+
+    Le format se reconnaît au contenu, pas à l'extension : un `.htm`
+    renommé reste du HTML, et c'est la première chose qu'on fait avec un
+    export qu'on range.
+    """
+    debut = contenu[:512].lstrip(b"\xef\xbb\xbf \t\r\n")[:16].lower()
+    if debut.startswith(b"pk"):
+        return _via_pandas(contenu, ".xlsx")
+    if debut.startswith(b"<") or b"<html" in debut or b"<table" in debut:
+        return _via_pandas(contenu, ".htm")
+    return _via_csv(contenu)
+
+
+def _via_csv(contenu: bytes) -> list[dict]:
+    lignes = lignes_du_fichier(decoder(contenu))
+    if not lignes:
+        raise ConcordanceImpossible("Le fichier de Charlemagne est vide.")
+    entete = champs(lignes[0])
+    manquantes = [c for c in COLONNES_REQUISES if c not in entete]
+    if manquantes:
+        raise ConcordanceImpossible(
+            "Ce fichier ne porte pas les colonnes attendues : il y manque "
+            + " et ".join(f"« {c} »" for c in manquantes)
+            + ". L'en-tête lu commence par : "
+            + ", ".join(entete[:4] or ["(rien)"])
+            + "."
+        )
+    i_badge, i_classe = entete.index("Num Badge"), entete.index("Code classe")
+    i_nom = entete.index("Nom") if "Nom" in entete else None
+    i_prenom = entete.index("Prénom") if "Prénom" in entete else None
+
+    out = []
+    for brute in lignes[1:]:
+        if not brute.strip():
+            continue
+        cellules = champs(brute)
+        if len(cellules) <= max(i_badge, i_classe):
+            continue
+        out.append({
+            "badge": lire(cellules, i_badge),
+            "nom": lire(cellules, i_nom),
+            "prenom": lire(cellules, i_prenom),
+            "classe": lire(cellules, i_classe),
+        })
+    return out
+
+
+def _via_pandas(contenu: bytes, suffixe: str) -> list[dict]:
+    """Le parser Charlemagne du programme, celui de l'ingestion.
+
+    Il normalise les intitulés — « Identifiant Elève », « Num Badge »,
+    « Code classe » — et sait déjà lire les tables HTML que Charlemagne
+    appelle des `.htm`.
+    """
+    from pathlib import Path
+    from tempfile import NamedTemporaryFile
+
+    from backend.services.parser_charlemagne import lire_htm, lire_xlsx
+
+    with NamedTemporaryFile(suffix=suffixe, delete=False) as tmp:
+        tmp.write(contenu)
+        chemin = Path(tmp.name)
+    try:
+        df = lire_htm(chemin) if suffixe == ".htm" else lire_xlsx(chemin)
+    except Exception as e:
+        raise ConcordanceImpossible(
+            f"Fichier illisible ({suffixe}) : {type(e).__name__}: {e}"
+        ) from None
+    finally:
+        try:
+            chemin.unlink()
+        except OSError:
+            pass
+
+    manquantes = [c for c in ("num_badge", "code_classe") if c not in df.columns]
+    if manquantes:
+        raise ConcordanceImpossible(
+            "Ce fichier ne porte pas les colonnes attendues : il y manque "
+            + " et ".join(
+                {"num_badge": "« Num Badge »", "code_classe": "« Code classe »"}[c]
+                for c in manquantes
+            )
+            + ". Colonnes lues : "
+            + ", ".join(list(df.columns)[:6])
+            + "."
+        )
+
+    def texte(v) -> str:
+        import pandas as pd
+
+        return "" if v is None or pd.isna(v) else str(v).strip()
+
+    out = []
+    for _, r in df.iterrows():
+        badge = texte(r.get("num_badge"))
+        if badge.endswith(".0"):
+            # pandas rend les entiers en flottants dès qu'une case est vide.
+            badge = badge[:-2]
+        out.append({
+            "badge": badge,
+            "nom": texte(r.get("nom")),
+            "prenom": texte(r.get("prenom")),
+            "classe": texte(r.get("code_classe")),
+        })
+    return out
 
 
 def _classer(

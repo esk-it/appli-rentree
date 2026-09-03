@@ -61,13 +61,25 @@ from backend.services.csv_charlemagne import (
 )
 from backend.services.repartition_pmb import RepartitionImpossible
 
-COLONNES_RETOUR = ("Num Badge", "Type", "Nom", "Prénom", "Email")
-"""Ce que l'import de Charlemagne attend, dans cet ordre.
+COLONNES_RETOUR = ("Identifiant", "Type", "Email", "Téléphone")
+"""Ce que l'import de Charlemagne attend, à la position près.
 
-`Type` doit être en **deuxième colonne** : c'est ainsi que Charlemagne le
-lit, et le fichier est refusé s'il est ailleurs. Les deux colonnes
-d'identité ne servent qu'à relire le fichier avant de l'importer — c'est le
-badge qui apparie.
+Son rapport d'erreur est explicite : « l'adresse email est invalide dans la
+**3ème colonne** », « le numéro de téléphone est invalide dans la **4ème
+colonne** ». Les positions comptent ; les intitulés, non — la première
+ligne est ignorée.
+
+Deux pièges, tous deux payés d'un import refusé de bout en bout :
+
+- **L'identifiant n'est pas le badge.** Charlemagne apparie sur son
+  identifiant élève — `id_charlemagne` ici — et répond « Aucun élève avec
+  l'identifiant 99350 n'a été trouvé » quand on lui donne un badge. Vérifié
+  sur 2099 personnes : les deux coïncident toujours, à la formule près.
+- **Pas de colonne d'identité.** Y glisser le nom et le prénom pour se
+  relire décale l'email et le téléphone, et fait échouer chaque ligne.
+
+Le téléphone part vide : le référentiel ne le connaît pas, et une colonne
+absente déplacerait tout le reste.
 """
 
 TYPES_CHARLEMAGNE = {"eleve": "ELEVE", "adulte": "ADULTE"}
@@ -81,6 +93,8 @@ class Constat:
     """Une ligne de Charlemagne, ce qu'on en sait, et ce qu'il faut en faire."""
 
     badge: str
+    identifiant: str
+    """L'identifiant élève de Charlemagne — `id_charlemagne`, pas le badge."""
     nom: str
     prenom: str
     classe: str
@@ -180,7 +194,10 @@ def confronter_adresses(
         charle = lire(cellules, i_mail)
         p = par_badge.get(badge)
         modele = Constat(
-            badge=badge, nom=lire(cellules, i_nom), prenom=lire(cellules, i_prenom),
+            badge=badge,
+            identifiant=str(p.id_charlemagne) if p is not None
+                        and p.id_charlemagne is not None else "",
+            nom=lire(cellules, i_nom), prenom=lire(cellules, i_prenom),
             classe=lire(cellules, i_classe), adresse_charlemagne=charle,
             adresse_referentiel=(p.email or "") if p is not None else "",
             type_personne=TYPES_CHARLEMAGNE.get(
@@ -303,8 +320,7 @@ def _composer_fichier(r: RapportAdresses, annee_libelle: str) -> None:
     w = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
     w.writerow(COLONNES_RETOUR)
     for c in lignes:
-        w.writerow([c.badge, c.type_personne, c.nom, c.prenom,
-                    c.adresse_referentiel])
+        w.writerow([c.identifiant, c.type_personne, c.adresse_referentiel, ""])
     r.csv_a_importer = BOM_UTF8 + buf.getvalue().encode("utf-8")
     suffixe = f"_{annee_libelle}" if annee_libelle else ""
     r.nom_fichier = f"Charlemagne_adresses{suffixe}.csv"

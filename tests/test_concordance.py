@@ -243,3 +243,62 @@ def test_l_alias_google_apparie_le_compte(session, etab, eleve):
     )
     assert r.lignes == [], "l'alias suffit à retrouver le compte"
     assert r.nb_accord == 1
+
+
+# ---------------------------------------------------------------------------
+# Les formats que Charlemagne produit
+# ---------------------------------------------------------------------------
+
+
+def _html(*lignes):
+    """Ce que Charlemagne appelle un `.htm` : une table HTML, en cp1252.
+
+    L'en-tête est en `<th>`, comme dans ses vrais exports — c'est ce qui
+    permet à pandas de le reconnaître comme tel plutôt que de numéroter les
+    colonnes.
+    """
+    entete = ("<tr><th>Num Badge</th><th>Identifiant Elève</th><th>Nom</th>"
+              "<th>Prénom</th><th>Code classe</th></tr>")
+    corps = "".join(
+        "<tr>" + "".join(f"<td>{c}</td>" for c in l) + "</tr>" for l in lignes
+    )
+    return f"<HTML><body><table>{entete}{corps}</table></body></HTML>".encode("cp1252")
+
+
+def test_l_export_html_de_charlemagne_est_lu(session, etab, eleve):
+    """L'écran l'acceptait, le service répondait « l'en-tête lu commence par
+    : <HTML> » — un message juste sur un fichier parfaitement valide."""
+    from backend.services.concordance import croiser
+
+    _, an = etab
+    r = croiser(
+        session, _html([eleve.badge, eleve.id_charlemagne, "CAZUC", "Axel", "2_5"]),
+        annee_id=an.id,
+    )
+    assert r.nb_lignes_lues == 1
+    (l,) = r.lignes
+    assert (l.charlemagne, l.referentiel) == ("2_5", "2_4")
+    assert "referentiel" in l.genres
+
+
+def test_un_html_sans_les_colonnes_est_refuse_clairement(session, etab):
+    from backend.services.concordance import ConcordanceImpossible, croiser
+
+    _, an = etab
+    mauvais = b"<HTML><table><tr><td>login</td></tr><tr><td>x</td></tr></table></HTML>"
+    with pytest.raises(ConcordanceImpossible) as e:
+        croiser(session, mauvais, annee_id=an.id)
+    assert "Num Badge" in str(e.value)
+
+
+def test_le_format_se_reconnait_au_contenu_pas_a_l_extension(session, etab, eleve):
+    """Un `.htm` renommé reste du HTML, et c'est la première chose qu'on
+    fait avec un export qu'on range."""
+    from backend.services.concordance import croiser
+
+    _, an = etab
+    avec_bom = b"\xef\xbb\xbf" + _html(
+        [eleve.badge, eleve.id_charlemagne, "CAZUC", "Axel", "2_4"]
+    ).decode("cp1252").encode("utf-8")
+    r = croiser(session, avec_bom, annee_id=an.id)
+    assert r.nb_lignes_lues == 1
