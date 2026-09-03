@@ -231,10 +231,52 @@ def test_le_fichier_porte_le_badge_et_l_adresse(session, eleve):
     texte = r.csv_a_importer.decode("utf-8-sig")
     lues = list(csv.reader(io.StringIO(texte), delimiter=";"))
     assert lues[0] == list(COLONNES_RETOUR)
-    assert lues[1] == [str(eleve.badge), "DUPONT", "Alice",
+    assert lues[1] == [str(eleve.badge), "ELEVE", "DUPONT", "Alice",
                        "alice.dupont@lekreisker.fr"]
     assert r.csv_a_importer.startswith(b"\xef\xbb\xbf")
     assert r.nom_fichier == "Charlemagne_adresses_2026-2027.csv"
+
+
+def test_le_type_est_en_deuxieme_colonne(session, eleve):
+    """Charlemagne le lit à cette place, et refuse le fichier s'il est
+    ailleurs."""
+    import csv
+    import io as _io
+
+    from backend.services.adresses_charlemagne import (
+        COLONNES_RETOUR,
+        confronter_adresses,
+    )
+
+    assert COLONNES_RETOUR[1] == "Type"
+    r = confronter_adresses(
+        session, _fichier(_ligne(eleve.badge, "DUPONT", "Alice", "2_1")),
+        comptes_google=[_compte("alice.dupont@lekreisker.fr")],
+    )
+    lues = list(csv.reader(_io.StringIO(r.csv_a_importer.decode("utf-8-sig")),
+                           delimiter=";"))
+    assert lues[0][1] == "Type"
+    assert lues[1][1] == "ELEVE"
+
+
+def test_un_adulte_porte_ADULTE(session, ndk, personne_factory):
+    """Le vocabulaire de Charlemagne n'est pas celui du référentiel."""
+    import csv
+    import io as _io
+
+    from backend.services.adresses_charlemagne import confronter_adresses
+
+    p = personne_factory(
+        type="adulte", site_id=ndk.id, nom="MARTIN", prenom="Jean",
+        login="jmartin",
+    )
+    r = confronter_adresses(
+        session, _fichier(_ligne(p.badge, "MARTIN", "Jean", "")),
+        comptes_google=[_compte("jean.martin@lekreisker.fr")],
+    )
+    lues = list(csv.reader(_io.StringIO(r.csv_a_importer.decode("utf-8-sig")),
+                           delimiter=";"))
+    assert lues[1][1] == "ADULTE"
 
 
 def test_aucun_fichier_quand_il_n_y_a_rien_a_importer(session, eleve):

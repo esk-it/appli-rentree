@@ -61,12 +61,17 @@ from backend.services.csv_charlemagne import (
 )
 from backend.services.repartition_pmb import RepartitionImpossible
 
-COLONNES_RETOUR = ("Num Badge", "Nom", "Prénom", "Email")
-"""Le minimum qu'un import a besoin de lire : la clé, et la valeur.
+COLONNES_RETOUR = ("Num Badge", "Type", "Nom", "Prénom", "Email")
+"""Ce que l'import de Charlemagne attend, dans cet ordre.
 
-Les deux colonnes d'identité ne servent qu'à relire le fichier avant de
-l'importer — c'est le badge qui apparie.
+`Type` doit être en **deuxième colonne** : c'est ainsi que Charlemagne le
+lit, et le fichier est refusé s'il est ailleurs. Les deux colonnes
+d'identité ne servent qu'à relire le fichier avant de l'importer — c'est le
+badge qui apparie.
 """
+
+TYPES_CHARLEMAGNE = {"eleve": "ELEVE", "adulte": "ADULTE"}
+"""Le vocabulaire de Charlemagne, qui n'est pas celui du référentiel."""
 
 COLONNES_REQUISES = ("Num Badge", "Email")
 
@@ -81,6 +86,8 @@ class Constat:
     classe: str
     adresse_charlemagne: str
     adresse_referentiel: str
+    type_personne: str
+    """`ELEVE` ou `ADULTE`, dans le vocabulaire de Charlemagne."""
     origine: str
     """`constatee`, `attribuee`, `calculee` ou `aucune`."""
     detail: str = ""
@@ -176,6 +183,9 @@ def confronter_adresses(
             badge=badge, nom=lire(cellules, i_nom), prenom=lire(cellules, i_prenom),
             classe=lire(cellules, i_classe), adresse_charlemagne=charle,
             adresse_referentiel=(p.email or "") if p is not None else "",
+            type_personne=TYPES_CHARLEMAGNE.get(
+                p.type if p is not None else "", "ELEVE"
+            ),
             origine=_origine(p),
         )
 
@@ -293,7 +303,8 @@ def _composer_fichier(r: RapportAdresses, annee_libelle: str) -> None:
     w = csv.writer(buf, delimiter=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
     w.writerow(COLONNES_RETOUR)
     for c in lignes:
-        w.writerow([c.badge, c.nom, c.prenom, c.adresse_referentiel])
+        w.writerow([c.badge, c.type_personne, c.nom, c.prenom,
+                    c.adresse_referentiel])
     r.csv_a_importer = BOM_UTF8 + buf.getvalue().encode("utf-8")
     suffixe = f"_{annee_libelle}" if annee_libelle else ""
     r.nom_fichier = f"Charlemagne_adresses{suffixe}.csv"
