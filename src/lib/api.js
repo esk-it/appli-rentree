@@ -168,6 +168,34 @@ export const arrivees = {
 };
 
 /**
+ * Croiser Charlemagne, le référentiel, Google et KoXo.
+ *
+ * Quatre systèmes portent la classe d'un élève, et chacun l'apprend à un
+ * moment différent. Aucun écran ne les montrait ensemble : le bilan
+ * comparait le référentiel à Google, le contrôle KoXo comparait KoXo au
+ * référentiel, et Charlemagne n'entrait que par l'ingestion.
+ */
+export const concordance = {
+  async croiser({ fichier, anneeId, fichierKoxo = null, interrogerGoogle = true }) {
+    if (!fichier) throw new Error("Export Charlemagne requis");
+    const corps = {
+      fichier_base64: arrayBufferEnBase64(await fichier.arrayBuffer()),
+      annee_id: anneeId,
+      interroger_google: interrogerGoogle,
+    };
+    if (fichierKoxo) {
+      corps.koxo_base64 = arrayBufferEnBase64(await fichierKoxo.arrayBuffer());
+    }
+    return jsonOrThrow(
+      await fetch(`${BASE}/concordance`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(corps),
+      }),
+    );
+  },
+};
+
+/**
  * Le bilan de rentrée : ce qui est en place, ce qui reste, ce qui cloche.
  *
  * La lecture est explicite et jamais automatique : elle parcourt tous les

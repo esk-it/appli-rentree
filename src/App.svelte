@@ -21,6 +21,7 @@
   import LogOut from "@lucide/svelte/icons/log-out";
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import ClipboardCheck from "@lucide/svelte/icons/clipboard-check";
+  import GitCompare from "@lucide/svelte/icons/git-compare";
   import Laptop from "@lucide/svelte/icons/laptop";
   import Scale from "@lucide/svelte/icons/scale";
   import Rocket from "@lucide/svelte/icons/rocket";
@@ -33,6 +34,7 @@
   import Coffre from "./routes/Coffre.svelte";
   import Arrivees from "./routes/Arrivees.svelte";
   import Bilan from "./routes/Bilan.svelte";
+  import Concordance from "./routes/Concordance.svelte";
   import Mouvements from "./routes/Mouvements.svelte";
   import Personnes from "./routes/Personnes.svelte";
   import Sites from "./routes/Sites.svelte";
@@ -316,6 +318,9 @@
         { id: "bascule", label: "Bascule des OU", icon: FolderTree },
         { id: "chromebooks", label: "Chromebooks", icon: Laptop },
         // Il clôt la campagne : c'est le geste qui dit si elle a abouti.
+        // Croise les quatre sources : c'est lui qui dit ce qui a bougé
+        // dans Charlemagne sans être redescendu ailleurs.
+        { id: "concordance", label: "Concordance", icon: GitCompare },
         { id: "bilan", label: "Bilan de rentrée", icon: ClipboardCheck },
       ],
     },
@@ -624,6 +629,8 @@
           <Coffre />
         {:else if page === "arrivees"}
           <Arrivees />
+        {:else if page === "concordance"}
+          <Concordance />
         {:else if page === "bilan"}
           <Bilan />
         {:else if page === "mouvements"}
