@@ -50,6 +50,7 @@ class LigneOut(BaseModel):
     google_classe: str | None
     google_ou: str | None
     koxo: str | None
+    koxo_consulte: bool
     genres: list[str]
     propose: str | None
 
@@ -58,6 +59,7 @@ class ConcordanceReponse(BaseModel):
     annee_libelle: str
     google_consulte: bool
     koxo_fourni: bool
+    koxo_sites: list[str] = []
     nb_lignes_lues: int
     nb_accord: int
     nb_a_corriger: int
@@ -100,7 +102,11 @@ def croiser_les_sources(
             tmp.write(contenu)
             chemin = Path(tmp.name)
         try:
-            lignes_koxo = lire_export_brut(chemin)
+            # `lire_export_brut` rend cinq choses — les lignes, les colonnes
+            # reconnues, le séparateur, l'encodage, et s'il portait des mots
+            # de passe. Prendre le tuple entier pour la liste faisait passer
+            # les mille six cent soixante-sept élèves pour absents de KoXo.
+            lignes_koxo, colonnes, _sep, _enc, _mdp = lire_export_brut(chemin)
         except Exception as e:
             raise HTTPException(400, f"Export KoXo illisible : {e}") from None
         finally:
@@ -108,6 +114,13 @@ def croiser_les_sources(
                 chemin.unlink()
             except OSError:
                 pass
+
+        if not lignes_koxo:
+            raise HTTPException(
+                400,
+                "L'export KoXo ne contient aucune ligne exploitable. "
+                f"Colonnes reconnues : {', '.join(colonnes) or 'aucune'}.",
+            )
 
     comptes = None
     membres: dict[str, list[str] | None] | None = None
@@ -154,6 +167,7 @@ def croiser_les_sources(
         annee_libelle=r.annee_libelle,
         google_consulte=r.google_consulte,
         koxo_fourni=r.koxo_fourni,
+        koxo_sites=r.koxo_sites,
         nb_lignes_lues=r.nb_lignes_lues,
         nb_accord=r.nb_accord,
         nb_a_corriger=r.nb_a_corriger,

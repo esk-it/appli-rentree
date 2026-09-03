@@ -145,19 +145,59 @@ def test_koxo_en_retard_est_signale(session, etab, eleve):
     assert "koxo" in l.genres
 
 
-def test_koxo_apparie_par_badge_jamais_par_nom(session, etab, eleve):
+def test_koxo_apparie_par_badge_jamais_par_nom(
+    session, etab, eleve, personne_factory
+):
     """Le programme écrit toujours le badge dans l'ID unique de KoXo ;
-    c'est la seule clé qui ne bouge pas."""
+    c'est la seule clé qui ne bouge pas. Une ligne dont le nom colle mais
+    dont l'ID diffère ne compte pas comme une correspondance."""
     from backend.services.concordance import croiser
 
-    _, an = etab
+    site, an = etab
+    autre = personne_factory(
+        type="eleve", site_id=site.id, nom="MARTIN", prenom="Lou",
+        login="lmartin", classe="2_4",
+    )
     r = croiser(
-        session, _fichier(f"{eleve.badge};CAZUC;Axel;2_4"), annee_id=an.id,
-        lignes_koxo=[_LigneKoxo("999999", "2_4")],
+        session,
+        _fichier(f"{eleve.badge};CAZUC;Axel;2_4", f"{autre.badge};MARTIN;Lou;2_4"),
+        annee_id=an.id,
+        # Le premier apparie (l'export parle donc bien de NDK) ; le second
+        # porte le bon nom mais un ID unique étranger.
+        lignes_koxo=[_LigneKoxo(str(autre.badge), "2_4"),
+                     _LigneKoxo("999999", "2_4")],
     )
     (l,) = r.lignes
+    assert l.nom == "CAZUC"
     assert l.koxo is None
     assert "absent_koxo" in l.genres
+
+
+def test_un_export_koxo_ne_parle_que_de_sa_base(
+    session, etab, eleve, site_factory, personne_factory
+):
+    """KoXo a **une base par établissement**, et on ne peut en exporter
+    qu'une. Déposer celui de NDK faisait passer les six cent quatre-vingt-
+    neuf élèves de SU pour absents de KoXo — un écart par élève, sur une
+    base qui n'était même pas interrogée."""
+    from backend.services.concordance import croiser
+
+    site, an = etab
+    su = site_factory("SU")
+    ailleurs = personne_factory(
+        type="eleve", site_id=su.id, nom="ABGRALL", prenom="Lena",
+        login="labgrall", classe="2_4",
+    )
+    r = croiser(
+        session,
+        _fichier(f"{eleve.badge};CAZUC;Axel;2_4",
+                 f"{ailleurs.badge};ABGRALL;Lena;2_4"),
+        annee_id=an.id,
+        lignes_koxo=[_LigneKoxo(str(eleve.badge), "2_4")],   # export NDK seul
+    )
+    assert r.koxo_sites == ["NDK"]
+    assert r.lignes == [], "l'élève de SU n'est pas accusé d'absence"
+    assert r.nb_accord == 2
 
 
 # ---------------------------------------------------------------------------

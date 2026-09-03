@@ -66,7 +66,7 @@
     sans_compte: "Sans compte Google",
     hors_arbre_de_classe: "Compte pas encore basculé",
     absent_referentiel: "Inconnu du référentiel",
-    absent_koxo: "Absent de l'export KoXo",
+    absent_koxo: "Absent de la base KoXo",
   };
 
   /** Ce qu'un changement de classe ne peut pas réparer. */
@@ -255,6 +255,10 @@
         L'annuaire Google est lu à chaque croisement — comptes et membres de
         chaque groupe de classe : compte une minute. Sans export KoXo, sa
         colonne reste vide plutôt que fausse.
+        <strong>KoXo a une base par établissement</strong> : un export ne
+        couvre que la sienne, et les élèves des autres sites ne sont pas
+        jugés dessus. Pour les couvrir tous, relance le croisement avec
+        l'export de l'autre base.
       </p>
     </div>
 
@@ -274,7 +278,11 @@
         <StatCard
           label="Classes concernées"
           value={rapport.classes_concernees.length}
-          hint={rapport.koxo_fourni ? "KoXo compris" : "sans KoXo"}
+          hint={rapport.koxo_fourni
+            ? (rapport.koxo_sites.length
+                ? `KoXo : ${rapport.koxo_sites.join(", ")}`
+                : "export KoXo non reconnu")
+            : "sans KoXo"}
         />
       </div>
 
@@ -354,8 +362,14 @@
                       {l.google_classe ?? (l.google_ou ? "hors classe" : "—")}
                     </td>
                     {#if rapport.koxo_fourni}
-                      <td class="px-2 py-1 {l.koxo !== l.charlemagne ? 'text-rose-600 dark:text-rose-400' : 'text-stone-500'}">
-                        {l.koxo ?? "—"}
+                      <td class="px-2 py-1 {l.koxo_consulte && l.koxo !== l.charlemagne ? 'text-rose-600 dark:text-rose-400' : 'text-stone-500'}">
+                        {#if !l.koxo_consulte}
+                          <span title="Cet export KoXo ne parle pas de son établissement">
+                            hors base
+                          </span>
+                        {:else}
+                          {l.koxo ?? "—"}
+                        {/if}
                       </td>
                     {/if}
                     <td class="px-2 py-1 text-xs text-stone-600 dark:text-stone-400">

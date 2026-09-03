@@ -70,6 +70,9 @@ class LigneConcordance:
     google_classe: str | None
     google_ou: str | None
     koxo: str | None
+    koxo_consulte: bool = False
+    """Faux quand l'export déposé ne parle pas de l'établissement de
+    l'élève : sa colonne se tait plutôt que d'accuser."""
 
     genres: list[str] = field(default_factory=list)
     """Ce qui diverge : `referentiel`, `google`, `koxo`, `sans_compte`…"""
@@ -87,6 +90,12 @@ class RapportConcordance:
     annee_libelle: str
     google_consulte: bool = False
     koxo_fourni: bool = False
+    koxo_sites: list[str] = field(default_factory=list)
+    """Les établissements dont l'export KoXo déposé parle.
+
+    KoXo a une base par établissement : un export ne peut en couvrir qu'un.
+    Les élèves des autres ne sont pas « absents de KoXo », ils sont hors du
+    champ de ce fichier."""
 
     nb_lignes_lues: int = 0
     nb_accord: int = 0
@@ -151,11 +160,13 @@ def croiser(
         comptes_google, membres_par_groupe
     )
     koxo_par_id = _index_koxo(lignes_koxo)
+    koxo_sites = _sites_couverts_par_koxo(session, lignes_koxo, par_badge)
 
     rapport = RapportConcordance(
         annee_libelle=annee.libelle,
         google_consulte=comptes_google is not None,
         koxo_fourni=lignes_koxo is not None,
+        koxo_sites=sorted(koxo_sites),
     )
 
     for enr in source:
@@ -181,6 +192,9 @@ def croiser(
             google_ou=ou_par_adresse.get(adresse),
             google_classe=classe_par_ou.get((ou_par_adresse.get(adresse) or "").lower()),
             koxo=koxo_par_id.get(badge),
+            koxo_consulte=(
+                p is not None and sites.get(p.site_id) in koxo_sites
+            ),
             propose=classe_ch,
         )
         _classer(ligne, groupes_par_adresse.get(adresse, set()), groupe_vers_classe,
@@ -344,7 +358,11 @@ def _classer(
         if groupes_de_classe - siens:
             ligne.genres.append("groupe")
 
-    if rapport.koxo_fourni:
+    # KoXo a une base par établissement, et un export n'en couvre qu'une.
+    # Un élève de l'autre site n'est pas absent de KoXo : il est hors du
+    # champ de ce fichier, et le lui reprocher noyait tout le reste sous
+    # seize cents écarts.
+    if rapport.koxo_fourni and ligne.koxo_consulte:
         if ligne.koxo is None:
             ligne.genres.append("absent_koxo")
         elif ligne.koxo != attendu:
@@ -413,3 +431,37 @@ def _index_koxo(lignes_koxo: list | None) -> dict[str, str]:
         if ident:
             par_id[ident] = (getattr(l, "groupe_secondaire", "") or "").strip()
     return par_id
+
+
+def _sites_couverts_par_koxo(
+    session: Session, lignes_koxo: list | None, par_badge: dict
+) -> set[str]:
+    """Les sites dont cet export KoXo parle, déduits de ses propres lignes.
+
+    KoXo a **une base par établissement** : NDK et SU sont deux serveurs, et
+    on ne peut en exporter qu'un à la fois. Sans cette restriction, déposer
+    l'export de NDK faisait passer les six cent quatre-vingt-neuf élèves de
+    SU pour absents de KoXo — un écart par élève, sur une base qui n'était
+    même pas interrogée.
+
+    Le site se lit sur les personnes que l'export contient, pas sur son nom
+    de fichier : `Export_complet_NDK.CSV` peut être renommé, ses lignes non.
+    """
+    if lignes_koxo is None:
+        return set()
+    sites = {s.id: s.nom for s in session.query(Site).all()}
+    trouves: dict[str, int] = {}
+    for l in lignes_koxo:
+        ident = (getattr(l, "id_unique", "") or "").strip()
+        p = par_badge.get(ident)
+        if p is not None and p.site_id in sites:
+            nom = sites[p.site_id]
+            trouves[nom] = trouves.get(nom, 0) + 1
+    # Un site représenté par une poignée de lignes face à des centaines est
+    # un accident — un professeur partagé, un compte de service. Le seuil se
+    # prend donc **en proportion** du site dominant, pas en valeur absolue :
+    # un export de trois lignes reste un export de son établissement.
+    if not trouves:
+        return set()
+    plancher = max(1, max(trouves.values()) // 20)
+    return {nom for nom, n in trouves.items() if n >= plancher}
