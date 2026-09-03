@@ -24,13 +24,17 @@
   let listeAnnees = $state([]);
 
   let cible = $state(
-    /** @type {"koxo"|"google"|"groupes"|"pmb"|"charlemagne"|"jpm"|"cardstudio"} */ ("koxo"),
+    /** @type {"koxo"|"google"|"groupes"|"pmb"|"charlemagne"|"listes"|"jpm"|"cardstudio"} */ ("koxo"),
   );
 
   /**
    * Les deux cibles qui partent d'un fichier de Charlemagne au lieu d'en
    * produire un : la répartition PMB et le retour des adresses. Elles
    * n'ont ni site ni catégorie à choisir — tout est dans le fichier.
+   *
+   * « Listes & étiquettes » part aussi d'un fichier, mais garde les
+   * sélecteurs : l'export KoXo ne dit ni de quel site il parle ni contre
+   * quelle année comparer les entrants.
    */
   let partDunFichier = $derived(cible === "pmb" || cible === "charlemagne");
 
@@ -403,10 +407,50 @@
     }
   }
 
-  /** @param {any} paquet */
-  async function enregistrerPaquet(paquet) {
+  /**
+   * Les trois documents de rentrée d'un site, depuis son export KoXo.
+   *
+   * Le référentiel ne connaît pas les mots de passe : là où KoXo existe,
+   * c'est lui l'autorité, et le programme n'en invente aucun. Les trois
+   * documents en ont pourtant besoin — la liste que le professeur principal
+   * garde, celle des entrants pour la vie scolaire, les étiquettes que
+   * l'élève emporte.
+   */
+  let fichierListes = $state(/** @type {File|null} */ (null));
+  let rapportListes = $state(/** @type {any} */ (null));
+
+  async function genererListes() {
+    if (!fichierListes || !siteId || !anneeCibleId) return;
+    chargement = true;
+    erreur = "";
+    rapportListes = null;
+    try {
+      rapportListes = await exportsCible.listesKoxo({
+        fichierKoxo: fichierListes,
+        siteId,
+        anneeCibleId,
+        anneeSourceId: anneeSourceId ?? null,
+      });
+      notify.succes(
+        `${rapportListes.nb_tous} élève(s), dont ${rapportListes.nb_nouveaux} entrants`,
+        { duree: 8000 },
+      );
+    } catch (e) {
+      erreur = String(e).replace(/^Error:\s*/, "");
+      notify.erreur(erreur, { duree: 14000 });
+    } finally {
+      chargement = false;
+    }
+  }
+
+  /**
+   * @param {any} paquet
+   * @param {string} [mime] - le type importe pour le classeur et le HTML :
+   *   sans lui, Windows ouvrirait un `.xlsx` dans un éditeur de texte.
+   */
+  async function enregistrerPaquet(paquet, mime = "text/csv") {
     const { chemin, annule } = await enregistrerFichierBase64(
-      paquet.nom_fichier, paquet.contenu_base64, "text/csv",
+      paquet.nom_fichier, paquet.contenu_base64, mime,
     );
     if (annule) return;
     notify.succes(
@@ -522,6 +566,7 @@
           { id: "groupes", label: "Groupes" },
           { id: "pmb", label: "PMB" },
           { id: "charlemagne", label: "Charlemagne" },
+          { id: "listes", label: "Listes & étiquettes" },
           { id: "jpm", label: "JPM" },
           { id: "cardstudio", label: "CardStudio" },
         ]}
@@ -570,6 +615,56 @@
         </select>
       </label>
     </div>
+    {/if}
+
+    {#if cible === "listes"}
+      <div class="rounded-lg border-2 border-dashed border-sky-300 bg-sky-50/40 p-3 dark:border-sky-700 dark:bg-sky-900/10">
+        <p class="mb-2 text-xs font-medium text-sky-900 dark:text-sky-200">
+          Trois documents, depuis l'export KoXo du site
+        </p>
+        <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
+          Le référentiel ne connaît pas les <strong>mots de passe</strong> : là
+          où KoXo existe, c'est lui l'autorité, et le programme n'en invente
+          aucun. Les trois documents en ont pourtant besoin. Exporte donc la
+          base KoXo <strong>en cochant l'inclusion des mots de passe</strong>,
+          puis dépose le fichier ici.
+        </p>
+        <ul class="mb-2 ml-4 list-disc text-xs text-stone-700 dark:text-stone-300">
+          <li>la liste de <strong>tous</strong> les élèves — classeur trié et filtrable</li>
+          <li>celle des <strong>entrants</strong> seuls</li>
+          <li>les <strong>étiquettes</strong> des entrants, une planche par classe</li>
+        </ul>
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
+            <Upload class="h-3.5 w-3.5" />
+            {fichierListes?.name ?? "Choisir l'export KoXo (avec mots de passe)"}
+            <input
+              type="file"
+              accept=".csv,.xlsx"
+              onchange={(e) => {
+                const champ = /** @type {HTMLInputElement} */ (e.target);
+                fichierListes = champ.files?.[0] ?? null;
+                rapportListes = null;
+              }}
+              class="hidden"
+            />
+          </label>
+          {#if fichierListes}
+            <button
+              class="text-xs text-stone-500 hover:text-red-600"
+              onclick={() => { fichierListes = null; rapportListes = null; }}
+            >
+              × retirer
+            </button>
+          {/if}
+        </div>
+        <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
+          <strong>KoXo a une base par établissement</strong> : dépose celle du
+          site choisi ci-dessus. Sans <strong>année source</strong>, les
+          entrants ne peuvent pas être distingués — ni leur liste ni leurs
+          étiquettes ne sont alors produites.
+        </p>
+      </div>
     {/if}
 
     {#if cible === "charlemagne"}
@@ -996,6 +1091,16 @@
         >
           Répartir par établissement
         </Bouton>
+      {:else if cible === "listes"}
+        <Bouton
+          variante="primary"
+          icon={FileDown}
+          occupe={chargement}
+          disabled={!fichierListes || !siteId || !anneeCibleId}
+          onclick={genererListes}
+        >
+          Produire les listes et les étiquettes
+        </Bouton>
       {:else if cible === "charlemagne"}
         <Bouton
           variante="primary"
@@ -1020,6 +1125,74 @@
         </Bouton>
       {/if}
     </div>
+
+    {#if rapportListes}
+      {@const r = rapportListes}
+      <div class="space-y-3 rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
+        <p class="text-xs text-stone-600 dark:text-stone-400">
+          {r.site_nom} · {r.annee_libelle} —
+          <strong class="tabular-nums">{r.nb_tous}</strong> élève(s), dont
+          <strong class="tabular-nums">{r.nb_nouveaux}</strong> entrants.
+        </p>
+
+        {#each [
+          { nom: r.nom_xlsx_tous, b64: r.xlsx_tous_base64, mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            titre: "Tous les élèves", detail: `${r.nb_tous} lignes · classe, identifiant, mot de passe, adresse` },
+          { nom: r.nom_xlsx_nouveaux, b64: r.xlsx_nouveaux_base64, mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            titre: "Les entrants seuls", detail: `${r.nb_nouveaux} lignes` },
+          { nom: r.nom_etiquettes, b64: r.etiquettes_base64, mime: "text/html",
+            titre: "Étiquettes des entrants", detail: "une planche par classe, à imprimer depuis le navigateur" },
+        ] as doc (doc.titre)}
+          {#if doc.b64}
+            <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-stone-200 bg-white p-2.5 dark:border-stone-700 dark:bg-stone-900">
+              <div class="min-w-0">
+                <p class="text-sm font-medium">{doc.titre}</p>
+                <p class="text-xs text-stone-500 dark:text-stone-400">{doc.detail}</p>
+              </div>
+              <Bouton
+                icon={Download}
+                taille="sm"
+                onclick={() =>
+                  enregistrerPaquet({ nom_fichier: doc.nom, contenu_base64: doc.b64 }, doc.mime)}
+              >
+                {doc.nom}
+              </Bouton>
+            </div>
+          {/if}
+        {/each}
+
+        {#if !r.xlsx_nouveaux_base64}
+          <p class="rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+            Sans <strong>année source</strong>, les entrants ne peuvent pas être
+            distingués : seule la liste complète est produite.
+          </p>
+        {/if}
+
+        {#if r.sans_ligne_koxo.length}
+          <details class="rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-800 dark:bg-amber-950/40">
+            <summary class="cursor-pointer text-xs font-medium text-amber-900 dark:text-amber-200">
+              {r.sans_ligne_koxo.length} élève(s) absents de l'export KoXo
+            </summary>
+            <p class="mt-1 text-xs text-amber-800 dark:text-amber-300">
+              Ils n'ont pas de mot de passe à distribuer, et ne figurent dans
+              aucun des trois documents. Synchronise KoXo, puis reprends
+              l'export.
+            </p>
+            <p class="mt-1 text-xs text-stone-600 dark:text-stone-400">
+              {r.sans_ligne_koxo.join(" · ")}
+            </p>
+          </details>
+        {/if}
+
+        {#if r.sans_mot_de_passe.length}
+          <p class="rounded-lg border border-rose-300 bg-rose-50 p-2.5 text-xs text-rose-900 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
+            {r.sans_mot_de_passe.length} élève(s) sans mot de passe dans
+            l'export — leur étiquette sortirait vide. Reprends l'export KoXo en
+            cochant l'inclusion des mots de passe.
+          </p>
+        {/if}
+      </div>
+    {/if}
 
     {#if rapportAdresses}
       {@const r = rapportAdresses}

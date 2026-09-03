@@ -852,3 +852,127 @@ def exporter_cardstudio(payload: ExportCardStudioPayload, session: Session = Dep
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
         nb_prevus_enregistres=nb_prevus,
     )
+
+
+# ---------------------------------------------------------------------------
+# Les listes de rentrée, tirées d'un export KoXo
+# ---------------------------------------------------------------------------
+
+
+class ListesKoxoPayload(BaseModel):
+    """L'export KoXo avec les mots de passe, et le site qu'il concerne."""
+
+    koxo_base64: str
+    site_id: int
+    annee_cible_id: int
+    annee_source_id: int | None = None
+
+
+class ListesKoxoReponse(BaseModel):
+    site_nom: str
+    annee_libelle: str
+    nb_tous: int
+    nb_nouveaux: int
+    sans_ligne_koxo: list[str]
+    sans_mot_de_passe: list[str]
+    koxo_hors_site: int
+    nom_xlsx_tous: str
+    xlsx_tous_base64: str
+    nom_xlsx_nouveaux: str
+    xlsx_nouveaux_base64: str
+    nom_etiquettes: str
+    etiquettes_base64: str
+
+
+@router.post("/listes-koxo", response_model=ListesKoxoReponse)
+def listes_koxo(
+    payload: ListesKoxoPayload, session: Session = Depends(db_session)
+) -> ListesKoxoReponse:
+    """Trois documents de rentrée d'un seul export : liste, entrants, fiches.
+
+    Le référentiel ne connaît pas les mots de passe — là où KoXo existe,
+    c'est lui l'autorité. Or les trois en ont besoin. Ils se tirent donc de
+    l'export KoXo pris **avec les mots de passe**.
+
+    Ce que le programme ajoute à ce que KoXo sait déjà imprimer : distinguer
+    les entrants, ce qui demande l'année précédente, et rendre un classeur
+    qu'on trie plutôt qu'un tableau figé.
+    """
+    from pathlib import Path
+    from tempfile import NamedTemporaryFile
+
+    from backend.services.controle_koxo import lire_export_brut
+    from backend.services.listes_depuis_koxo import (
+        ListesImpossibles,
+        listes_depuis_koxo,
+    )
+
+    try:
+        contenu = base64.b64decode(payload.koxo_base64)
+    except Exception as e:
+        raise HTTPException(400, f"Base64 invalide : {e}") from e
+
+    with NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp.write(contenu)
+        chemin = Path(tmp.name)
+    try:
+        lignes, colonnes, _sep, _enc, avait_mdp = lire_export_brut(
+            chemin, garder_mots_de_passe=True
+        )
+    except Exception as e:
+        raise HTTPException(400, f"Export KoXo illisible : {e}") from None
+    finally:
+        try:
+            chemin.unlink()
+        except OSError:
+            pass
+
+    if not avait_mdp:
+        raise HTTPException(
+            400,
+            "Cet export ne porte pas de colonne « Mot de passe ». Reprends-le "
+            "depuis KoXo en cochant l'inclusion des mots de passe — sans eux, "
+            "ni les listes ni les étiquettes n'ont d'objet. Colonnes lues : "
+            + (", ".join(colonnes) or "aucune"),
+        )
+
+    try:
+        r = listes_depuis_koxo(
+            session, lignes, site_id=payload.site_id,
+            annee_cible_id=payload.annee_cible_id,
+            annee_source_id=payload.annee_source_id,
+        )
+    except ListesImpossibles as e:
+        raise HTTPException(400, str(e)) from None
+
+    # Le journal ne porte ni mot de passe ni nom : seulement des nombres.
+    try:
+        journaliser(
+            session,
+            type_operation="export",
+            cible="listes_koxo",
+            annee_libelle=r.annee_libelle,
+            parametres={"site": r.site_nom},
+            resultat={
+                "nb_tous": r.nb_tous, "nb_nouveaux": r.nb_nouveaux,
+                "nb_sans_ligne_koxo": len(r.sans_ligne_koxo),
+                "nb_sans_mot_de_passe": len(r.sans_mot_de_passe),
+            },
+        )
+        session.commit()
+    except Exception:  # pragma: no cover — le journal ne doit rien casser
+        session.rollback()
+
+    b64 = lambda o: base64.b64encode(o).decode("ascii")
+    return ListesKoxoReponse(
+        site_nom=r.site_nom, annee_libelle=r.annee_libelle,
+        nb_tous=r.nb_tous, nb_nouveaux=r.nb_nouveaux,
+        sans_ligne_koxo=r.sans_ligne_koxo,
+        sans_mot_de_passe=r.sans_mot_de_passe,
+        koxo_hors_site=r.koxo_hors_site,
+        nom_xlsx_tous=r.nom_xlsx_tous, xlsx_tous_base64=b64(r.xlsx_tous),
+        nom_xlsx_nouveaux=r.nom_xlsx_nouveaux,
+        xlsx_nouveaux_base64=b64(r.xlsx_nouveaux),
+        nom_etiquettes=r.nom_etiquettes,
+        etiquettes_base64=b64(r.etiquettes_nouveaux),
+    )

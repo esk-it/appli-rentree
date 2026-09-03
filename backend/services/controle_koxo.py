@@ -154,6 +154,12 @@ class LigneKoxo:
     groupe_secondaire: str = ""
     email: str = ""
     date_naissance: str = ""
+    mot_de_passe: str = ""
+    """Vide sauf si la lecture l'a explicitement demandé.
+
+    Le contrôle n'en a pas besoin, et un secret qu'on ne lit pas est un
+    secret qu'on ne peut pas laisser fuir dans un journal ou une réponse
+    HTTP. Seules les listes distribuées à la rentrée le réclament."""
 
     @property
     def nom_complet(self) -> str:
@@ -243,6 +249,8 @@ class RapportControle:
 
 def lire_export_brut(
     chemin: str | Path,
+    *,
+    garder_mots_de_passe: bool = False,
 ) -> tuple[list[LigneKoxo], list[str], str, str, bool]:
     """Lit l'export sans rien convertir.
 
@@ -250,6 +258,12 @@ def lire_export_brut(
     retenus — ces trois derniers pour que l'écran puisse montrer comment le
     fichier a été compris, plutôt que de le laisser deviner — et si une
     colonne de mots de passe était présente.
+
+    Args:
+        garder_mots_de_passe: par défaut la colonne est reconnue puis
+            **jetée**. Le contrôle n'en a pas besoin, et un secret qu'on ne
+            lit pas ne peut pas fuir. Seules les listes de rentrée la
+            réclament, et le demandent alors explicitement.
     """
     chemin = Path(chemin)
     if not chemin.exists():
@@ -293,6 +307,10 @@ def lire_export_brut(
     for i, ligne in enumerate(brutes, start=2):  # 1 = en-tête
         valeurs = {}
         for colonne, champ in correspondance.items():
+            if champ == "_motdepasse":
+                if garder_mots_de_passe:
+                    valeurs["mot_de_passe"] = (ligne.get(colonne) or "").strip()
+                continue
             if champ.startswith("_"):
                 continue
             valeurs[champ] = (ligne.get(colonne) or "").strip()

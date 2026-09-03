@@ -1000,6 +1000,26 @@ export const exportsCible = {
       }),
     );
   },
+  /**
+   * Les trois documents de rentrée d'un site, depuis son export KoXo.
+   *
+   * Le référentiel ne connaît pas les mots de passe — là où KoXo existe,
+   * c'est lui l'autorité. Or la liste du professeur principal, celle des
+   * entrants et les étiquettes en ont toutes besoin.
+   */
+  async listesKoxo({ fichierKoxo, siteId, anneeCibleId, anneeSourceId = null }) {
+    if (!fichierKoxo) throw new Error("Export KoXo requis");
+    const koxo_base64 = arrayBufferEnBase64(await fichierKoxo.arrayBuffer());
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/listes-koxo`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          koxo_base64, site_id: siteId,
+          annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+        }),
+      }),
+    );
+  },
   async jpm({ siteId, anneeCibleId, anneeSourceId, enregistrerPrevus = false }) {
     return jsonOrThrow(
       await fetch(`${BASE}/exports/jpm`, {
