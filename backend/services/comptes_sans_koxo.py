@@ -335,7 +335,9 @@ def fiches_html(
 
     Args:
         etiquettes: dicts portant `nom`, `prenom`, `classe`, `groupe`,
-            `login`, `mot_de_passe`.
+            `login`, `mot_de_passe` et **`adresse`** — c'est cette dernière
+            que la ligne « Email » affiche. L'oublier ne fait pas d'erreur :
+            l'étiquette sort avec « Email : » suivi de rien.
         organisation: ce qu'affiche le bandeau — chez KoXo, le nom de
             l'organisation de l'annuaire.
     """

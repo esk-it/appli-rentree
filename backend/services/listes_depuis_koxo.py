@@ -50,6 +50,24 @@ class ListesImpossibles(Exception):
     """La génération est refusée, et le message dit pourquoi."""
 
 
+def classe_lisible(code: str) -> str:
+    """« 33 » devient « 3_3 » — le niveau, puis le rang.
+
+    Le collège code ses classes en deux chiffres collés quand le lycée
+    sépare déjà les siens (`1_G2`, `T_BPMCV`). Sur un document distribué à
+    l'élève, la même école parlait donc deux langues, et « 33 » ne se lit
+    pas comme une troisième.
+
+    C'est une mise en forme, pas un changement de code : KoXo, Charlemagne
+    et Google continuent de recevoir `33`. Seuls les documents papier
+    changent.
+    """
+    c = (code or "").strip()
+    if len(c) == 2 and c[0].isdigit() and c.isalnum():
+        return f"{c[0]}_{c[1]}"
+    return c
+
+
 @dataclass
 class LigneListe:
     personne_id: int
@@ -60,6 +78,11 @@ class LigneListe:
     mot_de_passe: str
     email: str
     nouveau: bool = False
+
+    @property
+    def classe_affichee(self) -> str:
+        """La classe telle qu'on l'imprime, pas telle qu'on la stocke."""
+        return classe_lisible(self.classe)
 
 
 @dataclass
@@ -218,9 +241,14 @@ def _composer(rapport: RapportListes, site, annee, *, avec_nouveaux: bool) -> No
     rapport.etiquettes_nouveaux = fiches_html(
         [
             {
-                "nom": l.nom, "prenom": l.prenom, "classe": l.classe,
-                "groupe": l.classe, "login": l.login,
+                "nom": l.nom, "prenom": l.prenom,
+                "classe": l.classe_affichee,
+                "groupe": l.classe_affichee, "login": l.login,
                 "mot_de_passe": l.mot_de_passe,
+                # La ligne « Email » de l'étiquette lit `adresse`. L'oublier
+                # ne lève rien : l'élève repartait avec « Email : » suivi
+                # de rien, et c'est justement l'adresse qu'il vient chercher.
+                "adresse": l.email,
             }
             for l in rapport.nouveaux
         ],
@@ -254,7 +282,8 @@ def _classeur(lignes: list[LigneListe], titre_feuille: str) -> bytes:
         c.alignment = Alignment(vertical="center")
 
     for l in lignes:
-        ws.append([l.nom, l.prenom, l.classe, l.login, l.mot_de_passe, l.email])
+        ws.append([l.nom, l.prenom, l.classe_affichee, l.login,
+                   l.mot_de_passe, l.email])
 
     largeurs = (24, 18, 12, 14, 14, 34)
     for i, w in enumerate(largeurs, start=1):

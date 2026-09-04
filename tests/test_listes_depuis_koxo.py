@@ -123,6 +123,49 @@ def test_les_etiquettes_ne_portent_que_les_nouveaux(session, etab, deux_eleves):
     assert "ABGRALL" not in html, "l'ancienne a déjà ses identifiants"
 
 
+def test_la_classe_du_college_separe_le_niveau_du_rang(session, etab, deux_eleves):
+    """« 33 » ne se lit pas comme une troisième. Le lycée sépare déjà les
+    siennes (`1_G2`) : sur un document distribué, la même école ne doit
+    pas parler deux langues. Le code stocké, lui, ne change pas."""
+    from backend.services.listes_depuis_koxo import (
+        classe_lisible,
+        listes_depuis_koxo,
+    )
+
+    assert classe_lisible("33") == "3_3"
+    assert classe_lisible("61") == "6_1"
+    assert classe_lisible("1_G2") == "1_G2", "le lycée est déjà séparé"
+    assert classe_lisible("BTS_1") == "BTS_1"
+    assert classe_lisible("") == ""
+
+    su, source, cible = etab
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id,
+    )
+    classes = {l[2] for l in _lire_xlsx(r.xlsx_tous)[1:]}
+    assert classes == {"5_1", "6_1"}, "le classeur porte la forme lisible"
+    assert {l.classe for l in r.lignes} == {"51", "61"}, "le code reste intact"
+
+
+def test_letiquette_porte_ladresse_de_leleve(session, etab, deux_eleves):
+    """C'est ce que l'élève vient chercher. Le gabarit lit la clé
+    `adresse` ; l'oublier ne lève rien et sort « Email : » suivi de rien."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+
+    su, source, cible = etab
+    _, entrant = deux_eleves
+    entrant.email_constate = "tom.bihan@lekreisker.fr"
+    session.commit()
+
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id,
+    )
+    html = r.etiquettes_nouveaux.decode("utf-8")
+    assert "tom.bihan@lekreisker.fr" in html
+
+
 def test_sans_annee_precedente_aucun_document_d_entrants(
     session, etab, deux_eleves
 ):
