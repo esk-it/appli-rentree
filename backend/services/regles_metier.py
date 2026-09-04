@@ -82,6 +82,23 @@ def normaliser_pour_email(
     return re.sub(r"[^a-z0-9.\-]", "", s)
 
 
+def classe_lisible(code: str) -> str:
+    """« 33 » devient « 3_3 » — le niveau, puis le rang.
+
+    Le collège code ses classes en deux caractères collés (`33`, `3F`) là
+    où le lycée sépare déjà les siennes (`1_G2`, `T_BPMCV`). Sur un
+    document distribué à l'élève, la même école parlait donc deux langues,
+    et « 33 » ne se lit pas comme une troisième.
+
+    C'est une **mise en forme**, pas un changement de code : KoXo,
+    Charlemagne et Google continuent de recevoir `33`.
+    """
+    c = (code or "").strip()
+    if len(c) == 2 and c[0].isdigit() and c.isalnum():
+        return f"{c[0]}_{c[1]}"
+    return c
+
+
 # ---------------------------------------------------------------------------
 # Login
 # ---------------------------------------------------------------------------

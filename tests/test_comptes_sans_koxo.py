@@ -222,7 +222,10 @@ def test_les_etiquettes_portent_identite_identifiant_et_mot_de_passe(session, nd
 
     page = fiches.decode("utf-8")
     assert page.count('class="etiquette"') == 3
-    assert "Elèves / 6B" in page
+    # La classe seule : « Elèves / 6B » n'apprenait rien de plus, le groupe
+    # primaire étant le même pour tous. Et le niveau se sépare du rang.
+    assert "6_B" in page
+    assert "Elèves /" not in page
 
     # Les deux fichiers disent la même chose : une étiquette qui ne
     # correspondrait pas au compte créé serait pire que pas d'étiquette.
@@ -259,7 +262,7 @@ def test_une_planche_par_classe(session, site_factory, annee_factory,
     assert page.count('class="planche"') == 2, "une planche par classe"
     assert page.count('class="etiquette"') == 3
     # 6V vient après 6B : les planches sont dans l'ordre des classes.
-    assert page.index("Elèves / 6B") < page.index("Elèves / 6V")
+    assert page.index("6_B") < page.index("6_V")
 
 
 def test_un_site_sans_eleve_ne_produit_rien_et_le_dit(session, site_factory,
@@ -418,7 +421,12 @@ def test_lorganisation_du_site_est_reprise(session, site_factory, annee_factory,
     _, etiquettes, _ = preparer_comptes(
         session, cle, site_id=site.id, annee_cible_id=annee.id, categorie="tous",
     )
-    assert "OGEC NOTRE DAME D ESPERANCE" in etiquettes.decode("utf-8")
+    page = etiquettes.decode("utf-8")
+    # Le bandeau nomme l'établissement, que l'élève reconnaît, et non
+    # l'OGEC qui le gère. Celui-ci ne sert plus que de remplacement quand
+    # le site n'a pas de nom complet.
+    assert site.nom_complet in page
+    assert "OGEC NOTRE DAME D ESPERANCE" not in page
 
 
 def test_l_etiquette_porte_l_adresse_de_connexion(session, nde):
@@ -510,7 +518,7 @@ def test_le_logo_ne_rogne_pas_le_nom(session, nde):
     session.commit()
 
     page = fiches.decode("utf-8")
-    bloc = page[page.index(".logo {") : page.index(".logo {") + 200]
+    bloc = page[page.index(".logos {") : page.index(".logos {") + 220]
     assert "bottom: 10pt" in bloc
     assert "top:" not in bloc
     # Plus aucune réserve à droite du nom ni du groupe.

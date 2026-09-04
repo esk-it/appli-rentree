@@ -89,6 +89,7 @@ def preparer_comptes(
     """
     from backend.models import AnneeScolaire, Site
     from backend.services.exports_google import BOM_UTF8, generer_csv_google
+    from backend.services.regles_metier import classe_lisible
 
     if not cle:
         raise GenerationImpossible(
@@ -172,11 +173,13 @@ def preparer_comptes(
         classe = classes.get(personne.id) or ""
         fiches.append(
             {
-                "classe": classe,
+                "classe": classe_lisible(classe),
                 "nom": personne.nom or "",
                 "prenom": personne.prenom or "",
-                # KoXo affiche « groupe primaire / groupe secondaire ».
-                "groupe": f"Elèves / {classe}" if classe else "Elèves",
+                # KoXo affiche « groupe primaire / groupe secondaire »,
+                # mais « Elèves / 3F » n'apprend rien de plus à l'élève que
+                # « 3_F » : le groupe primaire est le même pour tous.
+                "groupe": classe_lisible(classe),
                 "login": personne.login or "",
                 "mot_de_passe": mdp,
                 # L'identifiant réseau ne suffit pas : c'est l'adresse que
@@ -192,13 +195,21 @@ def preparer_comptes(
         _encoder(colonnes, lignes),
         fiches_html(
             fiches,
+            # Le bandeau nomme l'établissement — « Collège Notre Dame
+            # d'Esperance » — et non l'OGEC qui le gère : c'est un papier
+            # remis à l'élève, qui reconnaît son collège, pas son
+            # organisme gestionnaire. `organisation_etiquettes` reste un
+            # remplacement explicite quand on en veut un autre.
             organisation=(
                 organisation
-                or site.organisation_etiquettes
                 or site.nom_complet
+                or site.organisation_etiquettes
                 or site.nom
             ),
             annee=annee.libelle if annee else "",
+            # NDE n'a pas de serveur : promettre un accès réseau qui
+            # n'existe pas serait pire que de ne rien afficher.
+            avec_reseau=bool(site.base_koxo),
         ),
         rapport,
     )
@@ -285,6 +296,24 @@ LOGO_GOOGLE = """<svg class="logo" viewBox="0 0 48 48" role="img" aria-label="Go
 <path fill="#FBBC05" d="M11.69 28.18C11.25 26.86 11 25.45 11 24s.25-2.86.69-4.18v-5.7H4.34C2.85 17.09 2 20.45 2 24s.85 6.91 2.34 9.88l7.35-5.7z"/>
 <path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/>
 </svg>"""
+LOGO_RESEAU = """<svg class="logo" viewBox="0 0 48 48" role="img" aria-label="Réseau">
+<circle cx="24" cy="11" r="6" fill="#0078D4"/>
+<circle cx="10" cy="36" r="6" fill="#50B0E8"/>
+<circle cx="38" cy="36" r="6" fill="#50B0E8"/>
+<path d="M24 17v7M24 24l-11 8M24 24l11 8" stroke="#0078D4" stroke-width="2.6"
+ stroke-linecap="round" fill="none"/>
+</svg>"""
+"""Le compte du reseau, pour les sites qui en ont un.
+
+L'etiquette ne portait que Google, et l'eleve de NDK ou de SU en a
+pourtant deux usages : sa session Windows et sa boite. Un glyphe generique
+plutot que la marque exacte de l'editeur : ce qu'il faut dire, c'est
+« ces identifiants ouvrent aussi l'ordinateur ».
+
+NDE n'a pas de serveur, et n'affiche donc pas ce logo — promettre un acces
+qui n'existe pas serait pire que de ne rien dire.
+"""
+
 """Le logo Google, dessine en SVG plutot que charge.
 
 Le fichier doit rester autonome : une image distante ne s'imprimerait pas
@@ -307,6 +336,7 @@ def fiches_html(
     *,
     organisation: str,
     annee: str,
+    avec_reseau: bool = False,
 ) -> bytes:
     """Les étiquettes de comptes, à imprimer — présentation de KoXo.
 
@@ -354,13 +384,15 @@ def fiches_html(
     for e in etiquettes:
         par_classe.setdefault(e.get("classe") or "", []).append(e)
 
+    logo_reseau = LOGO_RESEAU if avec_reseau else ""
+
     def carte(e: dict) -> str:
         return (
             f'''<div class="etiquette">
   <div class="bandeau">{_echapper(organisation)}</div>
   <p class="identite">{_echapper(e.get("prenom", ""))} {_echapper(e.get("nom", ""))}</p>
   <p class="groupe">{_echapper(e.get("groupe", ""))}</p>
-  {LOGO_GOOGLE}
+  <span class="logos">{LOGO_GOOGLE}{logo_reseau}</span>
   <p class="ligne"><span class="etiq">Identifiant :</span><span class="val">{_echapper(e.get("login", ""))}</span></p>
   <p class="ligne"><span class="etiq">Mot de passe :</span><span class="val">{_echapper(e.get("mot_de_passe", ""))}</span></p>
   <p class="ligne petite"><span class="etiq">Email :</span><span class="val">{_echapper(e.get("adresse", ""))}</span></p>
@@ -493,10 +525,15 @@ def fiches_html(
      « Warren ACQUITTER LE VELLY » s'y trouvait coupé au milieu. Ici il ne
      longe que la plus courte des quatre lignes, et le nom reprend toute la
      largeur de la carte. */
-  .logo {{
+  .logos {{
     position: absolute;
     right: 6pt;
     bottom: 10pt;
+    display: flex;
+    align-items: center;
+    gap: 3pt;
+  }}
+  .logo {{
     width: 22pt;
     height: 22pt;
   }}

@@ -148,6 +148,52 @@ def test_la_classe_du_college_separe_le_niveau_du_rang(session, etab, deux_eleve
     assert {l.classe for l in r.lignes} == {"51", "61"}, "le code reste intact"
 
 
+def test_le_bandeau_nomme_letablissement_pas_logec(session, etab, deux_eleves):
+    """L'élève reconnaît « Collège Sainte Ursule », pas l'organisme qui le
+    gère. L'OGEC ne sert plus que faute de nom complet."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+
+    su, source, cible = etab
+    su.nom_complet = "Collège Sainte Ursule"
+    su.organisation_etiquettes = "OGEC PAUL AURELIEN"
+    session.commit()
+
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id,
+    )
+    page = r.etiquettes_nouveaux.decode("utf-8")
+    assert "Collège Sainte Ursule" in page
+    assert "OGEC PAUL AURELIEN" not in page
+
+
+def test_le_logo_reseau_ne_parait_que_la_ou_koxo_existe(
+    session, etab, deux_eleves, site_factory
+):
+    """NDE n'a pas de serveur : y promettre un accès réseau serait pire
+    que de ne rien afficher."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+
+    su, source, cible = etab
+    su.base_koxo = "SU"
+    session.commit()
+    avec = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id,
+    ).etiquettes_nouveaux.decode("utf-8")
+    assert 'aria-label="Réseau"' in avec
+    assert 'aria-label="Google"' in avec, "les deux, pas l'un ou l'autre"
+
+    su.base_koxo = None
+    session.commit()
+    sans = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id,
+    ).etiquettes_nouveaux.decode("utf-8")
+    assert 'aria-label="Réseau"' not in sans
+    assert 'aria-label="Google"' in sans
+
+
 def test_letiquette_porte_ladresse_de_leleve(session, etab, deux_eleves):
     """C'est ce que l'élève vient chercher. Le gabarit lit la clé
     `adresse` ; l'oublier ne lève rien et sort « Email : » suivi de rien."""

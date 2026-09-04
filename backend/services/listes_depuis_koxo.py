@@ -42,30 +42,13 @@ from sqlalchemy.orm import Session
 
 from backend.models import AnneeScolaire, Personne, Site, Snapshot
 from backend.services.rattachement import ids_personnes_du_site, ids_presents_annee
+from backend.services.regles_metier import classe_lisible
 
 COLONNES = ("Nom", "Prénom", "Classe", "Identifiant", "Mot de passe", "Adresse")
 
 
 class ListesImpossibles(Exception):
     """La génération est refusée, et le message dit pourquoi."""
-
-
-def classe_lisible(code: str) -> str:
-    """« 33 » devient « 3_3 » — le niveau, puis le rang.
-
-    Le collège code ses classes en deux chiffres collés quand le lycée
-    sépare déjà les siens (`1_G2`, `T_BPMCV`). Sur un document distribué à
-    l'élève, la même école parlait donc deux langues, et « 33 » ne se lit
-    pas comme une troisième.
-
-    C'est une mise en forme, pas un changement de code : KoXo, Charlemagne
-    et Google continuent de recevoir `33`. Seuls les documents papier
-    changent.
-    """
-    c = (code or "").strip()
-    if len(c) == 2 and c[0].isdigit() and c.isalnum():
-        return f"{c[0]}_{c[1]}"
-    return c
 
 
 @dataclass
@@ -238,7 +221,14 @@ def _composer(rapport: RapportListes, site, annee, *, avec_nouveaux: bool) -> No
     rapport.xlsx_nouveaux = _classeur(rapport.nouveaux, f"{site.nom} entrants")
     rapport.nom_xlsx_nouveaux = f"Comptes_{site.nom}_{annee.libelle}_nouveaux.xlsx"
 
-    rapport.etiquettes_nouveaux = fiches_html(
+    rapport.etiquettes_nouveaux = _etiquettes(rapport, site, annee)
+    rapport.nom_etiquettes = f"Etiquettes_{site.nom}_{annee.libelle}_nouveaux.html"
+
+
+def _etiquettes(rapport: RapportListes, site, annee) -> bytes:
+    from backend.services.comptes_sans_koxo import fiches_html
+
+    return fiches_html(
         [
             {
                 "nom": l.nom, "prenom": l.prenom,
@@ -252,10 +242,15 @@ def _composer(rapport: RapportListes, site, annee, *, avec_nouveaux: bool) -> No
             }
             for l in rapport.nouveaux
         ],
-        organisation=site.organisation_etiquettes or site.nom_complet or site.nom,
+        # Le bandeau nomme l'établissement — « Collège Sainte Ursule » — et
+        # non l'OGEC qui le gère : c'est un papier remis à l'élève, qui
+        # reconnaît son collège, pas son organisme gestionnaire.
+        organisation=site.nom_complet or site.organisation_etiquettes or site.nom,
         annee=annee.libelle,
+        # Là où KoXo existe, l'élève ouvre aussi une session sur le réseau :
+        # les mêmes identifiants servent deux fois, et l'étiquette le dit.
+        avec_reseau=bool(site.base_koxo),
     )
-    rapport.nom_etiquettes = f"Etiquettes_{site.nom}_{annee.libelle}_nouveaux.html"
 
 
 def _classeur(lignes: list[LigneListe], titre_feuille: str) -> bytes:
