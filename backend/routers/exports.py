@@ -869,6 +869,11 @@ class ListesKoxoPayload(BaseModel):
     classes: list[str] = []
     """Vide, tout le site : on ne devine pas un filtre que personne n'a
     demandé."""
+    personne_ids: list[int] = []
+    """Des élèves nommément choisis — le cas du mot de passe perdu, où l'on
+    ne veut qu'une étiquette."""
+    par_page: int = 18
+    """15 ou 18 étiquettes par feuille A4."""
     documents: list[str] = []
     """Vide, les quatre. Choisir évite d'attendre six cent quatre-vingt-dix
     étiquettes quand on ne voulait qu'un classeur."""
@@ -882,9 +887,54 @@ class ModeleOut(BaseModel):
     description: str
 
 
+class EleveDuSiteOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str
+
+
+@router.get("/eleves-du-site", response_model=list[EleveDuSiteOut])
+def eleves_du_site(
+    site_id: int, annee_id: int, session: Session = Depends(db_session)
+) -> list[EleveDuSiteOut]:
+    """Les élèves du site pour une année, avec leur classe.
+
+    Sert à choisir **avant** de générer. La première version ne proposait
+    les classes qu'une fois les documents produits : il fallait tout sortir
+    pour découvrir la liste, cocher, puis tout refaire.
+    """
+    from backend.models import Personne
+    from backend.services.listes_depuis_koxo import _classes_de_lannee
+    from backend.services.rattachement import ids_personnes_du_site
+
+    ids = ids_personnes_du_site(
+        session, site_id=site_id, annee_id=annee_id, type_personne="eleve"
+    )
+    if not ids:
+        return []
+    classes = _classes_de_lannee(session, annee_id)
+    gens = (
+        session.query(Personne)
+        .filter(Personne.id.in_(ids), Personne.type == "eleve")
+        .all()
+    )
+    sortie = [
+        EleveDuSiteOut(
+            personne_id=p.id,
+            nom=p.nom or "",
+            prenom=p.prenom or "",
+            classe=classes.get(p.id) or (p.classe or ""),
+        )
+        for p in gens
+    ]
+    sortie.sort(key=lambda e: (e.classe, e.nom, e.prenom))
+    return sortie
+
+
 @router.get("/modeles-etiquettes/apercu")
 def apercu_modele(
-    modele: str, site_id: int | None = None,
+    modele: str, site_id: int | None = None, par_page: int = 18,
     session: Session = Depends(db_session),
 ) -> Response:
     """Deux étiquettes d'exemple, pour voir avant de produire.
@@ -922,7 +972,7 @@ def apercu_modele(
     ]
     page = page_etiquettes(
         exemples, annee="", site_nom=nom_court, modele=modele,
-        avec_reseau=bool(site and site.base_koxo),
+        avec_reseau=bool(site and site.base_koxo), par_page=par_page,
     )
     return Response(content=page, media_type="text/html; charset=utf-8")
 
@@ -1012,8 +1062,10 @@ def listes_koxo(
             annee_cible_id=payload.annee_cible_id,
             annee_source_id=payload.annee_source_id,
             classes=payload.classes or None,
+            personne_ids=payload.personne_ids or None,
             documents=set(payload.documents) or None,
             modele=payload.modele,
+            par_page=payload.par_page,
         )
     except ListesImpossibles as e:
         raise HTTPException(400, str(e)) from None

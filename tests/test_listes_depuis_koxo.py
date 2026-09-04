@@ -301,6 +301,65 @@ def test_un_modele_inconnu_ne_bloque_pas_l_impression(session, etab, deux_eleves
     assert f'class="m-{MODELE_PAR_DEFAUT}"' in r.etiquettes_tous.decode("utf-8")
 
 
+def test_le_logo_arrive_vraiment_dans_la_page(session, etab, deux_eleves):
+    """Il était posé dans un attribut `style` : le `data:` URI contient des
+    guillemets, qui refermaient l'attribut avant la fin. `--logo` restait
+    vide, les étiquettes sortaient sans logo, et rien ne le signalait."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+
+    su, source, cible = etab
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id,
+    )
+    page = r.etiquettes_tous.decode("utf-8")
+    assert "data:image/png;base64," in page, "le logo est bien encodé"
+    assert "--logo: url(data:image/png" in page
+    # Le corps ne porte plus d'attribut `style` : c'est là qu'était le piège.
+    debut = page.index("<body")
+    assert "style=" not in page[debut : debut + 120]
+
+
+def test_la_page_ne_deborde_pas_de_la_feuille(session):
+    """Les cotes venaient d'un PDF de KoXo sans vérifier qu'elles entraient
+    dans une A4 : six rangées demandaient 786,34 pt pour 782,37 disponibles,
+    et la sixième partait à la page suivante."""
+    from backend.services.modeles_etiquettes import (
+        A4_H,
+        COLONNES,
+        GOUTTIERE_V,
+        MARGE_H,
+        PAR_PAGE,
+        geometrie,
+    )
+
+    dispo = A4_H - 2 * MARGE_H
+    for par_page, rangees_attendues in PAR_PAGE.items():
+        rangees, largeur, hauteur = geometrie(par_page)
+        assert rangees == rangees_attendues
+        assert COLONNES * rangees == par_page
+        occupe = rangees * hauteur + (rangees - 1) * GOUTTIERE_V
+        assert occupe <= dispo + 0.01, (
+            f"{par_page}/page déborde de {occupe - dispo:.2f} pt"
+        )
+
+
+def test_le_choix_par_eleve_ne_garde_que_ceux_la(session, etab, deux_eleves):
+    """Le cas courant du mot de passe perdu : on ne veut qu'une étiquette,
+    pas la planche de la classe."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+
+    su, source, cible = etab
+    ancienne, entrant = deux_eleves
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id,
+        personne_ids=[entrant.id],
+    )
+    assert [l.nom for l in r.lignes] == ["BIHAN"]
+    assert "ABGRALL" not in r.etiquettes_tous.decode("utf-8")
+
+
 def test_les_logos_sont_embarques_dans_le_build(session):
     """Ils sont lus à l'exécution : PyInstaller ne les emporte que si le
     spec le dit, et le défaut ne se voit qu'une fois l'appli installée."""

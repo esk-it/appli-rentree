@@ -41,12 +41,37 @@ from html import escape
 from pathlib import Path
 from typing import Callable
 
-# Le gabarit des planches KoXo — les feuilles pré-découpées sont à ce format.
-CARTE_L, CARTE_H = 173.55, 125.34
-MARGE_G, MARGE_H = 23.25, 29.76
+# A4, en points typographiques.
+A4_L, A4_H = 595.28, 841.89
+MARGE_G, MARGE_H = 24.0, 24.0
+GOUTTIERE_H, GOUTTIERE_V = 13.65, 8.0
 COLONNES = 3
-GOUTTIERE_H = 187.2 - CARTE_L
-GOUTTIERE_V = 132.2 - CARTE_H
+
+PAR_PAGE = {15: 5, 18: 6}
+"""Combien d'étiquettes par feuille, et le nombre de rangées que cela fait.
+
+Dix-huit tombe sur les cotes des planches KoXo (173,55 × 125,34 pt) ;
+quinze donne des cartes plus hautes, plus faciles à découper.
+"""
+PAR_PAGE_DEFAUT = 18
+
+
+def geometrie(par_page: int = PAR_PAGE_DEFAUT) -> tuple[int, float, float]:
+    """Rangées, largeur et hauteur de carte, pour que la page **tombe juste**.
+
+    Les cotes étaient reprises telles quelles d'un PDF de KoXo, sans
+    vérifier qu'elles entraient dans une A4 : six rangées demandaient
+    786,34 points pour 782,37 disponibles, et la sixième partait à la page
+    suivante. On calcule donc la carte à partir de la page, au lieu de
+    l'inverse.
+    """
+    rangees = PAR_PAGE.get(par_page, PAR_PAGE[PAR_PAGE_DEFAUT])
+    largeur = (A4_L - 2 * MARGE_G - (COLONNES - 1) * GOUTTIERE_H) / COLONNES
+    hauteur = (A4_H - 2 * MARGE_H - (rangees - 1) * GOUTTIERE_V) / rangees
+    return rangees, largeur, hauteur
+
+
+CARTE_L, CARTE_H = geometrie()[1:]
 
 def _dossier_logos() -> Path:
     """Où trouver les logos, en développement comme une fois empaqueté.
@@ -196,7 +221,9 @@ def _corps(e: dict) -> str:
 # Le socle commun — géométrie, impression, éléments partagés
 # ---------------------------------------------------------------------------
 
-CSS_SOCLE = f"""
+def css_socle(par_page: int = PAR_PAGE_DEFAUT) -> str:
+    rangees, carte_l, carte_h = geometrie(par_page)
+    return f"""
   @page {{ size: A4; margin: {MARGE_H}pt {MARGE_G}pt; }}
   /* À l'impression, les navigateurs suppriment les fonds pour économiser
      l'encre. Ici le bandeau coloré et le filigrane sont l'essentiel de la
@@ -206,13 +233,13 @@ CSS_SOCLE = f"""
   body {{ margin: 0; background: #fff; color: #1c1917;
           font-family: "Segoe UI", Arial, sans-serif; }}
   .planche {{ display: grid;
-    grid-template-columns: repeat({COLONNES}, {CARTE_L}pt);
-    grid-auto-rows: {CARTE_H}pt;
+    grid-template-columns: repeat({COLONNES}, {carte_l:.2f}pt);
+    grid-auto-rows: {carte_h:.2f}pt;
     gap: {GOUTTIERE_V:.2f}pt {GOUTTIERE_H:.2f}pt; }}
   /* Une classe par planche : mélanger deux classes obligerait à découper
      puis retrier. */
   .planche + .planche {{ break-before: page; }}
-  .et {{ width: {CARTE_L}pt; height: {CARTE_H}pt; position: relative;
+  .et {{ width: {carte_l:.2f}pt; height: {carte_h:.2f}pt; position: relative;
     overflow: hidden; background: #fff; border: .4pt solid #d6d3d1;
     border-radius: 6pt; break-inside: avoid; }}
   .lg {{ background-image: var(--logo); background-repeat: no-repeat;
@@ -449,6 +476,7 @@ def page_etiquettes(
     site_nom: str = "",
     modele: str = MODELE_PAR_DEFAUT,
     avec_reseau: bool = False,
+    par_page: int = PAR_PAGE_DEFAUT,
 ) -> bytes:
     """La planche complète, une classe par page.
 
@@ -460,6 +488,8 @@ def page_etiquettes(
             défaut plutôt que de refuser d'imprimer.
         avec_reseau: faux là où il n'y a pas de serveur — promettre un accès
             qui n'existe pas serait pire que se taire.
+        par_page: 15 ou 18. La carte se calcule à partir de la page, pour
+            que la dernière rangée n'en déborde pas.
     """
     m = MODELES.get(modele) or MODELES[MODELE_PAR_DEFAUT]
     logo = logo_du_site(site_nom)
@@ -480,18 +510,24 @@ def page_etiquettes(
         )
         planches.append(f'<div class="planche">\n{cartes}\n</div>')
 
-    style_racine = (
-        f"--c: {couleur};"
-        + (f' --logo: url("{logo}");' if logo else " --logo: none;")
+    # Les variables vont dans la feuille de style, pas dans un attribut
+    # `style` : le `data:` URI du logo contient des guillemets qui
+    # refermaient l'attribut, et `--logo` restait vide. Les étiquettes
+    # sortaient sans logo, sans qu'aucune erreur ne le signale.
+    racine = (
+        f"  :root {{ --c: {couleur};"
+        + (f" --logo: url({logo});" if logo else " --logo: none;")
+        + " }\n"
     )
     return f"""<!doctype html>
 <html lang="fr">
 <head>
 <meta charset="utf-8">
 <title>Étiquettes de comptes — {_e(annee)}</title>
-<style>{CSS_SOCLE}{m.css}</style>
+<style>
+{racine}{css_socle(par_page)}{m.css}</style>
 </head>
-<body class="m-{m.id}" style="{style_racine}">
+<body class="m-{m.id}">
 {chr(10).join(planches)}
 </body>
 </html>

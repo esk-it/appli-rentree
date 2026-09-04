@@ -311,9 +311,14 @@ def test_la_planche_reprend_les_cotes_relevees_chez_koxo(session):
         GOUTTIERE_V,
     )
 
-    assert (CARTE_L, CARTE_H) == (173.55, 125.34)
+    # Les cotes relevées chez KoXo — 173,55 × 125,34 — ne tenaient pas
+    # dans une A4 : six rangées demandaient 786,34 points pour 782,37
+    # disponibles, et la sixième partait à la page suivante. La carte se
+    # calcule donc à partir de la page, et retombe à un tiers de point
+    # près sur les cotes d'origine : les planches restent superposables.
+    assert abs(CARTE_L - 173.55) < 0.5, CARTE_L
+    assert abs(CARTE_H - 125.34) < 0.5, CARTE_H
     assert round(GOUTTIERE_H, 2) == 13.65
-    assert round(GOUTTIERE_V, 2) == 6.86
     assert COLONNES == 3
 
     page = fiches_html(
@@ -324,7 +329,7 @@ def test_la_planche_reprend_les_cotes_relevees_chez_koxo(session):
         annee="2026-2027",
     ).decode("utf-8")
 
-    assert "gap: 6.86pt 13.65pt" in page
+    assert f"gap: {GOUTTIERE_V:.2f}pt {GOUTTIERE_H:.2f}pt" in page
     assert "size: A4" in page
     for attendu in ("OGEC PAUL AURELIEN", "Noë CORVEZ", "Elèves / 6B",
                     "ncorvez", "Vikuge90"):

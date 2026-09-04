@@ -285,6 +285,7 @@ def fiches_html(
     avec_reseau: bool = False,
     site_nom: str = "",
     modele: str | None = None,
+    par_page: int = 18,
 ) -> bytes:
     """Les étiquettes de comptes, à imprimer.
 
@@ -317,4 +318,5 @@ def fiches_html(
         site_nom=site_nom,
         modele=modele or MODELE_PAR_DEFAUT,
         avec_reseau=avec_reseau,
+        par_page=par_page,
     )

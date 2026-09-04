@@ -120,8 +120,10 @@ def listes_depuis_koxo(
     annee_cible_id: int,
     annee_source_id: int | None = None,
     classes: list[str] | None = None,
+    personne_ids: list[int] | None = None,
     documents: set[str] | None = None,
     modele: str | None = None,
+    par_page: int = 18,
 ) -> RapportListes:
     """Trois documents d'un seul export : la liste, les entrants, les fiches.
 
@@ -132,6 +134,10 @@ def listes_depuis_koxo(
             plutôt que rendues fausses.
         classes: ne garder que ces classes. Vide ou absent, tout le site —
             on ne devine pas un filtre que personne n'a demandé.
+        personne_ids: ne garder que ces élèves-là. Se combine avec
+            `classes` : c'est une intersection, pas une addition. Sert au
+            cas courant du mot de passe perdu, où l'on ne veut qu'une
+            étiquette.
         documents: parmi `liste_tous`, `liste_nouveaux`, `etiquettes_tous`
             et `etiquettes_nouveaux`. Absent, on produit les quatre. Choisir
             évite d'attendre six cent quatre-vingt-dix étiquettes quand on
@@ -230,7 +236,16 @@ def listes_depuis_koxo(
         rapport.lignes = [l for l in rapport.lignes if l.classe in retenues]
         rapport.nouveaux = [l for l in rapport.nouveaux if l.classe in retenues]
 
+    if personne_ids:
+        voulus = set(personne_ids)
+        rapport.lignes = [l for l in rapport.lignes if l.personne_id in voulus]
+        rapport.nouveaux = [l for l in rapport.nouveaux if l.personne_id in voulus]
+
     rapport.koxo_hors_site = len(par_badge) - len(vus_dans_koxo)
+    if not rapport.lignes and personne_ids:
+        raise ListesImpossibles(
+            "Aucun des élèves retenus n'a de ligne dans cet export KoXo."
+        )
     if not rapport.lignes and classes:
         raise ListesImpossibles(
             "Aucun élève dans les classes retenues : "
@@ -249,6 +264,7 @@ def listes_depuis_koxo(
         avec_nouveaux=annee_source_id is not None,
         documents=documents,
         modele=modele,
+        par_page=par_page,
     )
     return rapport
 
@@ -269,6 +285,7 @@ def _composer(
     avec_nouveaux: bool,
     documents: set[str] | None = None,
     modele: str | None = None,
+    par_page: int = 18,
 ) -> None:
     """Ne fabrique que ce qu'on a demandé.
 
@@ -284,7 +301,7 @@ def _composer(
         rapport.nom_xlsx_tous = f"Comptes_{site.nom}_{annee.libelle}_tous.xlsx"
 
     if "etiquettes_tous" in voulus:
-        rapport.etiquettes_tous = _etiquettes(rapport.lignes, site, annee, modele)
+        rapport.etiquettes_tous = _etiquettes(rapport.lignes, site, annee, modele, par_page)
         rapport.nom_etiquettes_tous = (
             f"Etiquettes_{site.nom}_{annee.libelle}_tous.html"
         )
@@ -301,15 +318,15 @@ def _composer(
         )
 
     if "etiquettes_nouveaux" in voulus:
-        rapport.etiquettes_nouveaux = _etiquettes(
-            rapport.nouveaux, site, annee, modele
-        )
+        rapport.etiquettes_nouveaux = _etiquettes(rapport.nouveaux, site, annee, modele, par_page)
         rapport.nom_etiquettes = (
             f"Etiquettes_{site.nom}_{annee.libelle}_nouveaux.html"
         )
 
 
-def _etiquettes(lignes: list[LigneListe], site, annee, modele=None) -> bytes:
+def _etiquettes(
+    lignes: list[LigneListe], site, annee, modele=None, par_page=18
+) -> bytes:
     from backend.services.comptes_sans_koxo import fiches_html
 
     return fiches_html(
@@ -336,6 +353,7 @@ def _etiquettes(lignes: list[LigneListe], site, annee, modele=None) -> bytes:
         avec_reseau=bool(site.base_koxo),
         site_nom=site.nom,
         modele=modele,
+        par_page=par_page,
     )
 
 

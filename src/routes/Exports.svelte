@@ -447,6 +447,13 @@
   let modeleChoisi = $state("filigrane");
   /** Les classes cochées. Vide = tout le site, pas « aucune ». */
   let classesRetenues = $state(new SvelteSet());
+  /** Les élèves cochés nommément — le cas du mot de passe perdu. */
+  let elevesRetenus = $state(new SvelteSet());
+  /** Le site entier, chargé dès qu'on choisit un site : on doit pouvoir
+   *  filtrer **avant** de générer, pas après. */
+  let elevesDuSite = $state(/** @type {any[]} */ ([]));
+  let filtreEleve = $state("");
+  let parPage = $state(18);
   /** Les documents à produire. Vide = les quatre. */
   let documentsVoulus = $state(new SvelteSet());
 
@@ -456,6 +463,35 @@
     { id: "etiquettes_tous", libelle: "Étiquettes de tous" },
     { id: "etiquettes_nouveaux", libelle: "Étiquettes des entrants" },
   ];
+
+  $effect(() => {
+    const s = siteId;
+    const a = anneeCibleId;
+    if (cible !== "listes" || !s || !a) return;
+    exportsCible
+      .elevesDuSite({ siteId: s, anneeId: a })
+      .then((r) => {
+        elevesDuSite = r;
+        classesRetenues.clear();
+        elevesRetenus.clear();
+      })
+      .catch(() => (elevesDuSite = []));
+  });
+
+  let classesDuSite = $derived([
+    ...new Set(elevesDuSite.map((e) => e.classe).filter(Boolean)),
+  ].sort());
+
+  let elevesAffiches = $derived.by(() => {
+    const q = filtreEleve.trim().toLowerCase();
+    const base = classesRetenues.size
+      ? elevesDuSite.filter((e) => classesRetenues.has(e.classe))
+      : elevesDuSite;
+    if (!q) return base;
+    return base.filter((e) =>
+      `${e.prenom} ${e.nom} ${e.classe}`.toLowerCase().includes(q),
+    );
+  });
 
   async function genererListes() {
     if (!fichierListes || !siteId || !anneeCibleId) return;
@@ -469,8 +505,10 @@
         anneeCibleId,
         anneeSourceId: anneeSourceId ?? null,
         classes: [...classesRetenues],
+        personneIds: [...elevesRetenus],
         documents: [...documentsVoulus],
         modele: modeleChoisi,
+        parPage,
       });
       notify.succes(
         `${rapportListes.nb_tous} élève(s), dont ${rapportListes.nb_nouveaux} entrants`,
@@ -765,12 +803,28 @@
               {/each}
             </div>
             <div class="shrink-0">
-              <p class="mb-1 text-xs text-stone-500 dark:text-stone-400">
-                Aperçu {siteId ? "" : "— choisis un site pour voir son logo"}
-              </p>
+              <div class="mb-1 flex items-baseline gap-3">
+                <p class="text-xs text-stone-500 dark:text-stone-400">
+                  Aperçu {siteId ? "" : "— choisis un site pour voir son logo"}
+                </p>
+                <label class="ml-auto inline-flex items-center gap-1.5 text-xs text-stone-600 dark:text-stone-300">
+                  par feuille
+                  <select
+                    class="champ py-0.5 text-xs"
+                    value={parPage}
+                    onchange={(e) => {
+                      parPage = Number(e.currentTarget.value);
+                      rapportListes = null;
+                    }}
+                  >
+                    <option value={18}>18</option>
+                    <option value={15}>15</option>
+                  </select>
+                </label>
+              </div>
               <iframe
                 title="Aperçu de l'étiquette"
-                src={exportsCible.urlApercuModele(modeleChoisi, siteId)}
+                src={exportsCible.urlApercuModele(modeleChoisi, siteId, parPage)}
                 class="h-52 w-[420px] rounded-lg border border-stone-300 bg-white dark:border-stone-600"
               ></iframe>
             </div>
@@ -778,27 +832,36 @@
         </div>
       {/if}
 
-      <!-- Les classes ne se connaissent qu'après une première génération :
-           elles viennent de l'export, pas du référentiel seul. -->
-      {#if rapportListes?.classes_disponibles?.length}
+      <!-- Le filtre agit AVANT la génération : la première version ne
+           proposait les classes qu'une fois les documents produits, si
+           bien qu'il fallait tout sortir pour découvrir la liste, cocher,
+           puis tout refaire. -->
+      {#if elevesDuSite.length}
         <div class="mt-3 rounded-lg border border-stone-200 p-3 dark:border-stone-700">
           <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
             <p class="text-xs font-medium uppercase tracking-wide text-stone-500 dark:text-stone-400">
-              Classes
+              Qui exporter — {elevesDuSite.length} élève(s) au site
             </p>
-            <button
-              class="text-xs text-stone-500 hover:text-emerald-600"
-              onclick={() => { classesRetenues.clear(); rapportListes = null; }}
-            >
-              tout le site
-            </button>
+            {#if classesRetenues.size || elevesRetenus.size}
+              <button
+                class="text-xs text-stone-500 hover:text-emerald-600"
+                onclick={() => {
+                  classesRetenues.clear();
+                  elevesRetenus.clear();
+                  rapportListes = null;
+                }}
+              >
+                × tout le site
+              </button>
+            {/if}
           </div>
+
           <div class="flex flex-wrap gap-1.5">
-            {#each rapportListes.classes_disponibles as c (c)}
+            {#each classesDuSite as c (c)}
               <button
                 class="rounded-full border px-2.5 py-1 text-xs {classesRetenues.has(c)
                   ? 'border-emerald-400 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200'
-                  : 'border-stone-300 text-stone-600 dark:border-stone-600 dark:text-stone-300'}"
+                  : 'border-stone-300 text-stone-600 hover:border-emerald-400 dark:border-stone-600 dark:text-stone-300'}"
                 onclick={() => {
                   if (classesRetenues.has(c)) classesRetenues.delete(c);
                   else classesRetenues.add(c);
@@ -809,13 +872,56 @@
               </button>
             {/each}
           </div>
+
+          <!-- Le choix à l'unité : le cas courant du mot de passe perdu,
+               où l'on ne veut qu'une étiquette. -->
+          <details class="mt-2.5">
+            <summary class="cursor-pointer text-xs text-stone-600 hover:text-emerald-600 dark:text-stone-300">
+              Choisir des élèves un par un
+              {#if elevesRetenus.size}({elevesRetenus.size} retenu(s)){/if}
+            </summary>
+            <input
+              class="champ mt-2 w-full text-xs"
+              placeholder="Chercher un nom, un prénom, une classe…"
+              bind:value={filtreEleve}
+            />
+            <div class="mt-2 max-h-56 overflow-y-auto rounded-md border border-stone-200 dark:border-stone-700">
+              {#each elevesAffiches.slice(0, 400) as e (e.personne_id)}
+                <label class="flex cursor-pointer items-center gap-2 border-b border-stone-100 px-2 py-1 text-xs last:border-0 hover:bg-stone-50 dark:border-stone-800 dark:hover:bg-stone-800">
+                  <input
+                    type="checkbox"
+                    checked={elevesRetenus.has(e.personne_id)}
+                    onchange={() => {
+                      if (elevesRetenus.has(e.personne_id))
+                        elevesRetenus.delete(e.personne_id);
+                      else elevesRetenus.add(e.personne_id);
+                      rapportListes = null;
+                    }}
+                  />
+                  <span class="w-14 shrink-0 text-stone-500">{e.classe}</span>
+                  <span class="truncate">{e.prenom} {e.nom}</span>
+                </label>
+              {/each}
+              {#if elevesAffiches.length > 400}
+                <p class="px-2 py-1 text-xs text-stone-500">
+                  … {elevesAffiches.length - 400} de plus — affine la recherche.
+                </p>
+              {/if}
+            </div>
+          </details>
+
           <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
-            {classesRetenues.size === 0
-              ? "Aucune classe cochée : tout le site."
-              : `${classesRetenues.size} classe(s) retenue(s) — relance pour appliquer.`}
+            {#if elevesRetenus.size}
+              {elevesRetenus.size} élève(s) nommément retenu(s).
+            {:else if classesRetenues.size}
+              {classesRetenues.size} classe(s) retenue(s).
+            {:else}
+              Rien de coché : tout le site.
+            {/if}
           </p>
         </div>
       {/if}
+
     {/if}
 
     {#if cible === "charlemagne"}

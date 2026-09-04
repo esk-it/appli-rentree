@@ -1022,7 +1022,8 @@ export const exportsCible = {
    */
   async listesKoxo({
     fichierKoxo, siteId, anneeCibleId, anneeSourceId = null,
-    classes = [], documents = [], modele = null,
+    classes = [], personneIds = [], documents = [], modele = null,
+    parPage = 18,
   }) {
     if (!fichierKoxo) throw new Error("Export KoXo requis");
     const koxo_base64 = arrayBufferEnBase64(await fichierKoxo.arrayBuffer());
@@ -1032,7 +1033,8 @@ export const exportsCible = {
         body: JSON.stringify({
           koxo_base64, site_id: siteId,
           annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
-          classes, documents, modele,
+          classes, personne_ids: personneIds, documents, modele,
+          par_page: parPage,
         }),
       }),
     );
@@ -1042,10 +1044,17 @@ export const exportsCible = {
     return jsonOrThrow(await fetch(`${BASE}/exports/modeles-etiquettes`));
   },
   /** L'URL d'un aperçu — deux étiquettes d'exemple, à afficher en cadre. */
-  urlApercuModele(modele, siteId) {
-    const q = new URLSearchParams({ modele });
+  urlApercuModele(modele, siteId, parPage = 18) {
+    const q = new URLSearchParams({ modele, par_page: String(parPage) });
     if (siteId) q.set("site_id", String(siteId));
     return `${BASE}/exports/modeles-etiquettes/apercu?${q}`;
+  },
+  /** Les élèves du site pour une année — pour choisir avant de générer. */
+  async elevesDuSite({ siteId, anneeId }) {
+    const q = new URLSearchParams({
+      site_id: String(siteId), annee_id: String(anneeId),
+    });
+    return jsonOrThrow(await fetch(`${BASE}/exports/eleves-du-site?${q}`));
   },
   async jpm({ siteId, anneeCibleId, anneeSourceId, enregistrerPrevus = false }) {
     return jsonOrThrow(
