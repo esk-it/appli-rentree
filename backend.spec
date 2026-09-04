@@ -17,7 +17,13 @@ a = Analysis(
     ["run_backend.py"],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        # Les logos des établissements sont lus à l'exécution pour les
+        # étiquettes. Sans cette ligne, PyInstaller ne les embarque pas et
+        # les planches sortent sans logo une fois l'application installée —
+        # défaut invisible en développement, où le dossier existe.
+        ("backend/assets/logos", "backend/assets/logos"),
+    ],
     hiddenimports=[
         # FastAPI/Starlette/Pydantic ont des imports dynamiques que PyInstaller
         # ne détecte pas toujours.

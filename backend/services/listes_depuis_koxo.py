@@ -76,6 +76,11 @@ class RapportListes:
     lignes: list[LigneListe] = field(default_factory=list)
     nouveaux: list[LigneListe] = field(default_factory=list)
 
+    classes_disponibles: list[str] = field(default_factory=list)
+    """Toutes les classes du site, **avant** le filtre : c'est la liste que
+    l'écran propose, et elle ne doit pas se réduire à ce qu'on a déjà
+    coché."""
+
     sans_ligne_koxo: list[str] = field(default_factory=list)
     """Inscrits au site que l'export KoXo ne porte pas — donc sans mot de
     passe à distribuer."""
@@ -114,6 +119,9 @@ def listes_depuis_koxo(
     site_id: int,
     annee_cible_id: int,
     annee_source_id: int | None = None,
+    classes: list[str] | None = None,
+    documents: set[str] | None = None,
+    modele: str | None = None,
 ) -> RapportListes:
     """Trois documents d'un seul export : la liste, les entrants, les fiches.
 
@@ -122,6 +130,14 @@ def listes_depuis_koxo(
         annee_source_id: sans elle, on ne peut pas dire qui entre. La liste
             des nouveaux et leurs étiquettes ne sont alors pas produites,
             plutôt que rendues fausses.
+        classes: ne garder que ces classes. Vide ou absent, tout le site —
+            on ne devine pas un filtre que personne n'a demandé.
+        documents: parmi `liste_tous`, `liste_nouveaux`, `etiquettes_tous`
+            et `etiquettes_nouveaux`. Absent, on produit les quatre. Choisir
+            évite d'attendre six cent quatre-vingt-dix étiquettes quand on
+            ne voulait qu'un classeur.
+        modele: la présentation des étiquettes, parmi celles de
+            `modeles_etiquettes`.
 
     Raises:
         ListesImpossibles: site ou année inconnus, export vide, ou aucun
@@ -156,7 +172,7 @@ def listes_depuis_koxo(
     ids_site = ids_personnes_du_site(
         session, site_id=site_id, annee_id=annee_cible_id, type_personne="eleve"
     )
-    classes = _classes_de_lannee(session, annee_cible_id)
+    classe_par_personne = _classes_de_lannee(session, annee_cible_id)
     anciens = (
         ids_presents_annee(session, annee_id=annee_source_id, type_personne="eleve")
         if annee_source_id is not None
@@ -171,7 +187,10 @@ def listes_depuis_koxo(
         .filter(Personne.id.in_(ids_site), Personne.type == "eleve")
         .all()
     )
-    for p in sorted(personnes, key=lambda x: ((classes.get(x.id) or ""), x.nom, x.prenom)):
+    for p in sorted(
+        personnes,
+        key=lambda x: ((classe_par_personne.get(x.id) or ""), x.nom, x.prenom),
+    ):
         badge = str(p.badge) if p.badge is not None else ""
         k = par_badge.get(badge)
         qui = f"{p.prenom} {p.nom}"
@@ -187,7 +206,7 @@ def listes_depuis_koxo(
             personne_id=p.id,
             nom=p.nom,
             prenom=p.prenom,
-            classe=classes.get(p.id) or (p.classe or ""),
+            classe=classe_par_personne.get(p.id) or (p.classe or ""),
             # Le login de KoXo fait foi : c'est celui avec lequel l'élève se
             # connecte au réseau, et il peut différer de celui du
             # référentiel après une reprise manuelle.
@@ -200,7 +219,24 @@ def listes_depuis_koxo(
         if ligne.nouveau:
             rapport.nouveaux.append(ligne)
 
+    rapport.classes_disponibles = sorted(
+        {l.classe for l in rapport.lignes if l.classe}
+    )
+
+    if classes:
+        # La classe de la photographie, pas le code lisible : c'est celle
+        # que l'écran propose dans sa liste.
+        retenues = set(classes)
+        rapport.lignes = [l for l in rapport.lignes if l.classe in retenues]
+        rapport.nouveaux = [l for l in rapport.nouveaux if l.classe in retenues]
+
     rapport.koxo_hors_site = len(par_badge) - len(vus_dans_koxo)
+    if not rapport.lignes and classes:
+        raise ListesImpossibles(
+            "Aucun élève dans les classes retenues : "
+            + ", ".join(sorted(classes))
+            + ". Vérifie la sélection, ou retire-la pour prendre tout le site."
+        )
     if not rapport.lignes:
         raise ListesImpossibles(
             f"Aucun élève de {site.nom} n'a été retrouvé dans cet export KoXo. "
@@ -208,34 +244,72 @@ def listes_depuis_koxo(
             "par établissement."
         )
 
-    _composer(rapport, site, annee, avec_nouveaux=annee_source_id is not None)
+    _composer(
+        rapport, site, annee,
+        avec_nouveaux=annee_source_id is not None,
+        documents=documents,
+        modele=modele,
+    )
     return rapport
 
 
-def _composer(rapport: RapportListes, site, annee, *, avec_nouveaux: bool) -> None:
-    from backend.services.comptes_sans_koxo import fiches_html
+DOCUMENTS = (
+    "liste_tous",
+    "liste_nouveaux",
+    "etiquettes_tous",
+    "etiquettes_nouveaux",
+)
 
-    rapport.xlsx_tous = _classeur(rapport.lignes, f"{site.nom} {annee.libelle}")
-    rapport.nom_xlsx_tous = f"Comptes_{site.nom}_{annee.libelle}_tous.xlsx"
 
-    rapport.etiquettes_tous = _etiquettes(rapport.lignes, site, annee)
-    rapport.nom_etiquettes_tous = (
-        f"Etiquettes_{site.nom}_{annee.libelle}_tous.html"
-    )
+def _composer(
+    rapport: RapportListes,
+    site,
+    annee,
+    *,
+    avec_nouveaux: bool,
+    documents: set[str] | None = None,
+    modele: str | None = None,
+) -> None:
+    """Ne fabrique que ce qu'on a demandé.
+
+    Composer les quatre documents pour n'en enregistrer qu'un coûtait six
+    cent quatre-vingt-dix étiquettes de rendu à chaque essai — assez pour
+    qu'on hésite à rejouer la génération, donc pour qu'on garde un fichier
+    approximatif.
+    """
+    voulus = set(documents) if documents else set(DOCUMENTS)
+
+    if "liste_tous" in voulus:
+        rapport.xlsx_tous = _classeur(rapport.lignes, f"{site.nom} {annee.libelle}")
+        rapport.nom_xlsx_tous = f"Comptes_{site.nom}_{annee.libelle}_tous.xlsx"
+
+    if "etiquettes_tous" in voulus:
+        rapport.etiquettes_tous = _etiquettes(rapport.lignes, site, annee, modele)
+        rapport.nom_etiquettes_tous = (
+            f"Etiquettes_{site.nom}_{annee.libelle}_tous.html"
+        )
 
     if not avec_nouveaux:
         # Sans année précédente, « nouveau » n'a pas de sens : ne rien rendre
         # vaut mieux qu'un fichier où tout le monde serait entrant.
         return
 
-    rapport.xlsx_nouveaux = _classeur(rapport.nouveaux, f"{site.nom} entrants")
-    rapport.nom_xlsx_nouveaux = f"Comptes_{site.nom}_{annee.libelle}_nouveaux.xlsx"
+    if "liste_nouveaux" in voulus:
+        rapport.xlsx_nouveaux = _classeur(rapport.nouveaux, f"{site.nom} entrants")
+        rapport.nom_xlsx_nouveaux = (
+            f"Comptes_{site.nom}_{annee.libelle}_nouveaux.xlsx"
+        )
 
-    rapport.etiquettes_nouveaux = _etiquettes(rapport.nouveaux, site, annee)
-    rapport.nom_etiquettes = f"Etiquettes_{site.nom}_{annee.libelle}_nouveaux.html"
+    if "etiquettes_nouveaux" in voulus:
+        rapport.etiquettes_nouveaux = _etiquettes(
+            rapport.nouveaux, site, annee, modele
+        )
+        rapport.nom_etiquettes = (
+            f"Etiquettes_{site.nom}_{annee.libelle}_nouveaux.html"
+        )
 
 
-def _etiquettes(lignes: list[LigneListe], site, annee) -> bytes:
+def _etiquettes(lignes: list[LigneListe], site, annee, modele=None) -> bytes:
     from backend.services.comptes_sans_koxo import fiches_html
 
     return fiches_html(
@@ -260,6 +334,8 @@ def _etiquettes(lignes: list[LigneListe], site, annee) -> bytes:
         # Là où KoXo existe, l'élève ouvre aussi une session sur le réseau :
         # les mêmes identifiants servent deux fois, et l'étiquette le dit.
         avec_reseau=bool(site.base_koxo),
+        site_nom=site.nom,
+        modele=modele,
     )
 
 

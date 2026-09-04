@@ -70,6 +70,7 @@ def preparer_comptes(
     annee_source_id: int | None = None,
     categorie: str = "nouveaux",
     organisation: str | None = None,
+    modele: str | None = None,
 ) -> tuple[bytes, bytes, RapportGeneration]:
     """Fabrique les mots de passe, les range, et rend les deux fichiers.
 
@@ -210,6 +211,8 @@ def preparer_comptes(
             # NDE n'a pas de serveur : promettre un accès réseau qui
             # n'existe pas serait pire que de ne rien afficher.
             avec_reseau=bool(site.base_koxo),
+            site_nom=site.nom,
+            modele=modele,
         ),
         rapport,
     )
@@ -274,299 +277,44 @@ def _secrets_existants(session: Session, cle: bytes, site_nom: str) -> dict[int,
 # PostScript. Les reprendre telles quelles n'est pas du zèle : l'élève de
 # NDE recevra la même étiquette que celui de NDK, et le professeur qui les
 # distribue n'a pas à apprendre deux présentations.
-CARTE_L, CARTE_H = 173.55, 125.34
-BANDEAU_H = 18.72
-CHAMP_L, CHAMP_H = 92.44, 18.72
-MARGE_G, MARGE_H = 23.25, 29.76
-COLONNES, RANGEES = 3, 6
-# Les gouttières se déduisent des pas relevés entre étiquettes voisines :
-# 187.2 pt d'une colonne à la suivante pour une carte de 173.55, et 132.2 pt
-# d'une rangée à l'autre pour une carte de 125.34. Une seule étiquette ne
-# les révélait pas — il a fallu une planche complète pour les voir.
-GOUTTIERE_H = 187.2 - CARTE_L
-GOUTTIERE_V = 132.2 - CARTE_H
-
-BLEU = "#1e8ce0"
-FOND = "#d9e8f7"
-
-
-LOGO_GOOGLE = """<svg class="logo" viewBox="0 0 48 48" role="img" aria-label="Google">
-<path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/>
-<path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.31-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"/>
-<path fill="#FBBC05" d="M11.69 28.18C11.25 26.86 11 25.45 11 24s.25-2.86.69-4.18v-5.7H4.34C2.85 17.09 2 20.45 2 24s.85 6.91 2.34 9.88l7.35-5.7z"/>
-<path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.35 5.7c1.73-5.2 6.58-9.07 12.31-9.07z"/>
-</svg>"""
-LOGO_RESEAU = """<svg class="logo" viewBox="0 0 48 48" role="img" aria-label="Réseau">
-<circle cx="24" cy="11" r="6" fill="#0078D4"/>
-<circle cx="10" cy="36" r="6" fill="#50B0E8"/>
-<circle cx="38" cy="36" r="6" fill="#50B0E8"/>
-<path d="M24 17v7M24 24l-11 8M24 24l11 8" stroke="#0078D4" stroke-width="2.6"
- stroke-linecap="round" fill="none"/>
-</svg>"""
-"""Le compte du reseau, pour les sites qui en ont un.
-
-L'etiquette ne portait que Google, et l'eleve de NDK ou de SU en a
-pourtant deux usages : sa session Windows et sa boite. Un glyphe generique
-plutot que la marque exacte de l'editeur : ce qu'il faut dire, c'est
-« ces identifiants ouvrent aussi l'ordinateur ».
-
-NDE n'a pas de serveur, et n'affiche donc pas ce logo — promettre un acces
-qui n'existe pas serait pire que de ne rien dire.
-"""
-
-"""Le logo Google, dessine en SVG plutot que charge.
-
-Le fichier doit rester autonome : une image distante ne s'imprimerait pas
-sans reseau, et une image encodee alourdirait chaque etiquette. Il dit a
-l'eleve de quel service ces identifiants ouvrent la porte — pour NDE,
-c'est le seul compte qu'il possede."""
-
-
-def _echapper(t: str) -> str:
-    return (
-        (t or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
-
-
 def fiches_html(
     etiquettes: list[dict],
     *,
     organisation: str,
     annee: str,
     avec_reseau: bool = False,
+    site_nom: str = "",
+    modele: str | None = None,
 ) -> bytes:
-    """Les étiquettes de comptes, à imprimer — présentation de KoXo.
+    """Les étiquettes de comptes, à imprimer.
 
-    KoXo imprime une étiquette par élève : bandeau bleu à l'en-tête, nom,
-    groupe, puis quatre lignes libellées — identifiant, mot de passe,
-    adresse et adresse du service. NDE n'a pas de KoXo et n'aurait donc
-    rien à distribuer.
-
-    ## Des lignes libellées, pas des cartouches
-
-    Une première version encadrait l'identifiant et le mot de passe dans
-    deux cartouches blancs, à l'ancienne. Les étiquettes de KoXo portent
-    aujourd'hui `Identifiant : ncorvez` en clair, avec l'adresse et l'URL
-    en dessous — et deux jeux d'étiquettes qui ne se ressemblent pas se
-    trient mal quand on les distribue le même matin.
-
-    Le format est du HTML plutôt qu'un PDF : aucune dépendance à ajouter,
-    et l'impression depuis le navigateur donne le même résultat — avec la
-    possibilité d'ajuster, ce qu'un PDF figé n'offre pas.
-
-    ## Une classe par planche
-
-    Les étiquettes se distribuent classe par classe : mélanger deux classes
-    sur une même feuille obligerait à découper puis retrier. Chaque classe
-    commence donc sur une nouvelle page, et en occupe autant qu'il faut.
+    La présentation vient de `modeles_etiquettes` : elle se choisit, et le
+    gabarit n'est plus écrit ici. Ce qui ne change pas, c'est la géométrie
+    — trois colonnes, six rangées, au format des planches de KoXo — parce
+    que les feuilles pré-découpées de l'établissement sont à ce format.
 
     Args:
         etiquettes: dicts portant `nom`, `prenom`, `classe`, `groupe`,
-            `login`, `mot_de_passe` et **`adresse`** — c'est cette dernière
-            que la ligne « Email » affiche. L'oublier ne fait pas d'erreur :
-            l'étiquette sort avec « Email : » suivi de rien.
-        organisation: ce qu'affiche le bandeau — chez KoXo, le nom de
-            l'organisation de l'annuaire.
+            `login`, `mot_de_passe` et `adresse`.
+        organisation: ce qu'affiche l'en-tête — le nom de l'établissement,
+            que l'élève reconnaît.
+        site_nom: le nom court du site (`NDK`), d'où se déduisent son logo
+            et sa couleur.
+        avec_reseau: faux là où il n'y a pas de serveur — promettre un
+            accès qui n'existe pas serait pire que se taire.
     """
-    # Le bandeau de KoXo porte « OGEC PAUL AURELIEN », dix-huit caractères,
-    # qui tiennent tout juste à 11.91 pt. « OGEC NOTRE DAME D ESPERANCE » en
-    # fait vingt-sept et débordait — tronqué, un nom d'organisation ne veut
-    # plus rien dire. On réduit le corps à proportion plutôt que de couper.
-    REPERE = 18
-    taille_bandeau = 11.91
-    if len(organisation) > REPERE:
-        taille_bandeau = round(11.91 * REPERE / len(organisation), 2)
+    from backend.services.modeles_etiquettes import (
+        MODELE_PAR_DEFAUT,
+        page_etiquettes,
+    )
 
-    par_classe: dict[str, list[dict]] = {}
-    for e in etiquettes:
-        par_classe.setdefault(e.get("classe") or "", []).append(e)
-
-    logo_reseau = LOGO_RESEAU if avec_reseau else ""
-
-    def carte(e: dict) -> str:
-        return (
-            f'''<div class="etiquette">
-  <div class="bandeau">{_echapper(organisation)}</div>
-  <p class="identite">{_echapper(e.get("prenom", ""))} {_echapper(e.get("nom", ""))}</p>
-  <p class="groupe">{_echapper(e.get("groupe", ""))}</p>
-  <span class="logos">{LOGO_GOOGLE}{logo_reseau}</span>
-  <p class="ligne"><span class="etiq">Identifiant :</span><span class="val">{_echapper(e.get("login", ""))}</span></p>
-  <p class="ligne"><span class="etiq">Mot de passe :</span><span class="val">{_echapper(e.get("mot_de_passe", ""))}</span></p>
-  <p class="ligne petite"><span class="etiq">Email :</span><span class="val">{_echapper(e.get("adresse", ""))}</span></p>
-  <p class="ligne petite"><span class="etiq">Url :</span><span class="val">google.fr</span></p>
-  <p class="pied"><span>Appli Rentrée</span><span>Année {_echapper(annee)}</span></p>
-</div>'''
-        )
-
-    planches = []
-    for classe in sorted(par_classe):
-        eleves = sorted(
-            par_classe[classe],
-            key=lambda e: (e.get("nom") or "", e.get("prenom") or ""),
-        )
-        planches.append(
-            '<div class="planche">\n'
-            + "\n".join(carte(e) for e in eleves)
-            + "\n</div>"
-        )
-
-    page = f"""<!doctype html>
-<html lang="fr">
-<head>
-<meta charset="utf-8">
-<title>Étiquettes de comptes — {_echapper(annee)}</title>
-<style>
-  @page {{ size: A4; margin: {MARGE_H}pt {MARGE_G}pt; }}
-  /* À l'impression, les navigateurs suppriment les fonds pour économiser
-     l'encre. Sur une étiquette, le bandeau bleu et le fond bleu pâle sont
-     l'essentiel de la présentation : sans eux, la planche sort en noir et
-     blanc et ne ressemble plus à celles de KoXo. On les impose. */
-  * {{
-    box-sizing: border-box;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-  }}
-  body {{
-    margin: 0;
-    font-family: "Segoe UI", Arial, sans-serif;
-    color: #000;
-    background: #fff;
-  }}
-  .planche {{
-    display: grid;
-    grid-template-columns: repeat({COLONNES}, {CARTE_L}pt);
-    grid-auto-rows: {CARTE_H}pt;
-    gap: {GOUTTIERE_V:.2f}pt {GOUTTIERE_H:.2f}pt;
-  }}
-  /* Une classe par planche, une planche par feuille — au moins. Mélanger
-     deux classes obligerait à découper puis retrier. */
-  .planche + .planche {{ break-before: page; }}
-  .etiquette {{
-    width: {CARTE_L}pt;
-    height: {CARTE_H}pt;
-    background: {FOND};
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    border: 0.28pt solid #000;
-    padding: 0 2.84pt;
-    position: relative;
-    overflow: hidden;
-    /* Une étiquette coupée en deux par un saut de page serait inutilisable. */
-    break-inside: avoid;
-  }}
-  .bandeau {{
-    height: {BANDEAU_H}pt;
-    margin: 0 -2.84pt 0;
-    background: {BLEU};
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
-    border-bottom: 0.28pt solid #000;
-    color: #fff;
-    font-size: {taille_bandeau}pt;
-    line-height: {BANDEAU_H}pt;
-    padding-left: 2.84pt;
-    white-space: nowrap;
-    overflow: hidden;
-  }}
-  .identite {{
-    margin: 4.5pt 0 0;
-    font-size: 11.91pt;
-    line-height: 1.1;
-    white-space: nowrap;
-    overflow: hidden;
-  }}
-  .groupe {{
-    margin: 2pt 0 0;
-    font-size: 9.07pt;
-    line-height: 1.1;
-    /* KoXo condense légèrement cette ligne pour la faire tenir. */
-    transform: scaleX(0.975);
-    transform-origin: left;
-    white-space: nowrap;
-    overflow: hidden;
-  }}
-  /* Quatre lignes libellées, comme sur les étiquettes de KoXo :
-     « Identifiant : ncorvez », puis le mot de passe, l'adresse et l'URL.
-     Les deux premières portent l'essentiel et restent lisibles de loin ;
-     les deux suivantes sont plus petites, parce qu'une adresse fait
-     jusqu'à quarante-deux caractères — `baptiste.kerangueven@ndecleder.fr`
-     — pour cent soixante-huit points de large. */
-  .ligne {{
-    margin: 3.6pt 0 0 2.83pt;
-    font-family: "Segoe UI", Arial, sans-serif;
-    font-size: 9.5pt;
-    line-height: 1.15;
-    white-space: nowrap;
-    overflow: hidden;
-  }}
-  .ligne.petite {{
-    margin-top: 2.6pt;
-    font-size: 7pt;
-    /* Avec son libellé, la plus longue adresse fait quarante-neuf
-       caractères et dépassait la largeur de la carte. On la condense
-       légèrement, comme KoXo le fait déjà pour la ligne du groupe —
-       plutôt que de la tronquer ou de retirer le libellé. */
-    transform: scaleX(0.92);
-    transform-origin: left;
-  }}
-  .etiq {{
-    /* Le libellé s'efface devant la valeur : c'est elle qu'on recopie. */
-    color: #333;
-  }}
-  .val {{
-    margin-left: 0.35em;
-    font-weight: 600;
-  }}
-  /* Le logo va en bas à droite, à hauteur de la ligne « Url ».
-     En haut, il obligeait à réserver quarante points à droite du nom, et
-     « Warren ACQUITTER LE VELLY » s'y trouvait coupé au milieu. Ici il ne
-     longe que la plus courte des quatre lignes, et le nom reprend toute la
-     largeur de la carte. */
-  .logos {{
-    position: absolute;
-    right: 6pt;
-    bottom: 10pt;
-    display: flex;
-    align-items: center;
-    gap: 3pt;
-  }}
-  .logo {{
-    width: 22pt;
-    height: 22pt;
-  }}
-  .pied {{
-    position: absolute;
-    left: 2.84pt;
-    right: 2.84pt;
-    bottom: 2.2pt;
-    margin: 0;
-    display: flex;
-    justify-content: space-between;
-    font-size: 5.1pt;
-  }}
-  @media print {{
-    /* Le fond d'écran de la page ne doit pas être imprimé, lui. */
-    body {{ background: #fff; padding: 0; }}
-    .planche {{ box-shadow: none; margin: 0; padding: 0; }}
-  }}
-  @media screen {{
-    body {{ background: #eef1f4; padding: 12pt; }}
-    .planche {{
-      background: #fff;
-      padding: {MARGE_H}pt {MARGE_G}pt;
-      width: max-content;
-      margin-bottom: 12pt;
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
-    }}
-  }}
-</style>
-</head>
-<body>
-{chr(10).join(planches)}
-</body>
-</html>
-"""
-    return page.encode("utf-8")
+    avec_organisation = [
+        {**e, "organisation": organisation} for e in etiquettes
+    ]
+    return page_etiquettes(
+        avec_organisation,
+        annee=annee,
+        site_nom=site_nom,
+        modele=modele or MODELE_PAR_DEFAUT,
+        avec_reseau=avec_reseau,
+    )

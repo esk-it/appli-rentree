@@ -17,7 +17,7 @@ from __future__ import annotations
 import base64
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -866,11 +866,79 @@ class ListesKoxoPayload(BaseModel):
     site_id: int
     annee_cible_id: int
     annee_source_id: int | None = None
+    classes: list[str] = []
+    """Vide, tout le site : on ne devine pas un filtre que personne n'a
+    demandé."""
+    documents: list[str] = []
+    """Vide, les quatre. Choisir évite d'attendre six cent quatre-vingt-dix
+    étiquettes quand on ne voulait qu'un classeur."""
+    modele: str | None = None
+    """La présentation des étiquettes ; inconnue, celle par défaut."""
+
+
+class ModeleOut(BaseModel):
+    id: str
+    libelle: str
+    description: str
+
+
+@router.get("/modeles-etiquettes/apercu")
+def apercu_modele(
+    modele: str, site_id: int | None = None,
+    session: Session = Depends(db_session),
+) -> Response:
+    """Deux étiquettes d'exemple, pour voir avant de produire.
+
+    Les données sont inventées mais **difficiles** — un nom composé et
+    l'adresse la plus longue mesurée dans l'établissement — parce qu'un
+    aperçu sur « Jean DUPONT » ne montre jamais ce qui déborde.
+    """
+    from backend.models import Site
+    from backend.services.modeles_etiquettes import page_etiquettes
+
+    site = (
+        session.query(Site).filter_by(id=site_id).one_or_none()
+        if site_id
+        else None
+    )
+    nom_court = site.nom if site else ""
+    organisation = (site.nom_complet or site.nom) if site else "Établissement"
+
+    exemples = [
+        {
+            "classe": "3_1", "groupe": "3_1", "nom": "LAMBLIN",
+            "prenom": "Azilys", "login": "alamblin",
+            "mot_de_passe": "Sateku68",
+            "adresse": "azilys.lamblin@lekreisker.fr",
+            "organisation": organisation,
+        },
+        {
+            "classe": "3_1", "groupe": "3_1", "nom": "URIEN MOREAU DE LIZOREUX",
+            "prenom": "Joséphine", "login": "jurienmore",
+            "mot_de_passe": "Bahtiw42",
+            "adresse": "josephine.urienmoreaudelizoreux@lekreisker.fr",
+            "organisation": organisation,
+        },
+    ]
+    page = page_etiquettes(
+        exemples, annee="", site_nom=nom_court, modele=modele,
+        avec_reseau=bool(site and site.base_koxo),
+    )
+    return Response(content=page, media_type="text/html; charset=utf-8")
+
+
+@router.get("/modeles-etiquettes", response_model=list[ModeleOut])
+def modeles_etiquettes() -> list[ModeleOut]:
+    """Les présentations proposées, pour que l'écran en fasse une liste."""
+    from backend.services.modeles_etiquettes import catalogue
+
+    return [ModeleOut(**m) for m in catalogue()]
 
 
 class ListesKoxoReponse(BaseModel):
     site_nom: str
     annee_libelle: str
+    classes_disponibles: list[str] = []
     nb_tous: int
     nb_nouveaux: int
     sans_ligne_koxo: list[str]
@@ -943,6 +1011,9 @@ def listes_koxo(
             session, lignes, site_id=payload.site_id,
             annee_cible_id=payload.annee_cible_id,
             annee_source_id=payload.annee_source_id,
+            classes=payload.classes or None,
+            documents=set(payload.documents) or None,
+            modele=payload.modele,
         )
     except ListesImpossibles as e:
         raise HTTPException(400, str(e)) from None

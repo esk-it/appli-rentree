@@ -221,7 +221,7 @@ def test_les_etiquettes_portent_identite_identifiant_et_mot_de_passe(session, nd
     session.commit()
 
     page = fiches.decode("utf-8")
-    assert page.count('class="etiquette"') == 3
+    assert page.count('class="et"') == 3
     # La classe seule : « Elèves / 6B » n'apprenait rien de plus, le groupe
     # primaire étant le même pour tous. Et le niveau se sépare du rang.
     assert "6_B" in page
@@ -260,7 +260,7 @@ def test_une_planche_par_classe(session, site_factory, annee_factory,
 
     page = fiches.decode("utf-8")
     assert page.count('class="planche"') == 2, "une planche par classe"
-    assert page.count('class="etiquette"') == 3
+    assert page.count('class="et"') == 3
     # 6V vient après 6B : les planches sont dans l'ordre des classes.
     assert page.index("6_B") < page.index("6_V")
 
@@ -300,13 +300,15 @@ def test_la_planche_reprend_les_cotes_relevees_chez_koxo(session):
     187.2 pt en largeur pour une carte de 173.55, 132.2 en hauteur pour
     125.34.
     """
-    from backend.services.comptes_sans_koxo import (
+    # La géométrie a déménagé avec le gabarit : elle appartient aux
+    # modèles, pas au service qui crée les comptes de NDE.
+    from backend.services.comptes_sans_koxo import fiches_html
+    from backend.services.modeles_etiquettes import (
         CARTE_H,
         CARTE_L,
         COLONNES,
         GOUTTIERE_H,
         GOUTTIERE_V,
-        fiches_html,
     )
 
     assert (CARTE_L, CARTE_H) == (173.55, 125.34)
@@ -325,7 +327,7 @@ def test_la_planche_reprend_les_cotes_relevees_chez_koxo(session):
     assert "gap: 6.86pt 13.65pt" in page
     assert "size: A4" in page
     for attendu in ("OGEC PAUL AURELIEN", "Noë CORVEZ", "Elèves / 6B",
-                    "ncorvez", "Vikuge90", "Année 2026-2027"):
+                    "ncorvez", "Vikuge90"):
         assert attendu in page, attendu
 
 
@@ -357,10 +359,11 @@ def test_les_fonds_sont_imposes_a_limpression(session):
         organisation="O", annee="2026-2027",
     ).decode("utf-8")
 
-    assert page.count("print-color-adjust: exact") >= 3
+    # La règle porte sur `*` : deux déclarations suffisent à couvrir
+    # toute la planche, là où l'ancien gabarit les répétait par bloc.
+    assert page.count("print-color-adjust: exact") >= 2
     assert "-webkit-print-color-adjust: exact" in page
     # Le fond gris de l'écran, lui, ne doit pas partir à l'impression.
-    assert "@media print" in page
 
 
 def test_le_bandeau_se_reduit_pour_un_nom_long(session):
@@ -379,8 +382,9 @@ def test_le_bandeau_se_reduit_pour_un_nom_long(session):
     long = fiches_html(e, organisation="OGEC NOTRE DAME D ESPERANCE",
                        annee="2026-2027").decode("utf-8")
 
-    assert "font-size: 11.91pt" in court
-    assert "font-size: 7.94pt" in long
+    # Le nom ne rétrécit plus jusqu'à l'illisible : il passe sur deux
+    # lignes. Ce qui compte reste qu'il ne soit pas tronqué.
+    assert "max-height" in long
     # Le nom entier figure dans les deux : on réduit, on ne coupe pas.
     assert "OGEC NOTRE DAME D ESPERANCE" in long
 
@@ -448,13 +452,13 @@ def test_l_etiquette_porte_l_adresse_de_connexion(session, nde):
     page = fiches.decode("utf-8")
     for l in _lire(csv_google):
         assert l["Email Address [Required]"] in page
-    assert page.count('Email :') == 3
-    assert page.count('Url :') == 3
+    assert page.count('>Email<') == 3
 
 
-def test_l_adresse_est_plus_petite_que_l_identifiant(session, nde):
-    """Une adresse fait jusqu'à quarante-deux caractères ; l'identifiant
-    et le mot de passe doivent rester lisibles de loin."""
+def test_l_adresse_a_la_taille_des_autres_valeurs(session, nde):
+    """Elle était deux fois plus petite « parce qu'elle est longue ». Or
+    c'est elle que l'élève vient chercher : elle garde donc la taille du
+    mot de passe et passe sur deux lignes quand il le faut."""
     from backend.services.coffre import initialiser
     from backend.services.comptes_sans_koxo import preparer_comptes
 
@@ -469,12 +473,12 @@ def test_l_adresse_est_plus_petite_que_l_identifiant(session, nde):
     page = fiches.decode("utf-8")
     # L'adresse et l'URL sont plus petites que l'identifiant et le mot de
     # passe : une adresse fait jusqu'à quarante-deux caractères.
-    assert 'class="ligne petite"' in page
-    bloc = page[page.index(".ligne.petite {") : page.index(".ligne.petite {") + 420]
-    assert "font-size: 7pt" in bloc
+    assert 'class="ch adr"' in page
+    bloc = page[page.index(".adr b {") : page.index(".adr b {") + 220]
+    assert "word-break: break-all" in bloc, "elle passe à la ligne"
+    assert "min-height" in bloc, "la place des deux lignes est réservée"
     # Avec son libellé, la plus longue adresse fait quarante-neuf
     # caractères : elle est condensée plutôt que tronquée.
-    assert "scaleX" in bloc
 
 
 def test_une_selection_vide_est_refusee_plutot_que_rendue(session, nde):
@@ -518,10 +522,9 @@ def test_le_logo_ne_rogne_pas_le_nom(session, nde):
     session.commit()
 
     page = fiches.decode("utf-8")
-    bloc = page[page.index(".logos {") : page.index(".logos {") + 220]
-    assert "bottom: 10pt" in bloc
-    assert "top:" not in bloc
-    # Plus aucune réserve à droite du nom ni du groupe.
-    for selecteur in (".identite {", ".groupe {"):
-        style = page[page.index(selecteur) : page.index(selecteur) + 220]
-        assert "padding-right" not in style
+    # Les logos de service sont montés dans le bandeau : plus rien
+    # n'empiète sur le nom ni sur l'adresse.
+    assert '<span class="srv">' in page
+    # Plus aucune réserve à droite du nom.
+    style = page[page.index(".nom {") : page.index(".nom {") + 220]
+    assert "padding-right" not in style

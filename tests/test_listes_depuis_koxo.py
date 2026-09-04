@@ -123,7 +123,7 @@ def test_une_planche_complete_existe_aussi(session, etab, deux_eleves):
     )
     tous = r.etiquettes_tous.decode("utf-8")
     assert "ABGRALL" in tous and "BIHAN" in tous
-    assert tous.count('class="etiquette"') == 2
+    assert tous.count('class="et"') == 2
     assert r.nom_etiquettes_tous == "Etiquettes_SU_2026-2027_tous.html"
 
     # Et elle ne remplace pas celle des entrants, qui reste distincte.
@@ -259,6 +259,111 @@ def test_sans_annee_precedente_aucun_document_d_entrants(
     )
     assert r.nb_tous == 2
     assert r.xlsx_nouveaux == b"" and r.etiquettes_nouveaux == b""
+
+
+# ---------------------------------------------------------------------------
+# Le choix : quel modèle, quelles classes, quels documents
+# ---------------------------------------------------------------------------
+
+
+def test_le_modele_choisi_est_celui_rendu(session, etab, deux_eleves):
+    """Imposer une présentation revenait à trancher à la place de celui
+    qui imprime : une pile de trente ne se trie pas comme une étiquette
+    qu'on colle dans un carnet."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+    from backend.services.modeles_etiquettes import MODELES
+
+    su, source, cible = etab
+    for mid in MODELES:
+        r = listes_depuis_koxo(
+            session, _lignes(*deux_eleves), site_id=su.id,
+            annee_cible_id=cible.id, annee_source_id=source.id, modele=mid,
+        )
+        page = r.etiquettes_tous.decode("utf-8")
+        assert f'class="m-{mid}"' in page
+        # Quel que soit le modèle, les cinq informations sont là.
+        for attendu in ("ABGRALL", "labgrall", "51"):
+            assert attendu in page, f"{mid} : {attendu} manquant"
+
+
+def test_un_modele_inconnu_ne_bloque_pas_l_impression(session, etab, deux_eleves):
+    """Un identifiant périmé — une préférence enregistrée puis un modèle
+    retiré — ne doit pas empêcher de sortir les étiquettes."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+    from backend.services.modeles_etiquettes import MODELE_PAR_DEFAUT
+
+    su, source, cible = etab
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id,
+        modele="celui-qui-n-existe-plus",
+    )
+    assert f'class="m-{MODELE_PAR_DEFAUT}"' in r.etiquettes_tous.decode("utf-8")
+
+
+def test_les_logos_sont_embarques_dans_le_build(session):
+    """Ils sont lus à l'exécution : PyInstaller ne les emporte que si le
+    spec le dit, et le défaut ne se voit qu'une fois l'appli installée."""
+    import pathlib
+
+    from backend.services.modeles_etiquettes import logo_du_site
+
+    for site in ("NDK", "SU", "NDE"):
+        assert logo_du_site(site).startswith("data:image/png;base64,"), site
+    assert logo_du_site("SITE-QUI-N-EXISTE-PAS") == "", "repli sans logo"
+
+    spec = pathlib.Path("backend.spec").read_text(encoding="utf-8")
+    assert "backend/assets/logos" in spec, (
+        "sans cette entrée dans `datas`, les étiquettes sortiront sans logo"
+    )
+
+
+def test_le_filtre_de_classes_ne_garde_que_celles_la(session, etab, deux_eleves):
+    """Sortir une planche pour la seule 5_1 sans imprimer tout le collège."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+
+    su, source, cible = etab
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id, classes=["51"],
+    )
+    assert [l.nom for l in r.lignes] == ["ABGRALL"]
+    assert "BIHAN" not in r.etiquettes_tous.decode("utf-8")
+
+
+def test_un_filtre_qui_ne_retient_personne_le_dit(session, etab, deux_eleves):
+    """Sinon on obtient un classeur vide sans savoir si c'est le filtre ou
+    l'export qui est en cause."""
+    from backend.services.listes_depuis_koxo import (
+        ListesImpossibles,
+        listes_depuis_koxo,
+    )
+
+    su, source, cible = etab
+    with pytest.raises(ListesImpossibles, match="classes retenues"):
+        listes_depuis_koxo(
+            session, _lignes(*deux_eleves), site_id=su.id,
+            annee_cible_id=cible.id, annee_source_id=source.id,
+            classes=["47"],
+        )
+
+
+def test_on_ne_fabrique_que_les_documents_demandes(session, etab, deux_eleves):
+    """Rendre les quatre pour n'en garder qu'un coûtait six cent
+    quatre-vingt-dix étiquettes de rendu à chaque essai."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+
+    su, source, cible = etab
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id,
+        documents={"etiquettes_nouveaux"},
+    )
+    assert r.etiquettes_nouveaux, "celui qu'on a demandé"
+    assert r.xlsx_tous == b"" and r.xlsx_nouveaux == b""
+    assert r.etiquettes_tous == b""
+    # Les comptes restent justes : ce sont les fichiers qu'on n'a pas faits.
+    assert r.nb_tous == 2 and r.nb_nouveaux == 1
 
 
 # ---------------------------------------------------------------------------

@@ -1014,7 +1014,16 @@ export const exportsCible = {
    * c'est lui l'autorité. Or la liste du professeur principal, celle des
    * entrants et les étiquettes en ont toutes besoin.
    */
-  async listesKoxo({ fichierKoxo, siteId, anneeCibleId, anneeSourceId = null }) {
+  /**
+   * @param classes Vide = tout le site. On ne devine pas un filtre que
+   *   personne n'a demandé.
+   * @param documents Vide = les quatre. Choisir évite d'attendre six cent
+   *   quatre-vingt-dix étiquettes quand on ne voulait qu'un classeur.
+   */
+  async listesKoxo({
+    fichierKoxo, siteId, anneeCibleId, anneeSourceId = null,
+    classes = [], documents = [], modele = null,
+  }) {
     if (!fichierKoxo) throw new Error("Export KoXo requis");
     const koxo_base64 = arrayBufferEnBase64(await fichierKoxo.arrayBuffer());
     return jsonOrThrow(
@@ -1023,9 +1032,20 @@ export const exportsCible = {
         body: JSON.stringify({
           koxo_base64, site_id: siteId,
           annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+          classes, documents, modele,
         }),
       }),
     );
+  },
+  /** Les présentations d'étiquette proposées. */
+  async modelesEtiquettes() {
+    return jsonOrThrow(await fetch(`${BASE}/exports/modeles-etiquettes`));
+  },
+  /** L'URL d'un aperçu — deux étiquettes d'exemple, à afficher en cadre. */
+  urlApercuModele(modele, siteId) {
+    const q = new URLSearchParams({ modele });
+    if (siteId) q.set("site_id", String(siteId));
+    return `${BASE}/exports/modeles-etiquettes/apercu?${q}`;
   },
   async jpm({ siteId, anneeCibleId, anneeSourceId, enregistrerPrevus = false }) {
     return jsonOrThrow(

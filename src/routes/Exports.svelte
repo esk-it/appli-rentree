@@ -1,5 +1,6 @@
 <script>
   import { onMount } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import Download from "@lucide/svelte/icons/download";
   import FileDown from "@lucide/svelte/icons/file-down";
   import Upload from "@lucide/svelte/icons/upload";
@@ -313,6 +314,13 @@
     } catch (e) {
       erreur = String(e);
     }
+    try {
+      modeles = await exportsCible.modelesEtiquettes();
+    } catch {
+      // Le catalogue n'est pas vital : sans lui, le modèle par défaut
+      // s'applique et l'écran reste utilisable.
+      modeles = [];
+    }
     await chargerStatutApi();
   });
 
@@ -434,6 +442,21 @@
   let fichierListes = $state(/** @type {File|null} */ (null));
   let rapportListes = $state(/** @type {any} */ (null));
 
+  /** Le catalogue des présentations, et celle qu'on a retenue. */
+  let modeles = $state(/** @type {any[]} */ ([]));
+  let modeleChoisi = $state("filigrane");
+  /** Les classes cochées. Vide = tout le site, pas « aucune ». */
+  let classesRetenues = $state(new SvelteSet());
+  /** Les documents à produire. Vide = les quatre. */
+  let documentsVoulus = $state(new SvelteSet());
+
+  const DOCUMENTS = [
+    { id: "liste_tous", libelle: "Liste de tous les élèves" },
+    { id: "liste_nouveaux", libelle: "Liste des entrants" },
+    { id: "etiquettes_tous", libelle: "Étiquettes de tous" },
+    { id: "etiquettes_nouveaux", libelle: "Étiquettes des entrants" },
+  ];
+
   async function genererListes() {
     if (!fichierListes || !siteId || !anneeCibleId) return;
     chargement = true;
@@ -445,6 +468,9 @@
         siteId,
         anneeCibleId,
         anneeSourceId: anneeSourceId ?? null,
+        classes: [...classesRetenues],
+        documents: [...documentsVoulus],
+        modele: modeleChoisi,
       });
       notify.succes(
         `${rapportListes.nb_tous} élève(s), dont ${rapportListes.nb_nouveaux} entrants`,
@@ -680,6 +706,116 @@
           étiquettes ne sont alors produites.
         </p>
       </div>
+
+      <!-- Quoi produire. Tout décoché vaut « les quatre » : c'est le cas
+           courant, et obliger à cocher pour obtenir le comportement normal
+           serait une friction sans contrepartie. -->
+      <div class="mt-3 rounded-lg border border-stone-200 p-3 dark:border-stone-700">
+        <p class="mb-2 text-xs font-medium uppercase tracking-wide text-stone-500 dark:text-stone-400">
+          Documents à produire
+        </p>
+        <div class="flex flex-wrap gap-x-5 gap-y-1.5">
+          {#each DOCUMENTS as d (d.id)}
+            <label class="inline-flex cursor-pointer items-center gap-1.5 text-sm">
+              <input
+                type="checkbox"
+                checked={documentsVoulus.has(d.id)}
+                onchange={() => {
+                  if (documentsVoulus.has(d.id)) documentsVoulus.delete(d.id);
+                  else documentsVoulus.add(d.id);
+                  rapportListes = null;
+                }}
+              />
+              {d.libelle}
+            </label>
+          {/each}
+        </div>
+        <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
+          {documentsVoulus.size === 0
+            ? "Rien de coché : les quatre seront produits."
+            : `${documentsVoulus.size} document(s) retenu(s).`}
+        </p>
+      </div>
+
+      <!-- Le modèle d'étiquette, avec son aperçu. Un aperçu sur « Jean
+           DUPONT » ne montrerait jamais ce qui déborde : l'exemple porte
+           un nom composé et l'adresse la plus longue de l'établissement. -->
+      {#if modeles.length}
+        <div class="mt-3 rounded-lg border border-stone-200 p-3 dark:border-stone-700">
+          <p class="mb-2 text-xs font-medium uppercase tracking-wide text-stone-500 dark:text-stone-400">
+            Présentation des étiquettes
+          </p>
+          <div class="flex flex-wrap items-start gap-4">
+            <div class="min-w-56 flex-1 space-y-1">
+              {#each modeles as m (m.id)}
+                <label class="flex cursor-pointer items-start gap-2 rounded-md p-1.5 text-sm hover:bg-stone-100 dark:hover:bg-stone-800">
+                  <input
+                    type="radio"
+                    class="mt-1"
+                    checked={modeleChoisi === m.id}
+                    onchange={() => { modeleChoisi = m.id; rapportListes = null; }}
+                  />
+                  <span class="min-w-0">
+                    <span class="font-medium">{m.libelle}</span>
+                    <span class="block text-xs text-stone-500 dark:text-stone-400">
+                      {m.description}
+                    </span>
+                  </span>
+                </label>
+              {/each}
+            </div>
+            <div class="shrink-0">
+              <p class="mb-1 text-xs text-stone-500 dark:text-stone-400">
+                Aperçu {siteId ? "" : "— choisis un site pour voir son logo"}
+              </p>
+              <iframe
+                title="Aperçu de l'étiquette"
+                src={exportsCible.urlApercuModele(modeleChoisi, siteId)}
+                class="h-52 w-[420px] rounded-lg border border-stone-300 bg-white dark:border-stone-600"
+              ></iframe>
+            </div>
+          </div>
+        </div>
+      {/if}
+
+      <!-- Les classes ne se connaissent qu'après une première génération :
+           elles viennent de l'export, pas du référentiel seul. -->
+      {#if rapportListes?.classes_disponibles?.length}
+        <div class="mt-3 rounded-lg border border-stone-200 p-3 dark:border-stone-700">
+          <div class="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <p class="text-xs font-medium uppercase tracking-wide text-stone-500 dark:text-stone-400">
+              Classes
+            </p>
+            <button
+              class="text-xs text-stone-500 hover:text-emerald-600"
+              onclick={() => { classesRetenues.clear(); rapportListes = null; }}
+            >
+              tout le site
+            </button>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            {#each rapportListes.classes_disponibles as c (c)}
+              <button
+                class="rounded-full border px-2.5 py-1 text-xs {classesRetenues.has(c)
+                  ? 'border-emerald-400 bg-emerald-50 text-emerald-900 dark:border-emerald-700 dark:bg-emerald-950 dark:text-emerald-200'
+                  : 'border-stone-300 text-stone-600 dark:border-stone-600 dark:text-stone-300'}"
+                onclick={() => {
+                  if (classesRetenues.has(c)) classesRetenues.delete(c);
+                  else classesRetenues.add(c);
+                  rapportListes = null;
+                }}
+              >
+                {c}
+              </button>
+            {/each}
+          </div>
+          <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
+            {classesRetenues.size === 0
+              ? "Aucune classe cochée : tout le site."
+              : `${classesRetenues.size} classe(s) retenue(s) — relance pour appliquer.`}
+          </p>
+        </div>
+      {/if}
     {/if}
 
     {#if cible === "charlemagne"}
