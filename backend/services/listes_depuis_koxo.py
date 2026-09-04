@@ -88,9 +88,14 @@ class RapportListes:
 
     xlsx_tous: bytes = b""
     xlsx_nouveaux: bytes = b""
+    etiquettes_tous: bytes = b""
+    """Les étiquettes de tout le site. Un ancien connaît déjà ses
+    identifiants — mais il les perd, et une classe entière peut en
+    redemander après un changement de mot de passe."""
     etiquettes_nouveaux: bytes = b""
     nom_xlsx_tous: str = ""
     nom_xlsx_nouveaux: str = ""
+    nom_etiquettes_tous: str = ""
     nom_etiquettes: str = ""
 
     @property
@@ -213,6 +218,11 @@ def _composer(rapport: RapportListes, site, annee, *, avec_nouveaux: bool) -> No
     rapport.xlsx_tous = _classeur(rapport.lignes, f"{site.nom} {annee.libelle}")
     rapport.nom_xlsx_tous = f"Comptes_{site.nom}_{annee.libelle}_tous.xlsx"
 
+    rapport.etiquettes_tous = _etiquettes(rapport.lignes, site, annee)
+    rapport.nom_etiquettes_tous = (
+        f"Etiquettes_{site.nom}_{annee.libelle}_tous.html"
+    )
+
     if not avec_nouveaux:
         # Sans année précédente, « nouveau » n'a pas de sens : ne rien rendre
         # vaut mieux qu'un fichier où tout le monde serait entrant.
@@ -221,11 +231,11 @@ def _composer(rapport: RapportListes, site, annee, *, avec_nouveaux: bool) -> No
     rapport.xlsx_nouveaux = _classeur(rapport.nouveaux, f"{site.nom} entrants")
     rapport.nom_xlsx_nouveaux = f"Comptes_{site.nom}_{annee.libelle}_nouveaux.xlsx"
 
-    rapport.etiquettes_nouveaux = _etiquettes(rapport, site, annee)
+    rapport.etiquettes_nouveaux = _etiquettes(rapport.nouveaux, site, annee)
     rapport.nom_etiquettes = f"Etiquettes_{site.nom}_{annee.libelle}_nouveaux.html"
 
 
-def _etiquettes(rapport: RapportListes, site, annee) -> bytes:
+def _etiquettes(lignes: list[LigneListe], site, annee) -> bytes:
     from backend.services.comptes_sans_koxo import fiches_html
 
     return fiches_html(
@@ -240,7 +250,7 @@ def _etiquettes(rapport: RapportListes, site, annee) -> bytes:
                 # de rien, et c'est justement l'adresse qu'il vient chercher.
                 "adresse": l.email,
             }
-            for l in rapport.nouveaux
+            for l in lignes
         ],
         # Le bandeau nomme l'établissement — « Collège Sainte Ursule » — et
         # non l'OGEC qui le gère : c'est un papier remis à l'élève, qui

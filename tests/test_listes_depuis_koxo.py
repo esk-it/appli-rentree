@@ -110,6 +110,41 @@ def test_les_nouveaux_sont_ceux_absents_de_l_annee_precedente(
     assert len(lignes) == 2, "l'en-tête et le seul entrant"
 
 
+def test_une_planche_complete_existe_aussi(session, etab, deux_eleves):
+    """Un ancien connaît ses identifiants — jusqu'à ce qu'il les perde, ou
+    qu'on lui change son mot de passe. La planche complète se produit donc
+    toujours, comme le classeur complet."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+
+    su, source, cible = etab
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id,
+    )
+    tous = r.etiquettes_tous.decode("utf-8")
+    assert "ABGRALL" in tous and "BIHAN" in tous
+    assert tous.count('class="etiquette"') == 2
+    assert r.nom_etiquettes_tous == "Etiquettes_SU_2026-2027_tous.html"
+
+    # Et elle ne remplace pas celle des entrants, qui reste distincte.
+    assert "ABGRALL" not in r.etiquettes_nouveaux.decode("utf-8")
+
+
+def test_la_planche_complete_sort_meme_sans_annee_source(
+    session, etab, deux_eleves
+):
+    """Elle ne dépend pas de la notion d'entrant : sans année source, on
+    ne sait pas qui est nouveau, mais on sait qui est là."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+
+    su, _, cible = etab
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id, annee_cible_id=cible.id,
+    )
+    assert r.etiquettes_tous, "la planche complète est rendue"
+    assert r.etiquettes_nouveaux == b"", "celle des entrants, non"
+
+
 def test_les_etiquettes_ne_portent_que_les_nouveaux(session, etab, deux_eleves):
     from backend.services.listes_depuis_koxo import listes_depuis_koxo
 

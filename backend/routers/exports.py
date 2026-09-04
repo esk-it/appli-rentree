@@ -880,6 +880,8 @@ class ListesKoxoReponse(BaseModel):
     xlsx_tous_base64: str
     nom_xlsx_nouveaux: str
     xlsx_nouveaux_base64: str
+    nom_etiquettes_tous: str = ""
+    etiquettes_tous_base64: str = ""
     nom_etiquettes: str
     etiquettes_base64: str
 
@@ -973,6 +975,8 @@ def listes_koxo(
         nom_xlsx_tous=r.nom_xlsx_tous, xlsx_tous_base64=b64(r.xlsx_tous),
         nom_xlsx_nouveaux=r.nom_xlsx_nouveaux,
         xlsx_nouveaux_base64=b64(r.xlsx_nouveaux),
+        nom_etiquettes_tous=r.nom_etiquettes_tous,
+        etiquettes_tous_base64=b64(r.etiquettes_tous),
         nom_etiquettes=r.nom_etiquettes,
         etiquettes_base64=b64(r.etiquettes_nouveaux),
     )

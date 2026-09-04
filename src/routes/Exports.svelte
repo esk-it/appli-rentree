@@ -1155,6 +1155,8 @@
             titre: "Tous les élèves", detail: `${r.nb_tous} lignes · classe, identifiant, mot de passe, adresse` },
           { nom: r.nom_xlsx_nouveaux, b64: r.xlsx_nouveaux_base64, mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             titre: "Les entrants seuls", detail: `${r.nb_nouveaux} lignes` },
+          { nom: r.nom_etiquettes_tous, b64: r.etiquettes_tous_base64, mime: "text/html",
+            titre: "Étiquettes de tous les élèves", detail: `${r.nb_tous} étiquettes · pour une réimpression ou un mot de passe perdu` },
           { nom: r.nom_etiquettes, b64: r.etiquettes_base64, mime: "text/html",
             titre: "Étiquettes des entrants", detail: "une planche par classe, à imprimer depuis le navigateur" },
         ] as doc (doc.titre)}
