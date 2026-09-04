@@ -130,6 +130,7 @@ def croiser(
     comptes_google: list[dict] | None = None,
     membres_par_groupe: dict[str, list[str] | None] | None = None,
     lignes_koxo: list | None = None,
+    koxo_par_base: list[list] | None = None,
 ) -> RapportConcordance:
     """Met côte à côte Charlemagne, le référentiel, Google et KoXo.
 
@@ -138,7 +139,11 @@ def croiser(
         comptes_google: retour de `ClientGoogle.lister_utilisateurs`. Sans
             lui, la colonne Google reste vide plutôt que fausse.
         lignes_koxo: retour de `lire_export_brut`, si l'on a déposé un
-            export KoXo.
+            export KoXo. Pour une seule base.
+        koxo_par_base: un export **par base**, quand on les a tous déposés.
+            KoXo a un serveur par établissement ; la couverture se calcule
+            fichier par fichier, puis se réunit. La calculer sur le tas
+            fusionné ferait disparaître une petite base derrière une grosse.
 
     Raises:
         ConcordanceImpossible: fichier vide ou sans les colonnes voulues.
@@ -159,13 +164,23 @@ def croiser(
     ou_par_adresse, groupes_par_adresse = _index_google(
         comptes_google, membres_par_groupe
     )
-    koxo_par_id = _index_koxo(lignes_koxo)
-    koxo_sites = _sites_couverts_par_koxo(session, lignes_koxo, par_badge)
+    # Une base par établissement : chacune dit de qui elle parle, et c'est
+    # la réunion qui couvre l'école. Un seul export reste le cas courant.
+    bases: list[list] = (
+        koxo_par_base
+        if koxo_par_base is not None
+        else ([lignes_koxo] if lignes_koxo is not None else [])
+    )
+    toutes_les_lignes = [l for b in bases for l in b]
+    koxo_par_id = _index_koxo(toutes_les_lignes)
+    koxo_sites: set[str] = set()
+    for base in bases:
+        koxo_sites |= _sites_couverts_par_koxo(session, base, par_badge)
 
     rapport = RapportConcordance(
         annee_libelle=annee.libelle,
         google_consulte=comptes_google is not None,
-        koxo_fourni=lignes_koxo is not None,
+        koxo_fourni=bool(bases),
         koxo_sites=sorted(koxo_sites),
     )
 

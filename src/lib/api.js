@@ -176,16 +176,23 @@ export const arrivees = {
  * référentiel, et Charlemagne n'entrait que par l'ingestion.
  */
 export const concordance = {
-  async croiser({ fichier, anneeId, fichierKoxo = null, interrogerGoogle = true }) {
+  /**
+   * @param fichiersKoxo Un export **par base** : KoXo a un serveur par
+   *   établissement, quand Charlemagne et Google couvrent toute l'école.
+   *   Les déposer ensemble est le seul moyen de la juger en une passe.
+   */
+  async croiser({ fichier, anneeId, fichiersKoxo = [], interrogerGoogle = true }) {
     if (!fichier) throw new Error("Export Charlemagne requis");
     const corps = {
       fichier_base64: arrayBufferEnBase64(await fichier.arrayBuffer()),
       annee_id: anneeId,
       interroger_google: interrogerGoogle,
     };
-    if (fichierKoxo) {
-      corps.koxo_base64 = arrayBufferEnBase64(await fichierKoxo.arrayBuffer());
-    }
+    corps.koxo_base64 = await Promise.all(
+      [...fichiersKoxo].map(async (f) =>
+        arrayBufferEnBase64(await f.arrayBuffer()),
+      ),
+    );
     return jsonOrThrow(
       await fetch(`${BASE}/concordance`, {
         method: "POST", headers: { "content-type": "application/json" },

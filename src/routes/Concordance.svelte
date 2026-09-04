@@ -49,7 +49,8 @@
   let listeAnnees = $state(/** @type {any[]} */ ([]));
   let anneeId = $state(/** @type {number | null} */ (null));
   let fichier = $state(/** @type {File | null} */ (null));
-  let fichierKoxo = $state(/** @type {File | null} */ (null));
+  /** Un export par base : KoXo a un serveur par établissement. */
+  let fichiersKoxo = $state(/** @type {File[]} */ ([]));
   let rapport = $state(/** @type {any} */ (null));
   let occupe = $state(false);
   let chargement = $state(true);
@@ -97,7 +98,7 @@
     rapport = null;
     application = null;
     try {
-      rapport = await concordanceApi.croiser({ fichier, anneeId, fichierKoxo });
+      rapport = await concordanceApi.croiser({ fichier, anneeId, fichiersKoxo });
       retenues.clear();
       for (const l of rapport.lignes) {
         if (l.personne_id && !l.genres.every((g) => HORS_PORTEE.has(g))) {
@@ -228,13 +229,16 @@
 
         <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
           <Upload class="h-3.5 w-3.5" />
-          {fichierKoxo?.name ?? "Export KoXo (facultatif)"}
+          {fichiersKoxo.length === 0
+            ? "Exports KoXo (une base par fichier)"
+            : fichiersKoxo.map((f) => f.name).join(" + ")}
           <input
             type="file"
             accept=".csv,.xlsx"
+            multiple
             onchange={(e) => {
               const champ = /** @type {HTMLInputElement} */ (e.target);
-              fichierKoxo = champ.files?.[0] ?? null;
+              fichiersKoxo = [...(champ.files ?? [])];
               rapport = null;
             }}
             class="hidden"
@@ -256,9 +260,9 @@
         chaque groupe de classe : compte une minute. Sans export KoXo, sa
         colonne reste vide plutôt que fausse.
         <strong>KoXo a une base par établissement</strong> : un export ne
-        couvre que la sienne, et les élèves des autres sites ne sont pas
-        jugés dessus. Pour les couvrir tous, relance le croisement avec
-        l'export de l'autre base.
+        couvre que la sienne. Dépose-les <strong>tous en même temps</strong>
+        (NDK <em>et</em> SU) pour juger toute l'école en une passe — les
+        élèves d'une base absente restent « hors base » plutôt qu'accusés.
       </p>
     </div>
 

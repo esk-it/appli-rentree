@@ -14,7 +14,7 @@ from __future__ import annotations
 import base64
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
@@ -35,8 +35,21 @@ class ConcordancePayload(BaseModel):
 
     fichier_base64: str
     annee_id: int
-    koxo_base64: str | None = None
+    koxo_base64: list[str] = []
+    """Un export **par base** : KoXo a un serveur par établissement, et
+    Charlemagne comme Google en couvrent plusieurs. Les déposer tous
+    ensemble est le seul moyen de juger toute l'école en une passe."""
     interroger_google: bool = True
+
+    @field_validator("koxo_base64", mode="before")
+    @classmethod
+    def _un_ou_plusieurs(cls, v):
+        """Le champ n'a longtemps porté qu'un fichier ; il l'accepte encore."""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            return [v] if v else []
+        return v
 
 
 class LigneOut(BaseModel):
@@ -69,6 +82,108 @@ class ConcordanceReponse(BaseModel):
     avertissements: list[str] = []
 
 
+def _lire_les_exports_koxo(fichiers: list[str]) -> tuple[list[list], list[str]]:
+    """Les lignes de chaque base KoXo déposée, une liste par fichier.
+
+    Elles restent **séparées** : chaque base dit de quel établissement elle
+    parle, et c'est la réunion qui couvre l'école. Les fusionner avant de
+    calculer cette couverture ferait disparaître une petite base derrière
+    une grosse.
+
+    KoXo a **un serveur par établissement** : on ne peut en exporter qu'un à
+    la fois, alors que Charlemagne et Google couvrent toute l'école. Juger
+    l'école entière demande donc de déposer les deux exports ensemble — les
+    fusionner ici évite de relancer le croisement base par base, et surtout
+    évite qu'une base absente fasse passer ses élèves pour introuvables.
+
+    L'appariement se fait sur l'`ID unique`, où le programme écrit le badge
+    Charlemagne. Un même badge deux fois est une anomalie, et les deux
+    formes qu'elle prend ne se soignent pas pareil :
+
+    - **dans un même export** : deux comptes réseau pour un seul élève
+      (`lperon` et `lperon1`), nés d'une création rejouée ;
+    - **entre deux exports** : un élève qui a changé d'établissement sans
+      que son compte soit retiré de l'ancien serveur.
+
+    Dans les deux cas on garde la première occurrence et on le dit, plutôt
+    que de trancher en silence.
+    """
+    from pathlib import Path
+    from tempfile import NamedTemporaryFile
+
+    from backend.services.controle_koxo import lire_export_brut
+
+    bases: list[list] = []
+    avertissements: list[str] = []
+    vus: dict[str, tuple[int, str]] = {}
+    en_double: list[str] = []
+    entre_bases: list[str] = []
+
+    for rang, b64 in enumerate(fichiers, start=1):
+        rang_dit = f"fichier {rang} sur {len(fichiers)}"
+        try:
+            contenu = base64.b64decode(b64)
+        except Exception as e:
+            raise HTTPException(400, f"Base64 KoXo invalide ({rang_dit}) : {e}") from e
+
+        with NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+            tmp.write(contenu)
+            chemin = Path(tmp.name)
+        try:
+            # `lire_export_brut` rend cinq choses — les lignes, les colonnes
+            # reconnues, le séparateur, l'encodage, et s'il portait des mots
+            # de passe. Prendre le tuple entier pour la liste faisait passer
+            # les mille six cent soixante-sept élèves pour absents de KoXo.
+            du_fichier, colonnes, _sep, _enc, _mdp = lire_export_brut(chemin)
+        except Exception as e:
+            raise HTTPException(
+                400, f"Export KoXo illisible ({rang_dit}) : {e}"
+            ) from None
+        finally:
+            try:
+                chemin.unlink()
+            except OSError:
+                pass
+
+        if not du_fichier:
+            raise HTTPException(
+                400,
+                f"L'export KoXo ne contient aucune ligne exploitable ({rang_dit}). "
+                f"Colonnes reconnues : {', '.join(colonnes) or 'aucune'}.",
+            )
+
+        retenues = []
+        for l in du_fichier:
+            ident = (getattr(l, "id_unique", "") or "").strip()
+            if ident and ident in vus:
+                rang_vu, login_vu = vus[ident]
+                qui = f"{getattr(l, 'prenom', '')} {getattr(l, 'nom', '')}".strip()
+                login = (getattr(l, "login", "") or "").strip()
+                if rang_vu == rang:
+                    en_double.append(f"{qui or ident} ({login_vu} et {login})")
+                else:
+                    entre_bases.append(f"{qui or ident} (fichiers {rang_vu} et {rang})")
+                continue
+            if ident:
+                vus[ident] = (rang, (getattr(l, "login", "") or "").strip())
+            retenues.append(l)
+        bases.append(retenues)
+
+    if en_double:
+        avertissements.append(
+            f"{len(en_double)} élève(s) ont deux comptes dans la même base KoXo "
+            "— une création rejouée. Le second est à supprimer dans KoXo : "
+            + ", ".join(en_double[:12])
+        )
+    if entre_bases:
+        avertissements.append(
+            f"{len(entre_bases)} élève(s) présents dans deux bases KoXo — le "
+            "compte n'a pas été retiré de l'ancien établissement. La première "
+            "occurrence a été retenue : " + ", ".join(entre_bases[:12])
+        )
+    return bases, avertissements
+
+
 @router.post("", response_model=ConcordanceReponse)
 def croiser_les_sources(
     payload: ConcordancePayload, session: Session = Depends(db_session)
@@ -87,40 +202,10 @@ def croiser_les_sources(
     except Exception as e:
         raise HTTPException(400, f"Base64 invalide : {e}") from e
 
-    lignes_koxo = None
+    koxo_par_base = None
     if payload.koxo_base64:
-        from tempfile import NamedTemporaryFile
-        from pathlib import Path
-
-        from backend.services.controle_koxo import lire_export_brut
-
-        try:
-            contenu = base64.b64decode(payload.koxo_base64)
-        except Exception as e:
-            raise HTTPException(400, f"Base64 KoXo invalide : {e}") from e
-        with NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
-            tmp.write(contenu)
-            chemin = Path(tmp.name)
-        try:
-            # `lire_export_brut` rend cinq choses — les lignes, les colonnes
-            # reconnues, le séparateur, l'encodage, et s'il portait des mots
-            # de passe. Prendre le tuple entier pour la liste faisait passer
-            # les mille six cent soixante-sept élèves pour absents de KoXo.
-            lignes_koxo, colonnes, _sep, _enc, _mdp = lire_export_brut(chemin)
-        except Exception as e:
-            raise HTTPException(400, f"Export KoXo illisible : {e}") from None
-        finally:
-            try:
-                chemin.unlink()
-            except OSError:
-                pass
-
-        if not lignes_koxo:
-            raise HTTPException(
-                400,
-                "L'export KoXo ne contient aucune ligne exploitable. "
-                f"Colonnes reconnues : {', '.join(colonnes) or 'aucune'}.",
-            )
+        koxo_par_base, avertis = _lire_les_exports_koxo(payload.koxo_base64)
+        avertissements.extend(avertis)
 
     comptes = None
     membres: dict[str, list[str] | None] | None = None
@@ -158,7 +243,7 @@ def croiser_les_sources(
         r = croiser(
             session, brut, annee_id=payload.annee_id,
             comptes_google=comptes, membres_par_groupe=membres,
-            lignes_koxo=lignes_koxo,
+            koxo_par_base=koxo_par_base,
         )
     except ConcordanceImpossible as e:
         raise HTTPException(400, str(e)) from None

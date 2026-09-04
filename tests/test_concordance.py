@@ -200,6 +200,140 @@ def test_un_export_koxo_ne_parle_que_de_sa_base(
     assert r.nb_accord == 2
 
 
+def test_les_deux_bases_deposees_ensemble_couvrent_l_ecole(
+    session, etab, eleve, site_factory, personne_factory
+):
+    """Ne pas accuser l'autre site ne suffisait pas : il fallait pouvoir le
+    juger. Un export par base, déposés ensemble, et les deux répondent."""
+    from backend.services.concordance import croiser
+
+    site, an = etab
+    su = site_factory("SU")
+    ailleurs = personne_factory(
+        type="eleve", site_id=su.id, nom="ABGRALL", prenom="Lena",
+        login="labgrall", classe="61",
+    )
+    r = croiser(
+        session,
+        _fichier(f"{eleve.badge};CAZUC;Axel;2_4",
+                 f"{ailleurs.badge};ABGRALL;Lena;61"),
+        annee_id=an.id,
+        koxo_par_base=[
+            [_LigneKoxo(str(eleve.badge), "2_4")],      # base NDK
+            [_LigneKoxo(str(ailleurs.badge), "52")],    # base SU, en retard
+        ],
+    )
+    assert r.koxo_sites == ["NDK", "SU"], "les deux bases sont interrogées"
+    assert [l.nom for l in r.lignes] == ["ABGRALL"]
+    assert r.lignes[0].genres == ["koxo"]
+    assert r.lignes[0].koxo == "52"
+
+
+def test_une_petite_base_ne_disparait_pas_derriere_une_grosse(
+    session, etab, eleve, site_factory, personne_factory
+):
+    """La couverture se calcule fichier par fichier. Sur le tas fusionné,
+    le seuil proportionnel effacerait la base la moins peuplée."""
+    from backend.services.concordance import croiser
+
+    site, an = etab
+    su = site_factory("SU")
+    petits = [
+        personne_factory(
+            type="eleve", site_id=su.id, nom=f"N{i}", prenom="X",
+            login=f"x{i}", classe="61",
+        )
+        for i in range(2)
+    ]
+    gros = [
+        personne_factory(
+            type="eleve", site_id=site.id, nom=f"M{i}", prenom="Y",
+            login=f"y{i}", classe="2_4",
+        )
+        for i in range(60)
+    ]
+    r = croiser(
+        session,
+        _fichier(*[f"{p.badge};{p.nom};{p.prenom};2_4" for p in gros],
+                 *[f"{p.badge};{p.nom};{p.prenom};61" for p in petits]),
+        annee_id=an.id,
+        koxo_par_base=[
+            [_LigneKoxo(str(p.badge), "2_4") for p in gros],
+            [_LigneKoxo(str(p.badge), "61") for p in petits],
+        ],
+    )
+    assert r.koxo_sites == ["NDK", "SU"]
+
+
+# ---------------------------------------------------------------------------
+# La lecture des exports déposés
+# ---------------------------------------------------------------------------
+
+
+def _export_koxo(*eleves: tuple[str, str, str, str]) -> str:
+    """Un export KoXo en base64, tel que le routeur le reçoit.
+
+    Chaque élève est `(groupe_secondaire, nom, prenom, login, id_unique)`
+    aplati en `(groupe, nom, login, id_unique)` — le prénom est déduit.
+    """
+    import base64
+
+    entete = (
+        "Groupe primaire;Groupe secondaire;Titre;Nom;Prénom;Identifiant;"
+        "ID unique;Mot de passe;Date de naissance;Email"
+    )
+    lignes = [entete]
+    for groupe, nom, login, ident in eleves:
+        lignes.append(
+            f"Elèves;{groupe};;{nom};Prenom;{login};{ident};Mdp00001;;"
+        )
+    texte = "\r\n".join(lignes) + "\r\n"
+    return base64.b64encode(texte.encode("cp1252")).decode("ascii")
+
+
+def test_deux_exports_restent_deux_bases():
+    """Elles ne sont pas fusionnées : chacune dit de qui elle parle."""
+    from backend.routers.concordance import _lire_les_exports_koxo
+
+    bases, avertis = _lire_les_exports_koxo([
+        _export_koxo(("2_4", "CAZUC", "acazuc", "111")),
+        _export_koxo(("61", "ABGRALL", "labgrall", "222")),
+    ])
+    assert [len(b) for b in bases] == [1, 1]
+    assert avertis == []
+
+
+def test_deux_comptes_pour_un_eleve_dans_la_meme_base_sont_signales():
+    """Vécu : Lou PERON portait « lperon » et « lperon1 », même ID unique.
+    Le second est à supprimer dans KoXo, et rien ne le disait."""
+    from backend.routers.concordance import _lire_les_exports_koxo
+
+    bases, avertis = _lire_les_exports_koxo([
+        _export_koxo(
+            ("T_G4B", "PERON", "lperon", "87500"),
+            ("T_G4B", "PERON", "lperon1", "87500"),
+        ),
+    ])
+    assert len(bases[0]) == 1, "la seconde ligne n'est pas comptée deux fois"
+    assert len(avertis) == 1
+    assert "même base" in avertis[0]
+    assert "lperon et lperon1" in avertis[0]
+
+
+def test_un_eleve_present_dans_deux_bases_est_signale_autrement():
+    """Là, ce n'est pas une création rejouée : c'est un compte resté sur le
+    serveur de l'établissement qu'il a quitté."""
+    from backend.routers.concordance import _lire_les_exports_koxo
+
+    bases, avertis = _lire_les_exports_koxo([
+        _export_koxo(("2_4", "MOVED", "amoved", "333")),
+        _export_koxo(("61", "MOVED", "amoved", "333")),
+    ])
+    assert [len(b) for b in bases] == [1, 0]
+    assert len(avertis) == 1
+    assert "deux bases" in avertis[0]
+
+
 # ---------------------------------------------------------------------------
 # Les bords
 # ---------------------------------------------------------------------------
