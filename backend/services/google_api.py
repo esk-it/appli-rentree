@@ -854,6 +854,32 @@ class ClientGoogle:
             body={"email": adresse, "name": nom, "description": description}
         ).execute()
 
+    def lister_groupes_de(self, email: str) -> list[str]:
+        """Les groupes dont cette adresse est membre. Lecture seule.
+
+        Répond à une question que `lister_membres` ne sait pas poser :
+        « où est-il, celui-là ? ». Sans elle, on ne peut retirer un élève
+        que des groupes qu'on a devinés — et l'on devine mal : le groupe
+        d'où il faut le sortir est celui où il **est**, pas celui que sa
+        classe de l'an dernier laisse supposer.
+        """
+        groupes: list[str] = []
+        jeton = None
+        while True:
+            rep = reessayer(
+                lambda: self._service.groups()
+                .list(userKey=email, maxResults=200, pageToken=jeton)
+                .execute()
+            )
+            for g in rep.get("groups", []):
+                adresse = (g.get("email") or "").lower()
+                if adresse:
+                    groupes.append(adresse)
+            jeton = rep.get("nextPageToken")
+            if not jeton:
+                break
+        return groupes
+
     def ajouter_membre(self, groupe: str, email: str) -> None:
         self._service.members().insert(
             groupKey=groupe, body=payload_membre_groupe(email=email)

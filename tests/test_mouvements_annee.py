@@ -351,11 +351,21 @@ def client(tmp_db_path):
 
 
 class _GoogleFactice:
-    """Consigne ce qu'on lui demande ; échoue sur ce qu'on lui dit d'échouer."""
+    """Consigne ce qu'on lui demande ; échoue sur ce qu'on lui dit d'échouer.
 
-    def __init__(self, echoue=()):
+    `appartenances` dit dans quels groupes l'élève se trouve **vraiment** :
+    c'est de là que se déduisent les retraits, et non de sa classe passée.
+    """
+
+    def __init__(self, echoue=(), appartenances=()):
         self.echoue = set(echoue)
+        self.appartenances = list(appartenances)
         self.deplacements, self.retraits, self.ajouts = [], [], []
+
+    def lister_groupes_de(self, email):
+        if "lister_groupes" in self.echoue:
+            raise RuntimeError("lecture des groupes refusée")
+        return list(self.appartenances)
 
     def appliquer_operation(self, op):
         if "deplacer" in self.echoue:
@@ -394,9 +404,11 @@ def test_lendpoint_simule_sans_toucher_a_google(session, client, contexte, googl
     assert google.deplacements == [] and google.ajouts == []
 
 
-def test_le_deplacement_puis_lechange_des_groupes(session, contexte, google):
-    """L'ordre compte : on déplace, puis on quitte, puis on rejoint."""
+def test_le_deplacement_puis_lechange_des_groupes(session, contexte):
+    """On déplace, on rejoint, puis on quitte ce qu'on occupait à tort."""
     from backend.services.mouvements_annee import appliquer_dans_google
+
+    google = _GoogleFactice(appartenances=["6a@lekreisker.fr"])
 
     _, annee, p = contexte
     _place(session, p, "/3. NDK/NDK2027/6A")
@@ -413,6 +425,91 @@ def test_le_deplacement_puis_lechange_des_groupes(session, contexte, google):
     ]
     assert google.retraits == [("6a@lekreisker.fr", "jean.dupont@lekreisker.fr")]
     assert google.ajouts == [("6b@lekreisker.fr", "jean.dupont@lekreisker.fr")]
+
+
+def test_on_quitte_le_groupe_ou_lon_est_pas_celui_quon_suppose(
+    session, contexte, tc_factory
+):
+    """Le 4 septembre 2026, les quarante-neuf alignements ont tous rendu
+    « Resource Not Found: memberKey » : on retirait l'élève de la classe
+    qu'il avait quittée en juin, alors qu'il fallait le sortir de celle où
+    il avait été mis par erreur. Chacun restait dans deux groupes."""
+    from backend.services.mouvements_annee import appliquer_dans_google
+
+    site, annee, p = contexte
+    tc_factory(site.id, "6C")
+    # Il n'est plus en 6A — on l'a rangé par erreur en 6C.
+    google = _GoogleFactice(appartenances=["6c@lekreisker.fr"])
+    _place(session, p, "/3. NDK/NDK2027/6A")
+    plan = planifier_changement_de_classe(
+        session, personne_id=p.id, nouvelle_classe="6B", annee_id=annee.id,
+        mode="reel",
+    )
+    ops = appliquer_dans_google(session, plan, google)
+
+    assert all(o.reussie for o in ops)
+    assert google.retraits == [("6c@lekreisker.fr", "jean.dupont@lekreisker.fr")], (
+        "on sort du groupe réellement occupé"
+    )
+    assert google.ajouts == [("6b@lekreisker.fr", "jean.dupont@lekreisker.fr")]
+
+
+def test_un_groupe_hors_table_nest_jamais_touche(session, contexte, tc_factory):
+    """Listes de service, groupes de professeurs : ils ne se déduisent
+    d'aucune classe, et les toucher retirerait un accès qu'on ignore."""
+    from backend.services.mouvements_annee import appliquer_dans_google
+
+    site, annee, p = contexte
+    tc_factory(site.id, "6C")
+    google = _GoogleFactice(
+        appartenances=["6c@lekreisker.fr", "tous-les-eleves@lekreisker.fr"]
+    )
+    _place(session, p, "/3. NDK/NDK2027/6A")
+    plan = planifier_changement_de_classe(
+        session, personne_id=p.id, nouvelle_classe="6B", annee_id=annee.id,
+        mode="reel",
+    )
+    appliquer_dans_google(session, plan, google)
+
+    quittes = {g for g, _ in google.retraits}
+    assert quittes == {"6c@lekreisker.fr"}
+    assert "tous-les-eleves@lekreisker.fr" not in quittes
+
+
+def test_le_groupe_rejoint_nest_pas_retire_dans_la_foulee(session, contexte):
+    """On rejoint avant de quitter : sans exclusion explicite, le groupe
+    qu'on vient d'obtenir figurerait parmi ceux qu'on occupe."""
+    from backend.services.mouvements_annee import appliquer_dans_google
+
+    google = _GoogleFactice(appartenances=["6b@lekreisker.fr"])
+    _, annee, p = contexte
+    _place(session, p, "/3. NDK/NDK2027/6A")
+    plan = planifier_changement_de_classe(
+        session, personne_id=p.id, nouvelle_classe="6B", annee_id=annee.id,
+        mode="reel",
+    )
+    appliquer_dans_google(session, plan, google)
+
+    assert google.retraits == []
+
+
+def test_une_lecture_de_groupes_refusee_se_dit_sans_tout_arreter(session, contexte):
+    """Le déplacement et l'ajout ont eu lieu : les taire pour un échec de
+    lecture ferait croire que rien n'a bougé."""
+    from backend.services.mouvements_annee import appliquer_dans_google
+
+    google = _GoogleFactice(echoue={"lister_groupes"})
+    _, annee, p = contexte
+    _place(session, p, "/3. NDK/NDK2027/6A")
+    plan = planifier_changement_de_classe(
+        session, personne_id=p.id, nouvelle_classe="6B", annee_id=annee.id,
+        mode="reel",
+    )
+    ops = appliquer_dans_google(session, plan, google)
+
+    assert all(o.reussie for o in ops)
+    assert google.ajouts, "l'ajout a bien eu lieu"
+    assert any("groupe d'une autre classe" in a for a in plan.avertissements)
 
 
 def test_un_echec_de_groupe_nannule_pas_le_deplacement(session, contexte):

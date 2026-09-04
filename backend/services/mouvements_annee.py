@@ -332,19 +332,54 @@ def appliquer_dans_google(session: Session, plan: PlanMouvement, client):
         if ok:
             _memoriser_ou(session, plan)
 
-    if plan.groupe_quitte:
-        tenter(
-            f"Retirer {plan.email} de {plan.groupe_quitte}",
-            lambda: client.retirer_membre(plan.groupe_quitte, plan.email),
-        )
-
     if plan.groupe_rejoint:
         tenter(
             f"Ajouter {plan.email} à {plan.groupe_rejoint}",
             lambda: client.ajouter_membre(plan.groupe_rejoint, plan.email),
         )
 
+    _sortir_des_autres_groupes(session, plan, client, tenter)
     return operations
+
+
+def _sortir_des_autres_groupes(session: Session, plan, client, tenter) -> None:
+    """Retire l'élève de tout groupe de classe qui n'est pas le sien.
+
+    Le plan portait un `groupe_quitte` déduit de la classe **précédente**.
+    Vécu le 4 septembre 2026 : les quarante-neuf alignements ont tous rendu
+    « Resource Not Found: memberKey », parce qu'on essayait de retirer
+    Margaux de la seconde qu'elle avait quittée en juin — quand le groupe à
+    quitter était la première où elle avait été mise par erreur. Résultat,
+    chacun se retrouvait dans deux groupes de classe à la fois.
+
+    On ne déduit donc plus : on demande à Google où l'élève est, et on le
+    sort de tous les groupes de classe sauf celui qu'il doit rejoindre. Les
+    groupes hors Table — professeurs, listes de service — ne sont jamais
+    touchés : ils ne se déduisent d'aucune classe et ne nous regardent pas.
+    """
+    if not plan.email:
+        return
+    garder = (plan.groupe_rejoint or "").strip().lower()
+
+    try:
+        siens = {g.strip().lower() for g in client.lister_groupes_de(plan.email)}
+    except Exception as e:  # noqa: BLE001
+        plan.avertissements.append(
+            f"Impossible de lire les groupes de {plan.email} ({type(e).__name__}) : "
+            "il peut rester dans le groupe d'une autre classe."
+        )
+        return
+
+    de_classe = {
+        (t.groupe_google or "").strip().lower()
+        for t in session.query(TableCorrespondance).all()
+        if (t.groupe_google or "").strip()
+    }
+    for groupe in sorted((siens & de_classe) - {garder}):
+        tenter(
+            f"Retirer {plan.email} de {groupe}",
+            lambda g=groupe: client.retirer_membre(g, plan.email),
+        )
 
 
 def _memoriser_ou(session: Session, plan: PlanMouvement) -> None:
