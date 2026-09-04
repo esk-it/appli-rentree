@@ -188,6 +188,23 @@ def test_l_export_d_une_autre_base_est_refuse(session, etab, deux_eleves):
         )
 
 
+def test_comparer_une_annee_a_elle_meme_est_refuse(session, etab, deux_eleves):
+    """Vécu : l'écran classait les années par date de création, où
+    « 2025-2026 » venait après « 2026-2027 ». La source valait la cible,
+    la liste des entrants sortait vide, et rien ne disait pourquoi."""
+    from backend.services.listes_depuis_koxo import (
+        ListesImpossibles,
+        listes_depuis_koxo,
+    )
+
+    su, _, cible = etab
+    with pytest.raises(ListesImpossibles, match="la même"):
+        listes_depuis_koxo(
+            session, _lignes(*deux_eleves), site_id=su.id,
+            annee_cible_id=cible.id, annee_source_id=cible.id,
+        )
+
+
 def test_un_export_vide_est_refuse(session, etab):
     from backend.services.listes_depuis_koxo import (
         ListesImpossibles,

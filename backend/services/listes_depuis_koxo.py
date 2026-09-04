@@ -124,6 +124,17 @@ def listes_depuis_koxo(
         raise ListesImpossibles(f"Année introuvable : {annee_cible_id}")
     if not lignes_koxo:
         raise ListesImpossibles("L'export KoXo ne contient aucune ligne.")
+    if annee_source_id is not None and annee_source_id == annee_cible_id:
+        # Comparer une année à elle-même ne rend aucun entrant, et le
+        # rendait sans rien dire : trois documents produits, celui des
+        # nouveaux vide, et aucune raison visible. L'écran classait les
+        # années par date de création, où « 2025-2026 » venait après
+        # « 2026-2027 » — la source valait alors la cible.
+        raise ListesImpossibles(
+            f"L'année source et l'année cible sont la même ({annee.libelle}) : "
+            "aucun élève ne peut y être « nouveau ». Choisis l'année "
+            "précédente comme source."
+        )
 
     par_badge = {}
     for l in lignes_koxo:

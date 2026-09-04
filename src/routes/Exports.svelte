@@ -300,15 +300,30 @@
     try {
       listeSites = await sitesApi.lister();
       listeAnnees = await annees.lister();
-      if (listeAnnees.length >= 1) anneeCibleId = listeAnnees[0].id;
-      if (listeAnnees.length >= 2) anneeSourceId = listeAnnees[1].id;
+      // Par libellé, pas par date de création : « 2025-2026 » a été créée
+      // après « 2026-2027 », et l'ordre de l'API mettait donc l'année
+      // révolue en cible et l'année en cours en source. La liste des
+      // entrants comparait alors 2026-2027 à elle-même, et ne rendait
+      // aucun élève sans rien signaler.
+      const parLibelle = [...listeAnnees].sort((a, b) =>
+        String(b.libelle).localeCompare(String(a.libelle)),
+      );
+      if (parLibelle.length >= 1) anneeCibleId = parLibelle[0].id;
+      if (parLibelle.length >= 2) anneeSourceId = parLibelle[1].id;
     } catch (e) {
       erreur = String(e);
     }
     await chargerStatutApi();
   });
 
-  let anneeSourceRequise = $derived(categorie === "nouveaux" || categorie === "anciens");
+  /** L'année source est ce qui définit « nouveau » : sans elle, la liste
+   *  des entrants et leurs étiquettes n'ont pas de sens. L'onglet des
+   *  listes en dépend donc autant que les catégories de KoXo — et ne pas
+   *  l'y montrer laissait l'utilisateur devant trois documents vides sans
+   *  moyen de comprendre pourquoi. */
+  let anneeSourceRequise = $derived(
+    categorie === "nouveaux" || categorie === "anciens" || cible === "listes",
+  );
 
   /**
    * PMB : le fichier de Charlemagne, coupé par instance.
