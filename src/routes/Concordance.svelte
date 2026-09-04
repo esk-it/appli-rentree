@@ -117,6 +117,33 @@
     }
   }
 
+  /**
+   * Ajoute les fichiers choisis à ceux déjà déposés.
+   *
+   * KoXo a un serveur par établissement : on va chercher NDK, puis SU, en
+   * deux passages par la boîte de dialogue. Remplacer la liste à chaque
+   * sélection — ce que faisait la v0.134.0 — rendait le second export
+   * destructeur du premier, et `multiple` ne servait qu'à ceux qui
+   * pensaient à cocher les deux fichiers d'un coup.
+   *
+   * Le champ est vidé après coup : sans ça, redéposer un fichier qu'on
+   * vient de retirer ne déclencherait aucun `change`.
+   */
+  function ajouterKoxo(e) {
+    const champ = /** @type {HTMLInputElement} */ (e.target);
+    const connus = new Set(fichiersKoxo.map((f) => `${f.name}|${f.size}`));
+    for (const f of champ.files ?? []) {
+      if (!connus.has(`${f.name}|${f.size}`)) fichiersKoxo.push(f);
+    }
+    champ.value = "";
+    rapport = null;
+  }
+
+  function retirerKoxo(i) {
+    fichiersKoxo.splice(i, 1);
+    rapport = null;
+  }
+
   function basculer(id) {
     if (retenues.has(id)) retenues.delete(id);
     else retenues.add(id);
@@ -230,17 +257,13 @@
         <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
           <Upload class="h-3.5 w-3.5" />
           {fichiersKoxo.length === 0
-            ? "Exports KoXo (une base par fichier)"
-            : fichiersKoxo.map((f) => f.name).join(" + ")}
+            ? "Ajouter un export KoXo (NDK, puis SU)"
+            : `Ajouter une autre base (${fichiersKoxo.length} déposée${fichiersKoxo.length > 1 ? "s" : ""})`}
           <input
             type="file"
             accept=".csv,.xlsx"
             multiple
-            onchange={(e) => {
-              const champ = /** @type {HTMLInputElement} */ (e.target);
-              fichiersKoxo = [...(champ.files ?? [])];
-              rapport = null;
-            }}
+            onchange={ajouterKoxo}
             class="hidden"
           />
         </label>
@@ -255,14 +278,42 @@
           Croiser les sources
         </Bouton>
       </div>
+
+      {#if fichiersKoxo.length}
+        <!-- La liste déposée, visible et retirable : c'est elle qui dit que
+             les deux bases sont bien là, plutôt qu'un nom qui en remplace
+             un autre en silence. -->
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs text-stone-500 dark:text-stone-400">
+            Bases déposées :
+          </span>
+          {#each fichiersKoxo as f, i (f.name + f.size)}
+            <span
+              class="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+            >
+              {f.name}
+              <button
+                type="button"
+                class="rounded-full px-1 text-emerald-700 hover:bg-emerald-200 dark:text-emerald-300 dark:hover:bg-emerald-900"
+                title="Retirer {f.name}"
+                onclick={() => retirerKoxo(i)}
+              >
+                ×
+              </button>
+            </span>
+          {/each}
+        </div>
+      {/if}
+
       <p class="text-xs text-stone-500 dark:text-stone-400">
         L'annuaire Google est lu à chaque croisement — comptes et membres de
         chaque groupe de classe : compte une minute. Sans export KoXo, sa
         colonne reste vide plutôt que fausse.
         <strong>KoXo a une base par établissement</strong> : un export ne
-        couvre que la sienne. Dépose-les <strong>tous en même temps</strong>
-        (NDK <em>et</em> SU) pour juger toute l'école en une passe — les
-        élèves d'une base absente restent « hors base » plutôt qu'accusés.
+        couvre que la sienne. Clique le bouton <strong>une fois par base</strong>
+        (NDK, puis SU) — elles s'ajoutent l'une à l'autre et s'affichent
+        au-dessus. Les élèves d'une base non déposée restent « hors base »
+        plutôt qu'accusés d'absence.
       </p>
     </div>
 
