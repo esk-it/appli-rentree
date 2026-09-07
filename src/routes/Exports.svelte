@@ -316,6 +316,7 @@
     }
     try {
       modeles = await exportsCible.modelesEtiquettes();
+      polices = await exportsCible.policesEtiquettes();
     } catch {
       // Le catalogue n'est pas vital : sans lui, le modèle par défaut
       // s'applique et l'écran reste utilisable.
@@ -454,6 +455,8 @@
   let elevesDuSite = $state(/** @type {any[]} */ ([]));
   let filtreEleve = $state("");
   let parPage = $state(18);
+  let polices = $state(/** @type {any[]} */ ([]));
+  let policeChoisie = $state("lucida");
   /** Les documents à produire. Vide = les quatre. */
   let documentsVoulus = $state(new SvelteSet());
 
@@ -509,6 +512,7 @@
         documents: [...documentsVoulus],
         modele: modeleChoisi,
         parPage,
+        police: policeChoisie,
       });
       notify.succes(
         `${rapportListes.nb_tous} élève(s), dont ${rapportListes.nb_nouveaux} entrants`,
@@ -817,14 +821,33 @@
                       rapportListes = null;
                     }}
                   >
-                    <option value={18}>18</option>
+                    <option value={18}>18 — le format KoXo</option>
                     <option value={15}>15</option>
+                    <option value={12}>12</option>
+                    <option value={9}>9 — les plus grandes</option>
                   </select>
                 </label>
+                {#if polices.length}
+                  <label class="inline-flex items-center gap-1.5 text-xs text-stone-600 dark:text-stone-300">
+                    police
+                    <select
+                      class="champ py-0.5 text-xs"
+                      value={policeChoisie}
+                      onchange={(e) => {
+                        policeChoisie = e.currentTarget.value;
+                        rapportListes = null;
+                      }}
+                    >
+                      {#each polices as p (p.id)}
+                        <option value={p.id} title={p.description}>{p.libelle}</option>
+                      {/each}
+                    </select>
+                  </label>
+                {/if}
               </div>
               <iframe
                 title="Aperçu de l'étiquette"
-                src={exportsCible.urlApercuModele(modeleChoisi, siteId, parPage)}
+                src={exportsCible.urlApercuModele(modeleChoisi, siteId, parPage, policeChoisie)}
                 class="h-52 w-[420px] rounded-lg border border-stone-300 bg-white dark:border-stone-600"
               ></iframe>
             </div>

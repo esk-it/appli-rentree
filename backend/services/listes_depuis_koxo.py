@@ -124,6 +124,7 @@ def listes_depuis_koxo(
     documents: set[str] | None = None,
     modele: str | None = None,
     par_page: int = 18,
+    police: str | None = None,
 ) -> RapportListes:
     """Trois documents d'un seul export : la liste, les entrants, les fiches.
 
@@ -265,6 +266,7 @@ def listes_depuis_koxo(
         documents=documents,
         modele=modele,
         par_page=par_page,
+        police=police,
     )
     return rapport
 
@@ -286,6 +288,7 @@ def _composer(
     documents: set[str] | None = None,
     modele: str | None = None,
     par_page: int = 18,
+    police: str | None = None,
 ) -> None:
     """Ne fabrique que ce qu'on a demandé.
 
@@ -301,7 +304,7 @@ def _composer(
         rapport.nom_xlsx_tous = f"Comptes_{site.nom}_{annee.libelle}_tous.xlsx"
 
     if "etiquettes_tous" in voulus:
-        rapport.etiquettes_tous = _etiquettes(rapport.lignes, site, annee, modele, par_page)
+        rapport.etiquettes_tous = _etiquettes(rapport.lignes, site, annee, modele, par_page, police)
         rapport.nom_etiquettes_tous = (
             f"Etiquettes_{site.nom}_{annee.libelle}_tous.html"
         )
@@ -318,14 +321,15 @@ def _composer(
         )
 
     if "etiquettes_nouveaux" in voulus:
-        rapport.etiquettes_nouveaux = _etiquettes(rapport.nouveaux, site, annee, modele, par_page)
+        rapport.etiquettes_nouveaux = _etiquettes(rapport.nouveaux, site, annee, modele, par_page, police)
         rapport.nom_etiquettes = (
             f"Etiquettes_{site.nom}_{annee.libelle}_nouveaux.html"
         )
 
 
 def _etiquettes(
-    lignes: list[LigneListe], site, annee, modele=None, par_page=18
+    lignes: list[LigneListe], site, annee, modele=None, par_page=18,
+    police=None,
 ) -> bytes:
     from backend.services.comptes_sans_koxo import fiches_html
 
@@ -354,6 +358,7 @@ def _etiquettes(
         site_nom=site.nom,
         modele=modele,
         par_page=par_page,
+        police=police,
     )
 
 

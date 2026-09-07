@@ -286,6 +286,7 @@ def fiches_html(
     site_nom: str = "",
     modele: str | None = None,
     par_page: int = 18,
+    police: str | None = None,
 ) -> bytes:
     """Les étiquettes de comptes, à imprimer.
 
@@ -306,6 +307,7 @@ def fiches_html(
     """
     from backend.services.modeles_etiquettes import (
         MODELE_PAR_DEFAUT,
+        POLICE_PAR_DEFAUT,
         page_etiquettes,
     )
 
@@ -319,4 +321,5 @@ def fiches_html(
         modele=modele or MODELE_PAR_DEFAUT,
         avec_reseau=avec_reseau,
         par_page=par_page,
+        police=police or POLICE_PAR_DEFAUT,
     )

@@ -873,7 +873,9 @@ class ListesKoxoPayload(BaseModel):
     """Des élèves nommément choisis — le cas du mot de passe perdu, où l'on
     ne veut qu'une étiquette."""
     par_page: int = 18
-    """15 ou 18 étiquettes par feuille A4."""
+    """18, 15, 12 ou 9 étiquettes par feuille A4."""
+    police: str | None = None
+    """Celle des identifiants — le 1 et le l doivent se distinguer."""
     documents: list[str] = []
     """Vide, les quatre. Choisir évite d'attendre six cent quatre-vingt-dix
     étiquettes quand on ne voulait qu'un classeur."""
@@ -935,7 +937,7 @@ def eleves_du_site(
 @router.get("/modeles-etiquettes/apercu")
 def apercu_modele(
     modele: str, site_id: int | None = None, par_page: int = 18,
-    session: Session = Depends(db_session),
+    police: str | None = None, session: Session = Depends(db_session),
 ) -> Response:
     """Deux étiquettes d'exemple, pour voir avant de produire.
 
@@ -944,7 +946,10 @@ def apercu_modele(
     aperçu sur « Jean DUPONT » ne montre jamais ce qui déborde.
     """
     from backend.models import Site
-    from backend.services.modeles_etiquettes import page_etiquettes
+    from backend.services.modeles_etiquettes import (
+        POLICE_PAR_DEFAUT,
+        page_etiquettes,
+    )
 
     site = (
         session.query(Site).filter_by(id=site_id).one_or_none()
@@ -973,8 +978,17 @@ def apercu_modele(
     page = page_etiquettes(
         exemples, annee="", site_nom=nom_court, modele=modele,
         avec_reseau=bool(site and site.base_koxo), par_page=par_page,
+        police=police or POLICE_PAR_DEFAUT,
     )
     return Response(content=page, media_type="text/html; charset=utf-8")
+
+
+@router.get("/polices-etiquettes", response_model=list[ModeleOut])
+def polices_etiquettes() -> list[ModeleOut]:
+    """Les polices proposées pour les identifiants."""
+    from backend.services.modeles_etiquettes import catalogue_polices
+
+    return [ModeleOut(**p) for p in catalogue_polices()]
 
 
 @router.get("/modeles-etiquettes", response_model=list[ModeleOut])
@@ -1066,6 +1080,7 @@ def listes_koxo(
             documents=set(payload.documents) or None,
             modele=payload.modele,
             par_page=payload.par_page,
+            police=payload.police,
         )
     except ListesImpossibles as e:
         raise HTTPException(400, str(e)) from None

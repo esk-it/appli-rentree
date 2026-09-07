@@ -344,6 +344,74 @@ def test_la_page_ne_deborde_pas_de_la_feuille(session):
         )
 
 
+def test_le_texte_grandit_avec_la_carte(session):
+    """Donner plus de hauteur sans grossir les caractères n'ajoutait que du
+    blanc : la demande était de mieux lire, pas d'avoir plus de marge."""
+    import re
+
+    from backend.services.modeles_etiquettes import css_socle, geometrie
+
+    def taille_du_nom(par_page):
+        css = css_socle(par_page)
+        return float(re.search(r"\.nom \{ font-size: ([\d.]+)pt", css).group(1))
+
+    ref = taille_du_nom(18)
+    for par_page in (15, 12, 9):
+        attendu = ref * geometrie(par_page)[2] / geometrie(18)[2]
+        assert abs(taille_du_nom(par_page) - attendu) < 0.05, par_page
+    assert taille_du_nom(9) > 2 * ref * 0.9
+
+
+def test_les_boites_horizontales_grandissent_moins_que_le_texte(session):
+    """Seule la hauteur de carte change : la largeur reste celle des trois
+    colonnes. À grossir le logo autant que le texte, le bandeau débordait
+    et « Collège Sainte Ursule » sortait coupé en « COLLÈ / SAINT »."""
+    import re
+
+    from backend.services.modeles_etiquettes import css_socle
+
+    def logo(par_page):
+        css = css_socle(par_page)
+        return float(re.search(r"\.bd \.lg \{ width: ([\d.]+)pt", css).group(1))
+
+    croissance_logo = logo(9) / logo(18)
+    assert 1.2 < croissance_logo < 1.7, croissance_logo
+    # Et il ne rogne plus le nom de l'établissement.
+    assert "max-height" not in css_socle(9).split(".etab {")[1].split("}")[0]
+
+
+def test_la_police_des_identifiants_se_choisit(session, etab, deux_eleves):
+    """Le 1 et le l de Consolas se ressemblent assez pour qu'on se trompe
+    en recopiant un mot de passe."""
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+    from backend.services.modeles_etiquettes import POLICES, POLICE_PAR_DEFAUT
+
+    assert POLICE_PAR_DEFAUT == "lucida", "celle qui distingue le mieux"
+
+    su, source, cible = etab
+    for pid, (libelle, pile, _d) in POLICES.items():
+        r = listes_depuis_koxo(
+            session, _lignes(*deux_eleves), site_id=su.id,
+            annee_cible_id=cible.id, annee_source_id=source.id, police=pid,
+        )
+        page = r.etiquettes_tous.decode("utf-8")
+        assert f"font-family: {pile}" in page, pid
+
+
+def test_une_police_inconnue_ne_bloque_pas_l_impression(session, etab, deux_eleves):
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+    from backend.services.modeles_etiquettes import POLICES, POLICE_PAR_DEFAUT
+
+    su, source, cible = etab
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id,
+        annee_cible_id=cible.id, annee_source_id=source.id,
+        police="celle-qui-n-existe-pas",
+    )
+    attendue = POLICES[POLICE_PAR_DEFAUT][1]
+    assert f"font-family: {attendue}" in r.etiquettes_tous.decode("utf-8")
+
+
 def test_le_choix_par_eleve_ne_garde_que_ceux_la(session, etab, deux_eleves):
     """Le cas courant du mot de passe perdu : on ne veut qu'une étiquette,
     pas la planche de la classe."""

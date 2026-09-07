@@ -34,6 +34,7 @@ inconnu retombe sur un gris neutre plutôt que de refuser de s'imprimer.
 from __future__ import annotations
 
 import base64
+import re
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
@@ -47,13 +48,75 @@ MARGE_G, MARGE_H = 24.0, 24.0
 GOUTTIERE_H, GOUTTIERE_V = 13.65, 8.0
 COLONNES = 3
 
-PAR_PAGE = {15: 5, 18: 6}
+PAR_PAGE = {18: 6, 15: 5, 12: 4, 9: 3}
 """Combien d'étiquettes par feuille, et le nombre de rangées que cela fait.
 
-Dix-huit tombe sur les cotes des planches KoXo (173,55 × 125,34 pt) ;
-quinze donne des cartes plus hautes, plus faciles à découper.
+Dix-huit tombe sur les cotes des planches KoXo (173,55 × 125,34 pt). En
+dessous, la carte grandit — et **le texte avec elle** : donner plus de
+hauteur sans grossir les caractères n'ajoute que du blanc, alors que la
+demande était de mieux lire.
 """
 PAR_PAGE_DEFAUT = 18
+
+POLICES = {
+    "lucida": (
+        "Lucida Console",
+        '"Lucida Console", "DejaVu Sans Mono", monospace',
+        "Le 1 porte un empattement de base, le l un pied net. Présente sur "
+        "tous les Windows.",
+    ),
+    "cascadia": (
+        "Cascadia Mono",
+        '"Cascadia Mono", "Cascadia Code", "Lucida Console", monospace',
+        "La plus lisible : le l a une queue courbe et le zéro est barré. "
+        "Livrée avec Windows 11 seulement.",
+    ),
+    "consolas": (
+        "Consolas",
+        'Consolas, "Lucida Console", monospace',
+        "L'ancienne. Compacte, mais le 1 et le l s'y ressemblent.",
+    ),
+    "courier": (
+        "Courier New",
+        '"Courier New", monospace',
+        "Très espacée, donc chaque signe est isolé — mais maigre à "
+        "l'impression.",
+    ),
+}
+POLICE_PAR_DEFAUT = "lucida"
+
+
+def catalogue_polices() -> list[dict]:
+    return [
+        {"id": i, "libelle": lib, "description": desc}
+        for i, (lib, _pile, desc) in POLICES.items()
+    ]
+
+
+def _a_l_echelle(css: str, echelle: float) -> str:
+    """Multiplie chaque longueur en points par l'échelle de la carte.
+
+    Les tailles sont écrites en points, lisibles telles quelles pour le
+    format de référence ; c'est ici qu'elles suivent la carte quand on
+    passe à douze ou neuf par feuille. Appliqué au seul contenu : la
+    géométrie de page, elle, est déjà calculée.
+    """
+    if abs(echelle - 1.0) < 0.001:
+        return css
+
+    # Seule la **hauteur** de carte change d'une taille à l'autre : la
+    # largeur reste celle des trois colonnes. Grossir les boîtes
+    # horizontales autant que le texte faisait déborder le bandeau, et
+    # « Collège Sainte Ursule » sortait coupé en « COLLÈ / SAINT ». Le
+    # texte suit donc l'échelle entière, le reste sa racine carrée.
+    amortie = echelle**0.5
+
+    def remplacer(m: re.Match) -> str:
+        prefixe, valeur = m.group(1), float(m.group(2))
+        facteur = echelle if prefixe.startswith("font-size") else amortie
+        return f"{prefixe}{valeur * facteur:.2f}pt"
+
+    return re.sub(r"(font-size:\s*|[:\s])(\d+\.?\d*)pt", remplacer, css)
 
 
 def geometrie(par_page: int = PAR_PAGE_DEFAUT) -> tuple[int, float, float]:
@@ -221,9 +284,19 @@ def _corps(e: dict) -> str:
 # Le socle commun — géométrie, impression, éléments partagés
 # ---------------------------------------------------------------------------
 
-def css_socle(par_page: int = PAR_PAGE_DEFAUT) -> str:
+def css_socle(
+    par_page: int = PAR_PAGE_DEFAUT, police: str = POLICE_PAR_DEFAUT
+) -> str:
+    """La feuille de style, géométrie de page puis contenu mis à l'échelle.
+
+    Les deux ne se traitent pas pareil : la page est déjà calculée au point
+    près, alors que le contenu doit grandir avec la carte. Donner plus de
+    hauteur sans grossir les caractères n'ajoutait que du blanc.
+    """
     rangees, carte_l, carte_h = geometrie(par_page)
-    return f"""
+    echelle = carte_h / geometrie(PAR_PAGE_DEFAUT)[2]
+    pile = POLICES.get(police, POLICES[POLICE_PAR_DEFAUT])[1]
+    page = f"""
   @page {{ size: A4; margin: {MARGE_H}pt {MARGE_G}pt; }}
   /* À l'impression, les navigateurs suppriment les fonds pour économiser
      l'encre. Ici le bandeau coloré et le filigrane sont l'essentiel de la
@@ -242,6 +315,8 @@ def css_socle(par_page: int = PAR_PAGE_DEFAUT) -> str:
   .et {{ width: {carte_l:.2f}pt; height: {carte_h:.2f}pt; position: relative;
     overflow: hidden; background: #fff; border: .4pt solid #d6d3d1;
     border-radius: 6pt; break-inside: avoid; }}
+"""
+    contenu = f"""
   .lg {{ background-image: var(--logo); background-repeat: no-repeat;
     background-position: center; background-size: contain; display: block; }}
   .srv {{ margin-left: auto; display: flex; gap: 2pt; background: #fff;
@@ -263,12 +338,14 @@ def css_socle(par_page: int = PAR_PAGE_DEFAUT) -> str:
     border-radius: 3.5pt; padding: .7pt; }}
   .bt {{ min-width: 0; }}
   .etab {{ font-size: 5.3pt; letter-spacing: .03em; text-transform: uppercase;
-    line-height: 1.2; max-height: 13pt; overflow: hidden; display: block; }}
+    line-height: 1.2; display: block; }}
   .cls {{ font-size: 8.6pt; font-weight: 750; line-height: 1.15; display: block; }}
   .fg {{ position: absolute; background-image: var(--logo);
     background-repeat: no-repeat; background-size: contain;
     background-position: center; z-index: 0; }}
+  b {{ font-family: {pile}; }}
 """
+    return page + _a_l_echelle(contenu, echelle)
 
 
 # ---------------------------------------------------------------------------
@@ -477,6 +554,7 @@ def page_etiquettes(
     modele: str = MODELE_PAR_DEFAUT,
     avec_reseau: bool = False,
     par_page: int = PAR_PAGE_DEFAUT,
+    police: str = POLICE_PAR_DEFAUT,
 ) -> bytes:
     """La planche complète, une classe par page.
 
@@ -488,10 +566,14 @@ def page_etiquettes(
             défaut plutôt que de refuser d'imprimer.
         avec_reseau: faux là où il n'y a pas de serveur — promettre un accès
             qui n'existe pas serait pire que se taire.
-        par_page: 15 ou 18. La carte se calcule à partir de la page, pour
-            que la dernière rangée n'en déborde pas.
+        par_page: 18, 15, 12 ou 9. La carte se calcule à partir de la
+            page, pour que la dernière rangée n'en déborde pas, et le texte
+            grandit avec elle.
+        police: celle des identifiants. Le 1 et le l de Consolas se
+            ressemblent assez pour qu'on se trompe en recopiant.
     """
     m = MODELES.get(modele) or MODELES[MODELE_PAR_DEFAUT]
+    echelle = geometrie(par_page)[2] / geometrie(PAR_PAGE_DEFAUT)[2]
     logo = logo_du_site(site_nom)
     couleur = couleur_du_site(site_nom)
 
@@ -525,7 +607,7 @@ def page_etiquettes(
 <meta charset="utf-8">
 <title>Étiquettes de comptes — {_e(annee)}</title>
 <style>
-{racine}{css_socle(par_page)}{m.css}</style>
+{racine}{css_socle(par_page, police)}{_a_l_echelle(m.css, echelle)}</style>
 </head>
 <body class="m-{m.id}">
 {chr(10).join(planches)}

@@ -1023,7 +1023,7 @@ export const exportsCible = {
   async listesKoxo({
     fichierKoxo, siteId, anneeCibleId, anneeSourceId = null,
     classes = [], personneIds = [], documents = [], modele = null,
-    parPage = 18,
+    parPage = 18, police = null,
   }) {
     if (!fichierKoxo) throw new Error("Export KoXo requis");
     const koxo_base64 = arrayBufferEnBase64(await fichierKoxo.arrayBuffer());
@@ -1034,7 +1034,7 @@ export const exportsCible = {
           koxo_base64, site_id: siteId,
           annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
           classes, personne_ids: personneIds, documents, modele,
-          par_page: parPage,
+          par_page: parPage, police,
         }),
       }),
     );
@@ -1043,9 +1043,14 @@ export const exportsCible = {
   async modelesEtiquettes() {
     return jsonOrThrow(await fetch(`${BASE}/exports/modeles-etiquettes`));
   },
+  /** Les polices proposées pour les identifiants. */
+  async policesEtiquettes() {
+    return jsonOrThrow(await fetch(`${BASE}/exports/polices-etiquettes`));
+  },
   /** L'URL d'un aperçu — deux étiquettes d'exemple, à afficher en cadre. */
-  urlApercuModele(modele, siteId, parPage = 18) {
+  urlApercuModele(modele, siteId, parPage = 18, police = null) {
     const q = new URLSearchParams({ modele, par_page: String(parPage) });
+    if (police) q.set('police', police);
     if (siteId) q.set("site_id", String(siteId));
     return `${BASE}/exports/modeles-etiquettes/apercu?${q}`;
   },
