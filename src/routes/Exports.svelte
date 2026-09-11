@@ -37,7 +37,9 @@
    * sélecteurs : l'export KoXo ne dit ni de quel site il parle ni contre
    * quelle année comparer les entrants.
    */
-  let partDunFichier = $derived(cible === "pmb" || cible === "charlemagne");
+  let partDunFichier = $derived(
+    cible === "pmb" || cible === "charlemagne" || cible === "cardstudio",
+  );
 
   // Groupes Google : quelles familles inclure
   let inclureEleves = $state(true);
@@ -352,6 +354,111 @@
   let rapportPmb = $state(/** @type {any} */ (null));
 
   /**
+   * CardStudio : le même principe que PMB, pour la même raison.
+   *
+   * `Code niveau`, `Code établissement`, `Photo` et `Date Entrée pour tri`
+   * sont à zéro valeur sur les 2132 snapshots du référentiel. Sans `Photo`,
+   * CardStudio imprime des badges sans visage — c'est ce que faisait la
+   * version précédente.
+   *
+   * Ce que le programme apporte ici, c'est le **choix** : CardStudio
+   * n'accepte qu'un fichier par projet, et rien ne s'y ajoute ensuite. Il
+   * faut donc décider avant d'importer qui entre.
+   */
+  let fichierCardStudio = $state(/** @type {File|null} */ (null));
+  let rapportCardStudio = $state(/** @type {any} */ (null));
+  let csSites = $state(/** @type {string[]} */ ([]));
+  let csClasses = $state(/** @type {string[]} */ ([]));
+  let csBadges = $state(/** @type {string[]} */ ([]));
+  let csAvecChambres = $state(false);
+  /** Ce que le fichier déposé contient — relevé au premier passage. */
+  let csSitesDispo = $state(/** @type {string[]} */ ([]));
+  let csClassesDispo = $state(/** @type {string[]} */ ([]));
+  let csSaisieBadges = $state("");
+
+  /** Le fichier produit, gardé de côté pour l'enregistrer après coup. */
+  let csFichierPret = $state(/** @type {{nom: string, contenu: string}|null} */ (null));
+
+  function csReinitialiser() {
+    rapportCardStudio = null;
+    csFichierPret = null;
+    csSites = [];
+    csClasses = [];
+    csBadges = [];
+    csSaisieBadges = "";
+    csSitesDispo = [];
+    csClassesDispo = [];
+  }
+
+  /**
+   * Lit le fichier une première fois, sans filtre, pour savoir ce qu'il
+   * contient. Les listes de sites et de classes ne peuvent pas venir du
+   * référentiel : c'est le fichier déposé qui fait foi, et lui seul dit
+   * quelles classes il porte.
+   */
+  async function analyserCardStudio() {
+    if (!fichierCardStudio) return;
+    chargement = true;
+    erreur = "";
+    try {
+      const r = await exportsCible.cardstudio({ fichier: fichierCardStudio });
+      csSitesDispo = r.sites_rencontres ?? [];
+      csClassesDispo = r.classes_rencontrees ?? [];
+      rapportCardStudio = r;
+      csFichierPret = { nom: r.nom_fichier, contenu: r.contenu_base64 };
+    } catch (e) {
+      erreur = String(e).replace(/^Error:\s*/, "");
+      notify.erreur(erreur, { duree: 12000 });
+      csReinitialiser();
+    } finally {
+      chargement = false;
+    }
+  }
+
+  async function exporterCardStudio() {
+    if (!fichierCardStudio) return;
+    chargement = true;
+    erreur = "";
+    try {
+      const badges = csSaisieBadges
+        .split(/[\s,;]+/)
+        .map((b) => b.trim())
+        .filter(Boolean);
+      const r = await exportsCible.cardstudio({
+        fichier: fichierCardStudio,
+        sites: csSites,
+        classes: csClasses,
+        badges,
+        avecChambres: csAvecChambres,
+      });
+      rapportCardStudio = r;
+      csFichierPret = { nom: r.nom_fichier, contenu: r.contenu_base64 };
+      if (r.nb_lignes === 0) {
+        notify.erreur(
+          "Aucune ligne ne satisfait ces filtres — ils se cumulent, " +
+            "vérifie qu'ils ne s'excluent pas.",
+          { duree: 10000 },
+        );
+        return;
+      }
+      const { chemin, annule } = await enregistrerFichierBase64(
+        r.nom_fichier, r.contenu_base64,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      if (annule) return;
+      notify.succes(
+        `${r.nb_lignes} badge(s) — ${chemin ?? r.nom_fichier}`,
+        { duree: 8000 },
+      );
+    } catch (e) {
+      erreur = String(e).replace(/^Error:\s*/, "");
+      notify.erreur(erreur, { duree: 12000 });
+    } finally {
+      chargement = false;
+    }
+  }
+
+  /**
    * L'année qui nommera les fichiers, montrée avant de lancer.
    *
    * La liste des années arrive triée par date de création, pas par
@@ -579,10 +686,6 @@
         r = await exportsCible.jpm({
           siteId, anneeCibleId, anneeSourceId, enregistrerPrevus,
         });
-      } else if (cible === "cardstudio") {
-        r = await exportsCible.cardstudio({
-          siteId, categorie, anneeCibleId, anneeSourceId, enregistrerPrevus,
-        });
       }
       const labelCible = cible === "google" && fichierKoxoEnrichi ? "google (avec MDP)" : cible;
       dernierRapport = { ...r, cible: labelCible };
@@ -639,7 +742,9 @@
 
   <div class="card p-5 space-y-4">
     <div class="flex items-center justify-between">
-      <h2 class="text-lg font-semibold">Génération d'un CSV</h2>
+      <h2 class="text-lg font-semibold">
+        Génération d'un {cible === "cardstudio" ? "classeur" : "CSV"}
+      </h2>
       <Segments
         bind:valeur={cible}
         taille="sm"
@@ -1054,6 +1159,139 @@
       </div>
     {/if}
 
+    {#if cible === "cardstudio"}
+      <div class="rounded-lg border-2 border-dashed border-sky-300 bg-sky-50/40 p-3 dark:border-sky-700 dark:bg-sky-900/10">
+        <p class="mb-2 text-xs font-medium text-sky-900 dark:text-sky-200">
+          Ce fichier vient de Charlemagne, pas du programme
+        </p>
+        <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
+          CardStudio veut le <strong>chemin réseau de la photo</strong>, le
+          <strong>code niveau</strong>, le <strong>code établissement</strong> et
+          la <strong>date d'entrée</strong>. Aucun des quatre n'existe dans le
+          référentiel — zéro valeur sur les 2132 snapshots. Sans la photo,
+          CardStudio imprime des badges sans visage. Sors l'export CardStudio
+          depuis Charlemagne, puis dépose-le ici.
+        </p>
+        <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
+          Ce que le programme fait, et que Charlemagne ne sait pas faire :
+          <strong>choisir qui entre</strong>. CardStudio n'accepte qu'un fichier
+          par projet, et rien ne s'y ajoute après l'import.
+        </p>
+        <div class="flex flex-wrap items-center gap-2">
+          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
+            <Upload class="h-3.5 w-3.5" />
+            {fichierCardStudio?.name ??
+              "Choisir l'export CardStudio de Charlemagne (.htm, .xlsx)"}
+            <input
+              type="file"
+              accept=".htm,.html,.xlsx,.xls"
+              onchange={(e) => {
+                const champ = /** @type {HTMLInputElement} */ (e.target);
+                fichierCardStudio = champ.files?.[0] ?? null;
+                csReinitialiser();
+                if (fichierCardStudio) analyserCardStudio();
+              }}
+              class="hidden"
+            />
+          </label>
+          {#if fichierCardStudio}
+            <button
+              class="text-xs text-stone-500 hover:text-red-600"
+              onclick={() => { fichierCardStudio = null; csReinitialiser(); }}
+            >
+              × retirer
+            </button>
+          {/if}
+        </div>
+
+        {#if csClassesDispo.length}
+          <div class="mt-3 space-y-3 border-t border-sky-200 pt-3 dark:border-sky-800">
+            <p class="text-xs text-stone-600 dark:text-stone-400">
+              Ce fichier porte <strong class="tabular-nums">{rapportCardStudio?.nb_lignes_lues ?? 0}</strong>
+              ligne(s), {csClassesDispo.length} classes sur {csSitesDispo.length} site(s).
+              <strong>Les filtres se cumulent</strong> — laissés vides, ils ne
+              filtrent rien.
+            </p>
+
+            <div>
+              <p class="mb-1 text-xs font-medium text-stone-700 dark:text-stone-300">Sites</p>
+              <div class="flex flex-wrap gap-1.5">
+                {#each csSitesDispo as s (s)}
+                  <button
+                    class="rounded-full border px-2.5 py-1 text-xs transition-colors {csSites.includes(s)
+                      ? 'border-emerald-500 bg-emerald-500 text-white'
+                      : 'border-stone-300 bg-white text-stone-600 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300'}"
+                    onclick={() => {
+                      csSites = csSites.includes(s)
+                        ? csSites.filter((x) => x !== s)
+                        : [...csSites, s];
+                    }}
+                  >
+                    {s}
+                  </button>
+                {/each}
+                {#if csSites.length}
+                  <button class="text-xs text-stone-500 hover:text-red-600" onclick={() => (csSites = [])}>
+                    × tous les sites
+                  </button>
+                {/if}
+              </div>
+            </div>
+
+            <div>
+              <p class="mb-1 text-xs font-medium text-stone-700 dark:text-stone-300">Classes</p>
+              <div class="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
+                {#each csClassesDispo as c (c)}
+                  <button
+                    class="rounded-full border px-2 py-0.5 font-mono text-xs transition-colors {csClasses.includes(c)
+                      ? 'border-emerald-500 bg-emerald-500 text-white'
+                      : 'border-stone-300 bg-white text-stone-600 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300'}"
+                    onclick={() => {
+                      csClasses = csClasses.includes(c)
+                        ? csClasses.filter((x) => x !== c)
+                        : [...csClasses, c];
+                    }}
+                  >
+                    {c}
+                  </button>
+                {/each}
+              </div>
+              {#if csClasses.length}
+                <button class="mt-1 text-xs text-stone-500 hover:text-red-600" onclick={() => (csClasses = [])}>
+                  × toutes les classes
+                </button>
+              {/if}
+            </div>
+
+            <div>
+              <label class="mb-1 block text-xs font-medium text-stone-700 dark:text-stone-300" for="cs-badges">
+                Élèves précis — numéros de badge
+              </label>
+              <input
+                id="cs-badges"
+                type="text"
+                bind:value={csSaisieBadges}
+                placeholder="99810 99820 99830 — séparés par un espace, une virgule ou un point-virgule"
+                class="w-full rounded-lg border border-stone-300 bg-white px-2.5 py-1.5 font-mono text-xs dark:border-stone-600 dark:bg-stone-800"
+              />
+            </div>
+
+            <label class="flex cursor-pointer items-start gap-2 text-xs text-stone-700 dark:text-stone-300">
+              <input type="checkbox" bind:checked={csAvecChambres} class="mt-0.5" />
+              <span>
+                <strong>Reconduire les lignes de chambre</strong> — Charlemagne
+                ajoute en fin d'export des lignes <code>INTERNAT</code> qui ne
+                portent qu'un nom de chambre, <em>sans élève attaché</em>. On ne
+                peut donc pas remplir une chambre par élève : la donnée n'existe
+                nulle part. Coché, ces lignes sont reconduites telles quelles et
+                le fichier reproduit exactement celui de Charlemagne.
+              </span>
+            </label>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     <!-- Sans destination, la ligne d'un sortant porte sa dernière classe :
          synchronisée, elle le remettrait au milieu de la promotion
          suivante. Un groupe dédié le range ailleurs, sans le supprimer. -->
@@ -1225,7 +1463,7 @@
       </div>
     {/if}
 
-    <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-2 {cible === 'cardstudio' ? 'hidden' : ''}">
       <label class="block">
         <span class="text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400">
           Année cible (à traiter)
@@ -1370,6 +1608,16 @@
           onclick={repartirPmb}
         >
           Répartir par établissement
+        </Bouton>
+      {:else if cible === "cardstudio"}
+        <Bouton
+          variante="primary"
+          icon={FileDown}
+          occupe={chargement}
+          disabled={!fichierCardStudio}
+          onclick={exporterCardStudio}
+        >
+          Produire le fichier CardStudio
         </Bouton>
       {:else if cible === "listes"}
         <Bouton
@@ -1566,6 +1814,68 @@
             </details>
           {/if}
         {/each}
+      </div>
+    {/if}
+
+    {#if rapportCardStudio && cible === "cardstudio"}
+      <div class="space-y-2 rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
+        <p class="text-xs text-stone-600 dark:text-stone-400">
+          {rapportCardStudio.nb_lignes_lues} ligne(s) lues,
+          <strong class="tabular-nums">{rapportCardStudio.nb_lignes}</strong>
+          badge(s) retenu(s){#if rapportCardStudio.chambres_reportees}, plus
+            {rapportCardStudio.chambres_reportees} ligne(s) de chambre{/if}.
+        </p>
+
+        {#if rapportCardStudio.colonnes_completees?.length}
+          <p class="text-xs text-stone-600 dark:text-stone-400">
+            Colonnes reconstituées, absentes de l'export :
+            <strong class="font-mono">{rapportCardStudio.colonnes_completees.join(", ")}</strong>.
+            <code>NomFichierPhoto</code> est écrit en valeur, jamais en formule —
+            CardStudio lit le classeur sans passer par Excel.
+          </p>
+        {/if}
+
+        {#if rapportCardStudio.ecartees?.length}
+          <div class="rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-800 dark:bg-amber-950/40">
+            <p class="text-xs font-medium text-amber-900 dark:text-amber-200">
+              {rapportCardStudio.ecartees.length} ligne(s) écartée(s) — code
+              classe absent de la table de correspondance
+            </p>
+            <p class="mb-1 text-xs text-amber-800 dark:text-amber-300">
+              Elles ne sont dans aucun fichier. Complète la table, sinon ces
+              élèves n'auront pas de badge.
+            </p>
+            <ul class="max-h-28 space-y-0.5 overflow-y-auto text-xs text-amber-900 dark:text-amber-200">
+              {#each rapportCardStudio.ecartees as e (e.badge)}
+                <li class="font-mono">{e.nom} ({e.badge}) — classe « {e.classe} »</li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+
+        {#if rapportCardStudio.inconnus_referentiel?.length}
+          <p class="text-xs text-stone-600 dark:text-stone-400">
+            {rapportCardStudio.inconnus_referentiel.length} présent(s) dans
+            Charlemagne mais jamais ingéré(s) : leur badge part quand même.
+            <span class="font-mono">
+              {rapportCardStudio.inconnus_referentiel.slice(0, 6).join(", ")}
+            </span>
+          </p>
+        {/if}
+
+        {#if csFichierPret && rapportCardStudio.nb_lignes > 0}
+          <Bouton
+            icon={Download}
+            taille="sm"
+            onclick={() =>
+              enregistrerFichierBase64(
+                csFichierPret.nom, csFichierPret.contenu,
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              )}
+          >
+            {csFichierPret.nom}
+          </Bouton>
+        {/if}
       </div>
     {/if}
 

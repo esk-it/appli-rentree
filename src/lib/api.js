@@ -1072,14 +1072,28 @@ export const exportsCible = {
       }),
     );
   },
-  async cardstudio({ siteId, categorie, anneeCibleId, anneeSourceId = null, enregistrerPrevus = false }) {
+  /**
+   * CardStudio : l'export de Charlemagne, filtré avant d'être importé.
+   *
+   * Le programme ne fabrique pas ce fichier — `Code niveau`,
+   * `Code établissement`, `Photo` et `Date Entrée pour tri` n'existent nulle
+   * part dans le référentiel, et sans `Photo` CardStudio imprime des badges
+   * sans visage. Charlemagne, lui, sait l'écrire.
+   *
+   * Ce que le programme apporte : le choix. CardStudio n'accepte qu'un
+   * fichier par projet, et rien ne s'y ajoute après coup — il faut donc
+   * décider avant d'importer. Les trois filtres se cumulent ; laissés vides,
+   * ils ne filtrent rien.
+   */
+  async cardstudio({ fichier, sites = [], classes = [], badges = [], avecChambres = false }) {
+    if (!fichier) throw new Error("Export CardStudio de Charlemagne requis");
+    const contenu_base64 = arrayBufferEnBase64(await fichier.arrayBuffer());
     return jsonOrThrow(
       await fetch(`${BASE}/exports/cardstudio`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          site_id: siteId, categorie,
-          annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
-          enregistrer_prevus: enregistrerPrevus,
+          contenu_base64, nom_fichier: fichier.name,
+          sites, classes, badges, avec_chambres: avecChambres,
         }),
       }),
     );

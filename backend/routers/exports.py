@@ -15,6 +15,7 @@ ensuite via `POST /api/suivi/confirmer-creation`.
 from __future__ import annotations
 
 import base64
+import binascii
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -28,7 +29,10 @@ from backend.services.cycle_vie import (
     SUFFIXE_SERVEUR_PAR_SITE,
     enregistrer_prevus_pour_export,
 )
-from backend.services.exports_cardstudio import generer_xlsx_cardstudio
+from backend.services.exports_cardstudio import (
+    ExportImpossible as ExportCardStudioImpossible,
+    repartir_export_cardstudio,
+)
 from backend.services.exports_google import (
     generer_csv_google,
     generer_csv_google_avec_mdp,
@@ -811,46 +815,73 @@ def exporter_jpm(payload: ExportJpmPayload, session: Session = Depends(db_sessio
 
 
 class ExportCardStudioPayload(BaseModel):
-    site_id: int
-    categorie: Literal["tous", "nouveaux"]
-    annee_cible_id: int
-    annee_source_id: int | None = None
-    enregistrer_prevus: bool = False
+    """L'export CardStudio de Charlemagne, à filtrer avant de l'importer.
+
+    CardStudio n'accepte qu'un fichier par projet : le choix de qui entre se
+    fait donc ici, et nulle part ailleurs. Les trois filtres se cumulent ;
+    chacun laissé vide ne filtre rien.
+    """
+
+    contenu_base64: str
+    nom_fichier: str
+    sites: list[str] = []
+    classes: list[str] = []
+    badges: list[str] = []
+    avec_chambres: bool = False
+
+
+class LigneEcarteeOut(BaseModel):
+    badge: str
+    nom: str
+    classe: str
+    motif: str
 
 
 class ExportCardStudioReponse(BaseModel):
-    site_nom: str
+    nb_lignes_lues: int
     nb_lignes: int
     nom_fichier: str
     contenu_base64: str
-    nb_prevus_enregistres: int = 0
+    colonnes_completees: list[str]
+    ecartees: list[LigneEcarteeOut]
+    inconnus_referentiel: list[str]
+    chambres_reportees: int
+    sites_rencontres: list[str]
+    classes_rencontrees: list[str]
 
 
 @router.post("/cardstudio", response_model=ExportCardStudioReponse)
-def exporter_cardstudio(payload: ExportCardStudioPayload, session: Session = Depends(db_session)) -> ExportCardStudioReponse:
+def exporter_cardstudio(
+    payload: ExportCardStudioPayload, session: Session = Depends(db_session)
+) -> ExportCardStudioReponse:
+    """Filtre l'export de Charlemagne et rend le XLSX prêt pour CardStudio."""
     try:
-        contenu, rapport = generer_xlsx_cardstudio(
-            session=session, site_id=payload.site_id,
-            categorie=payload.categorie, annee_cible_id=payload.annee_cible_id,
-            annee_source_id=payload.annee_source_id,
-        )
-        nb_prevus = _enregistrer_si_demande(
+        brut = base64.b64decode(payload.contenu_base64)
+    except (ValueError, binascii.Error):
+        raise HTTPException(400, "Contenu illisible : base64 invalide.")
+    try:
+        contenu, rapport = repartir_export_cardstudio(
             session,
-            demande=payload.enregistrer_prevus,
-            famille="cardstudio",
-            site_id=payload.site_id,
-            type_personne="eleve",
-            categorie=payload.categorie,
-            annee_cible_id=payload.annee_cible_id,
-            annee_source_id=payload.annee_source_id,
+            contenu=brut,
+            nom_fichier=payload.nom_fichier,
+            sites=payload.sites,
+            classes=payload.classes,
+            badges=payload.badges,
+            avec_chambres=payload.avec_chambres,
         )
-    except ValueError as e:
+    except ExportCardStudioImpossible as e:
         raise HTTPException(400, str(e))
     return ExportCardStudioReponse(
-        site_nom=rapport.site_nom, nb_lignes=rapport.nb_lignes,
+        nb_lignes_lues=rapport.nb_lignes_lues,
+        nb_lignes=rapport.nb_lignes_retenues,
         nom_fichier=rapport.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),
-        nb_prevus_enregistres=nb_prevus,
+        colonnes_completees=rapport.colonnes_completees,
+        ecartees=[LigneEcarteeOut(**vars(e)) for e in rapport.ecartees],
+        inconnus_referentiel=rapport.inconnus_referentiel,
+        chambres_reportees=rapport.chambres_reportees,
+        sites_rencontres=rapport.sites_rencontres,
+        classes_rencontrees=rapport.classes_rencontrees,
     )
 
 
