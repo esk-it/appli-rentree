@@ -710,7 +710,59 @@ export const googleApi = {
       }),
     );
   },
+
+  // -------------------------------------------------------------------------
+  // Déplacement choisi — la destination vient de l'utilisateur
+  // -------------------------------------------------------------------------
+
+  /** Les OU et groupes qui existent, plus ceux que la Table déclare. */
+  async destinationsDeplacement(siteId = null) {
+    const q = siteId ? `?site_id=${siteId}` : "";
+    return jsonOrThrow(await fetch(`${BASE}/google/deplacement/destinations${q}`));
+  },
+  /** Ce que le déplacement ferait. N'envoie rien. */
+  async planDeplacement(demande) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/deplacement/plan`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(_corpsDeplacement(demande)),
+      }),
+    );
+  },
+  /** Applique le déplacement. Retourne le job à suivre. */
+  async executerDeplacement(demande) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/deplacement/executer`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ..._corpsDeplacement(demande), confirmation: true }),
+      }),
+    );
+  },
 };
+
+/**
+ * Le corps commun à l'aperçu et à l'exécution.
+ *
+ * Les deux doivent porter exactement la même demande : si l'exécution
+ * envoyait autre chose que ce qui a été prévisualisé, relire l'aperçu ne
+ * protégerait de rien.
+ */
+function _corpsDeplacement({
+  personneIds = [], classes = [], siteId = null, anneeId = null,
+  typePersonne = "eleve", ouDestination = null,
+  groupesAjouter = [], groupesRetirer = [],
+}) {
+  return {
+    personne_ids: personneIds,
+    classes,
+    site_id: siteId,
+    annee_id: anneeId,
+    type_personne: typePersonne,
+    ou_destination: ouDestination || null,
+    groupes_ajouter: groupesAjouter,
+    groupes_retirer: groupesRetirer,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Journal des opérations

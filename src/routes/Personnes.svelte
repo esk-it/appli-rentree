@@ -8,7 +8,9 @@
   import X from "@lucide/svelte/icons/x";
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import Rows3 from "@lucide/svelte/icons/rows-3";
+  import FolderTree from "@lucide/svelte/icons/folder-tree";
   import Avatar from "$lib/components/Avatar.svelte";
+  import DeplacementGoogle from "$lib/components/DeplacementGoogle.svelte";
   import Bouton from "$lib/components/Bouton.svelte";
   import CopiableTexte from "$lib/components/CopiableTexte.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
@@ -150,6 +152,39 @@
    */
   let vue = $state(/** @type {"tableau"|"trombinoscope"} */ ("tableau"));
 
+  /**
+   * La sélection, pour agir sur plusieurs personnes d'un coup.
+   *
+   * Un `Set` d'identifiants plutôt qu'un drapeau posé sur chaque ligne :
+   * les lignes sont recalculées à chaque changement de filtre, et un
+   * drapeau porté par elles se perdrait à ce moment-là. La sélection doit
+   * au contraire survivre — on coche une classe, on change de filtre pour
+   * en cocher une autre, et les deux partent ensemble.
+   */
+  let selection = $state(/** @type {Set<number>} */ (new Set()));
+  let deplacementOuvert = $state(false);
+
+  function cocher(id, coche) {
+    const s = new Set(selection);
+    if (coche) s.add(id);
+    else s.delete(id);
+    selection = s;
+  }
+
+  /**
+   * Cocher tout ce qui est affiché — c'est ainsi qu'on prend une classe
+   * entière : on filtre sur la classe, puis on coche tout.
+   */
+  function cocherVisibles(coche) {
+    const s = new Set(selection);
+    for (const p of listeFiltree) {
+      if (p.sans_compte) continue;
+      if (coche) s.add(p.id);
+      else s.delete(p.id);
+    }
+    selection = s;
+  }
+
   async function basculer(p) {
     if (p.sans_compte) {
       notify.info(
@@ -211,6 +246,16 @@
 
   /** La source affichée : le référentiel entier, ou une année. */
   let source = $derived(anneeId === null ? liste : lignesAnnee);
+
+  /** Les personnes cochées, telles qu'on les connaît dans la liste. */
+  let personnesSelectionnees = $derived(
+    source.filter((p) => selection.has(p.id) && !p.sans_compte),
+  );
+
+  let toutesVisiblesCochees = $derived(
+    listeFiltree.length > 0 &&
+      listeFiltree.every((p) => p.sans_compte || selection.has(p.id)),
+  );
 
   let sitesDispo = $derived([
     ...new Set(source.map((p) => p.site).filter(Boolean)),
@@ -540,18 +585,35 @@
                 </div>
               </div>
 
-              <button
-                type="button"
-                class="shrink-0 rounded-md p-1 text-stone-400 transition hover:bg-stone-200
-                       hover:text-stone-700 dark:hover:bg-stone-700 dark:hover:text-stone-200"
-                aria-label="Fermer la fiche"
-                onclick={(e) => {
-                  e.stopPropagation();
-                  fermerFiche();
-                }}
-              >
-                <X class="h-4 w-4" />
-              </button>
+              <div class="flex shrink-0 flex-col items-end gap-2">
+                <button
+                  type="button"
+                  class="rounded-md p-1 text-stone-400 transition hover:bg-stone-200
+                         hover:text-stone-700 dark:hover:bg-stone-700 dark:hover:text-stone-200"
+                  aria-label="Fermer la fiche"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    fermerFiche();
+                  }}
+                >
+                  <X class="h-4 w-4" />
+                </button>
+
+                <!-- Le geste se fait là où l'on est quand on constate le
+                     mauvais rangement : devant la fiche, pas dans un écran
+                     séparé qu'il faudrait aller chercher. -->
+                <Bouton
+                  taille="sm"
+                  icon={FolderTree}
+                  onclick={(e) => {
+                    e?.stopPropagation?.();
+                    selection = new Set([p.id]);
+                    deplacementOuvert = true;
+                  }}
+                >
+                  Déplacer dans Google
+                </Bouton>
+              </div>
             </div>
           {/if}
 {/snippet}
@@ -664,6 +726,40 @@
     </div>
   </div>
 
+  <!-- La barre n'apparaît qu'une fois quelque chose coché : une action de
+       masse posée en permanence invite à s'en servir sans avoir choisi. -->
+  {#if personnesSelectionnees.length}
+    <div
+      class="anim-apparition flex flex-wrap items-center gap-3 rounded-lg border
+             border-emerald-200 bg-emerald-50 px-3 py-2 text-sm
+             dark:border-emerald-800 dark:bg-emerald-900/25"
+    >
+      <span class="font-medium text-emerald-900 dark:text-emerald-200">
+        {personnesSelectionnees.length} sélectionnée{personnesSelectionnees.length > 1 ? "s" : ""}
+      </span>
+      {#if filtreClasse}
+        <span class="text-xs text-emerald-800/70 dark:text-emerald-300/70">
+          classe {filtreClasse}
+        </span>
+      {/if}
+      <Bouton
+        taille="sm"
+        variante="primary"
+        icon={FolderTree}
+        onclick={() => (deplacementOuvert = true)}
+      >
+        Déplacer dans Google
+      </Bouton>
+      <button
+        type="button"
+        class="text-xs text-emerald-800 underline decoration-dotted dark:text-emerald-300"
+        onclick={() => (selection = new Set())}
+      >
+        Tout décocher
+      </button>
+    </div>
+  {/if}
+
   <!-- Une liste vide parce que la question n'a pas de réponse ne ressemble
        en rien à une liste vide parce qu'il n'y a personne. -->
   {#if mouvements}
@@ -745,6 +841,17 @@
         <table class="w-full text-sm">
           <thead class="sticky top-0 z-10 bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
             <tr>
+              <th class="border-b border-stone-200 py-2 pl-3 pr-1 dark:border-stone-700">
+                <input
+                  type="checkbox"
+                  class="h-4 w-4 cursor-pointer accent-emerald-600"
+                  aria-label="Tout cocher"
+                  title="Cocher tout ce qui est affiché"
+                  checked={toutesVisiblesCochees}
+                  onclick={(e) => e.stopPropagation()}
+                  onchange={(e) => cocherVisibles(e.currentTarget.checked)}
+                />
+              </th>
               <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700"></th>
               {#if anneeId !== null}
                 <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Mouvement</th>
@@ -770,6 +877,18 @@
                   : 'hover:bg-emerald-50/40 dark:hover:bg-emerald-900/20'}"
                 onclick={() => basculer(p)}
               >
+                <td class="py-1 pl-3 pr-1">
+                  {#if !p.sans_compte}
+                    <input
+                      type="checkbox"
+                      class="h-4 w-4 cursor-pointer accent-emerald-600"
+                      aria-label="Sélectionner {p.nom} {p.prenom}"
+                      checked={selection.has(p.id)}
+                      onclick={(e) => e.stopPropagation()}
+                      onchange={(e) => cocher(p.id, e.currentTarget.checked)}
+                    />
+                  {/if}
+                </td>
                 <td class="py-1 pl-1 pr-2">
                   <div class="flex items-center gap-1">
                     <ChevronRight
@@ -881,7 +1000,10 @@
 
               {#if ouverte === p.id}
                 <tr class="border-b border-stone-200 bg-stone-50/80 dark:border-stone-700 dark:bg-stone-800/50">
-                  <td colspan="10" class="p-0">
+                  <!-- Onze colonnes, douze quand le mouvement s'affiche :
+                       un colspan court laisserait la fiche se replier dans
+                       une largeur de cellule. -->
+                  <td colspan={anneeId !== null ? 12 : 11} class="p-0">
                     <div class="anim-apparition-douce px-5 py-4">
                       {@render fichePersonne(p)}
                     </div>
@@ -1014,4 +1136,13 @@
       </Bouton>
     {/snippet}
   </Modale>
+{/if}
+
+{#if deplacementOuvert && personnesSelectionnees.length}
+  <DeplacementGoogle
+    personnes={personnesSelectionnees}
+    {anneeId}
+    onFermer={() => (deplacementOuvert = false)}
+    onApplique={rafraichir}
+  />
 {/if}

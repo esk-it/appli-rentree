@@ -854,6 +854,31 @@ class ClientGoogle:
             body={"email": adresse, "name": nom, "description": description}
         ).execute()
 
+    def lister_groupes(self) -> list[dict]:
+        """Tous les groupes du domaine : adresse et nom. Lecture seule.
+
+        Pendant de `lister_ou` pour les groupes. Sert à refuser une
+        destination inexistante d'un seul coup, avant d'envoyer quoi que ce
+        soit : sans cette liste, une adresse mal recopiée ne se découvre
+        qu'au premier ajout refusé, puis au deuxième, puis au trentième.
+        """
+        groupes: list[dict] = []
+        jeton = None
+        while True:
+            rep = reessayer(
+                lambda: self._service.groups()
+                .list(customer="my_customer", maxResults=200, pageToken=jeton)
+                .execute()
+            )
+            for g in rep.get("groups", []):
+                adresse = (g.get("email") or "").lower()
+                if adresse:
+                    groupes.append({"adresse": adresse, "nom": g.get("name") or ""})
+            jeton = rep.get("nextPageToken")
+            if not jeton:
+                break
+        return groupes
+
     def lister_groupes_de(self, email: str) -> list[str]:
         """Les groupes dont cette adresse est membre. Lecture seule.
 

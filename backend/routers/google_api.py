@@ -2031,3 +2031,354 @@ def creer_groupes(
 
     lancer_en_tache_de_fond(job, operations, appliquer=appliquer)
     return _job_vers_out(job)
+
+
+# ---------------------------------------------------------------------------
+# Déplacement choisi — une personne, une classe, une sélection
+# ---------------------------------------------------------------------------
+
+SEUIL_GROUPES_DETAILLES = 25
+"""Au-delà, on relève la composition des groupes visés plutôt que les
+appartenances de chacun : une requête par groupe au lieu d'une par personne.
+L'aperçu perd l'inventaire complet des groupes de chacun — information qu'on
+n'affiche de toute façon que sur une fiche."""
+
+PLAFOND_SELECTION = 500
+"""Une sélection se relit avant de partir. Passé quelques centaines de noms,
+personne ne relit plus rien, et c'est la bascule qu'il faut employer."""
+
+
+class DeplacementPayload(BaseModel):
+    """Qui déplacer, et vers où. La destination ne vient jamais de la Table."""
+
+    personne_ids: list[int] = []
+    classes: list[str] = []
+    """Résolues en identifiants avant le plan : l'aperçu montre des noms."""
+    site_id: int | None = None
+    annee_id: int | None = None
+    """Obligatoire pour résoudre des classes ; sert sinon à afficher la classe
+    en cours en face de chaque nom."""
+    type_personne: Literal["eleve", "adulte"] = "eleve"
+
+    ou_destination: str | None = None
+    groupes_ajouter: list[str] = []
+    groupes_retirer: list[str] = []
+
+
+class ExecutionDeplacementPayload(DeplacementPayload):
+    confirmation: bool = False
+
+
+class DestinationsOut(BaseModel):
+    ou: list[str]
+    groupes: list[dict]
+    ou_declarees: list[str]
+    """Celles de la Table de correspondance — les destinations habituelles,
+    proposées en tête pour éviter d'aller les chercher dans l'arbre entier."""
+    groupes_declares: list[str]
+
+
+@router.get("/deplacement/destinations", response_model=DestinationsOut)
+def destinations_deplacement(
+    site_id: int | None = Query(None), session: Session = Depends(db_session)
+) -> DestinationsOut:
+    """Les destinations possibles : l'arbre réel, et celles de la Table.
+
+    Lecture seule. La Table n'est pas une contrainte ici — elle sert de
+    raccourci, parce que neuf déplacements sur dix visent une classe qui y
+    figure déjà.
+    """
+    from backend.models import TableCorrespondance
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+        ou = sorted(client.lister_ou())
+        groupes = sorted(client.lister_groupes(), key=lambda g: g["adresse"])
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+
+    q = session.query(TableCorrespondance)
+    if site_id is not None:
+        q = q.filter(TableCorrespondance.site_id == site_id)
+    tcs = q.all()
+    return DestinationsOut(
+        ou=ou,
+        groupes=groupes,
+        ou_declarees=sorted({t.ou_definitive for t in tcs if t.ou_definitive}),
+        groupes_declares=sorted(
+            {g for t in tcs for g in (t.groupe_google, t.groupe_profs_google) if g}
+        ),
+    )
+
+
+class EtatCompteOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str | None
+    email: str | None
+    existe: bool
+    suspendu: bool
+    ou_actuelle: str | None
+    groupes_actuels: list[str]
+    groupes_complets: bool
+    motif: str | None
+
+
+class MouvementManuelOut(BaseModel):
+    action: str
+    personne_id: int
+    email: str
+    libelle: str
+    ou_visee: str | None
+    groupe: str | None
+
+
+class PlanManuelOut(BaseModel):
+    ou_destination: str | None
+    groupes_ajouter: list[str]
+    groupes_retirer: list[str]
+    nb_demandes: int
+    nb_deplacements: int
+    nb_entrees_groupe: int
+    nb_sorties_groupe: int
+    nb_total: int
+    nb_concernes: int
+    nb_deja_en_place: int
+    est_executable: bool
+    destinations_absentes: list[str]
+    avertissements: list[str]
+    etats: list[EtatCompteOut]
+    mouvements: list[MouvementManuelOut]
+
+
+def _resoudre_selection(session: Session, payload: DeplacementPayload) -> list[int]:
+    """Identifiants explicites et classes réunis, sans doublon."""
+    from backend.services.deplacement_manuel import personnes_de_classes
+
+    ids = list(dict.fromkeys(payload.personne_ids))
+    if payload.classes:
+        if payload.annee_id is None:
+            raise HTTPException(
+                400, "Une année est nécessaire pour résoudre des classes."
+            )
+        depuis_classes = personnes_de_classes(
+            session,
+            annee_id=payload.annee_id,
+            classes=payload.classes,
+            site_id=payload.site_id,
+            type_personne=payload.type_personne,
+        )
+        deja = set(ids)
+        ids += [i for i in depuis_classes if i not in deja]
+    if not ids:
+        raise HTTPException(400, "Aucune personne sélectionnée.")
+    if len(ids) > PLAFOND_SELECTION:
+        raise HTTPException(
+            400,
+            f"{len(ids)} personnes sélectionnées : au-delà de "
+            f"{PLAFOND_SELECTION}, passez par la bascule, qui calcule la "
+            "destination au lieu de la faire désigner.",
+        )
+    return ids
+
+
+def _construire_plan_manuel(session: Session, payload: DeplacementPayload):
+    """Relit Google, puis calcule le plan. Aucun envoi.
+
+    L'exécution repasse par ici plutôt que de rejouer un plan transmis par
+    l'interface : entre l'aperçu et la confirmation, un compte a pu bouger,
+    et c'est l'état du moment qui doit décider de ce qu'on envoie.
+    """
+    from backend.models import Personne
+    from backend.services.deplacement_manuel import (
+        construire_plan_manuel,
+        normaliser_adresse,
+    )
+
+    ids = _resoudre_selection(session, payload)
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    personnes = {
+        p.id: p for p in session.query(Personne).filter(Personne.id.in_(ids)).all()
+    }
+    adresses = sorted(
+        {
+            a
+            for p in personnes.values()
+            if (a := normaliser_adresse(p.email_constate or p.email_attribuee))
+        }
+    )
+
+    cibles = [
+        g
+        for g in (
+            normaliser_adresse(x)
+            for x in (payload.groupes_ajouter + payload.groupes_retirer)
+        )
+        if g
+    ]
+
+    try:
+        etat_google = client.lire_utilisateurs(adresses) if adresses else {}
+
+        groupes_par_email: dict[str, list[str]] = {a: [] for a in adresses}
+        complets = False
+        if cibles or len(ids) <= SEUIL_GROUPES_DETAILLES:
+            if len(ids) <= SEUIL_GROUPES_DETAILLES:
+                complets = True
+                for a in adresses:
+                    if etat_google.get(a) is not None:
+                        groupes_par_email[a] = client.lister_groupes_de(a)
+            else:
+                for g in dict.fromkeys(cibles):
+                    for membre in client.lister_membres(g):
+                        m = normaliser_adresse(membre)
+                        if m in groupes_par_email:
+                            groupes_par_email[m].append(g)
+
+        ou_existantes = set(client.lister_ou()) if payload.ou_destination else None
+        groupes_existants = (
+            {g["adresse"] for g in client.lister_groupes()} if cibles else None
+        )
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+
+    plan = construire_plan_manuel(
+        session,
+        personne_ids=ids,
+        etat_google=etat_google,
+        groupes_par_email=groupes_par_email,
+        groupes_complets=complets,
+        ou_destination=payload.ou_destination,
+        groupes_ajouter=payload.groupes_ajouter,
+        groupes_retirer=payload.groupes_retirer,
+        ou_existantes=ou_existantes,
+        groupes_existants=groupes_existants,
+        annee_id=payload.annee_id,
+    )
+    return client, plan, ids
+
+
+def _plan_manuel_vers_out(plan, nb_demandes: int) -> PlanManuelOut:
+    return PlanManuelOut(
+        ou_destination=plan.ou_destination,
+        groupes_ajouter=plan.groupes_ajouter,
+        groupes_retirer=plan.groupes_retirer,
+        nb_demandes=nb_demandes,
+        nb_deplacements=plan.nb_deplacements,
+        nb_entrees_groupe=plan.nb_entrees_groupe,
+        nb_sorties_groupe=plan.nb_sorties_groupe,
+        nb_total=plan.nb_total,
+        nb_concernes=plan.nb_concernes,
+        nb_deja_en_place=plan.nb_deja_en_place,
+        est_executable=plan.est_executable,
+        destinations_absentes=plan.destinations_absentes,
+        avertissements=plan.avertissements,
+        etats=[EtatCompteOut(**vars(e)) for e in plan.etats],
+        mouvements=[MouvementManuelOut(**vars(m)) for m in plan.mouvements],
+    )
+
+
+@router.post("/deplacement/plan", response_model=PlanManuelOut)
+def plan_deplacement(
+    payload: DeplacementPayload, session: Session = Depends(db_session)
+) -> PlanManuelOut:
+    """Ce qui serait fait. N'envoie rien."""
+    _, plan, ids = _construire_plan_manuel(session, payload)
+    return _plan_manuel_vers_out(plan, len(ids))
+
+
+@router.post("/deplacement/executer", response_model=JobOut)
+def executer_deplacement(
+    payload: ExecutionDeplacementPayload, session: Session = Depends(db_session)
+) -> JobOut:
+    """Applique le déplacement choisi, en tâche suivie."""
+    if not payload.confirmation:
+        raise HTTPException(400, "Confirmation requise.")
+
+    client, plan, ids = _construire_plan_manuel(session, payload)
+
+    if plan.destinations_absentes:
+        raise HTTPException(
+            400,
+            "Destination inexistante dans Google : "
+            + ", ".join(plan.destinations_absentes),
+        )
+    if not plan.mouvements:
+        raise HTTPException(400, "Rien à appliquer.")
+
+    from backend.services.jobs_google import creer_job, lancer_en_tache_de_fond
+    from backend.services.journal import journaliser
+
+    parts = []
+    if plan.nb_deplacements:
+        parts.append(f"{plan.nb_deplacements} déplacement(s) vers {plan.ou_destination}")
+    if plan.nb_entrees_groupe:
+        parts.append(f"{plan.nb_entrees_groupe} entrée(s) de groupe")
+    if plan.nb_sorties_groupe:
+        parts.append(f"{plan.nb_sorties_groupe} sortie(s) de groupe")
+    libelle = "Déplacement choisi — " + ", ".join(parts)
+
+    operations = list(plan.mouvements)
+    job = creer_job(phase="deplacement", libelle=libelle, operations=operations)
+
+    # Un déplacement choisi s'écarte délibérément de la Table : en août
+    # prochain, quand le référentiel ne collera pas à Charlemagne, c'est le
+    # journal qui dira que ce n'était pas un accident.
+    journaliser(
+        session,
+        type_operation="mouvement",
+        cible="google",
+        mode="reel",
+        parametres={
+            "personne_ids": ids,
+            "classes": payload.classes,
+            "ou_destination": plan.ou_destination,
+            "groupes_ajouter": plan.groupes_ajouter,
+            "groupes_retirer": plan.groupes_retirer,
+        },
+        resultat={
+            "job_id": job.id,
+            "nb_deplacements": plan.nb_deplacements,
+            "nb_entrees_groupe": plan.nb_entrees_groupe,
+            "nb_sorties_groupe": plan.nb_sorties_groupe,
+            "nb_ecartes": len(plan.ecartes),
+            "ecartes": [f"{e.libelle} — {e.motif}" for e in plan.ecartes],
+        },
+        notes=libelle,
+    )
+    session.commit()
+
+    def appliquer(m) -> None:
+        if m.action == "deplacer":
+            client.appliquer_operation(
+                OperationGoogle(
+                    action="deplacer",
+                    email=m.email,
+                    payload=payload_deplacement_ou(org_unit_path=m.ou_visee),
+                    libelle=m.libelle,
+                    personne_id=m.personne_id,
+                    ou_visee=m.ou_visee,
+                )
+            )
+        elif m.action == "ajouter_groupe":
+            client.ajouter_membre(m.groupe, m.email)
+        else:
+            client.retirer_membre(m.groupe, m.email)
+
+    lancer_en_tache_de_fond(
+        job,
+        operations,
+        appliquer=appliquer,
+        au_succes=_memoriser_dans_sa_propre_session,
+    )
+    return _job_vers_out(job)
