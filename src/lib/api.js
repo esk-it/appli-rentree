@@ -12,11 +12,41 @@
 
 const BASE = import.meta.env.PROD ? "http://127.0.0.1:8020/api" : "/api";
 
+/**
+ * Le message d'un refus, tel qu'il doit s'afficher.
+ *
+ * FastAPI rend `{"detail": "…"}` — une phrase écrite pour être lue, souvent
+ * la seule chose utile de la réponse. La recracher entourée de son JSON et
+ * précédée de « 400 Bad Request » la noyait : l'utilisateur voyait des
+ * antislashs échappés là où le backend avait pris soin d'expliquer quoi
+ * faire.
+ *
+ * Le code HTTP n'est gardé que lorsqu'il n'y a rien d'autre à dire.
+ */
+function messageDErreur(statut, statutTexte, corps) {
+  try {
+    const d = JSON.parse(corps)?.detail;
+    if (typeof d === "string" && d.trim()) return d;
+    // Une erreur de validation rend une liste d'objets : on la résume.
+    if (Array.isArray(d) && d.length) {
+      return d
+        .map((e) => `${(e.loc ?? []).join(".")} : ${e.msg ?? ""}`.trim())
+        .join(" · ");
+    }
+  } catch {
+    // Pas du JSON : le corps brut est ce qu'on a de mieux.
+  }
+  const texte = (corps || "").trim();
+  return texte
+    ? `${statut} ${statutTexte} — ${texte.slice(0, 200)}`
+    : `${statut} ${statutTexte}`;
+}
+
 async function jsonOrThrow(response) {
   const contentType = response.headers.get("content-type") || "";
   if (!response.ok) {
-    const corps = await response.text().catch(() => response.statusText);
-    throw new Error(`${response.status} ${response.statusText} — ${corps.slice(0, 200)}`);
+    const corps = await response.text().catch(() => "");
+    throw new Error(messageDErreur(response.status, response.statusText, corps));
   }
   if (!contentType.includes("application/json")) {
     const corps = await response.text().catch(() => "");
@@ -475,6 +505,22 @@ export const statistiques = {
     return jsonOrThrow(
       await fetch(`${BASE}/statistiques/anomalies${qs ? `?${qs}` : ""}`),
     );
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Les photos — qui en a une, qui n'en a pas
+// ---------------------------------------------------------------------------
+export const photos = {
+  /** Le relevé complet du partage. Volontairement lent : c'est le sujet. */
+  async inventaire(anneeId) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/photos/inventaire?annee_id=${anneeId}`),
+    );
+  },
+  /** L'URL du classeur des manquantes, à ouvrir directement. */
+  urlClasseur(anneeId) {
+    return `${BASE}/photos/inventaire/classeur?annee_id=${anneeId}`;
   },
 };
 
@@ -1189,6 +1235,30 @@ export const exportsCible = {
           koxo_base64, site_id: siteId,
           annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
           classes, personne_ids: personneIds, documents, modele,
+          par_page: parPage, police,
+        }),
+      }),
+    );
+  },
+  /**
+   * Une planche PDF par classe, dans une archive.
+   *
+   * `classes` vide vaut « toutes celles du site » : c'est le geste courant,
+   * puisque chaque planche part chez un professeur principal différent.
+   */
+  async etiquettesParClasse({
+    fichierKoxo, siteId, anneeCibleId, anneeSourceId = null,
+    classes = [], personneIds = [], modele = null, parPage = 18, police = null,
+  }) {
+    if (!fichierKoxo) throw new Error("Export KoXo requis");
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/etiquettes-par-classe`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          koxo_base64: arrayBufferEnBase64(await fichierKoxo.arrayBuffer()),
+          site_id: siteId,
+          annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
+          classes, personne_ids: personneIds, modele,
           par_page: parPage, police,
         }),
       }),

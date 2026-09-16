@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
@@ -31,6 +32,85 @@ def _lire_chemin_dossier_photos(session: Session) -> str | None:
         return json.loads(p.valeur_json)
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+# ---------------------------------------------------------------------------
+# L'inventaire — qui a sa photo, et qui ne l'a pas
+# ---------------------------------------------------------------------------
+
+
+class EleveSansPhotoOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str
+    site: str | None
+    badge: int | None
+    chemin_attendu: str | None
+
+
+class InventaireOut(BaseModel):
+    dossier: str
+    nb_eleves: int
+    nb_avec: int
+    nb_sans: int
+    taux: float
+    par_classe: dict[str, dict[str, int]]
+    classes_incompletes: list[str]
+    manquantes: list[EleveSansPhotoOut]
+
+
+@router.get("/inventaire", response_model=InventaireOut)
+def inventaire(annee_id: int, session: Session = Depends(db_session)) -> InventaireOut:
+    """Le relevé complet du partage. Lecture seule, et volontairement lente.
+
+    Un accès par élève sur un partage réseau : c'est le sujet de l'écran, on
+    l'attend. C'est pour cela que l'accueil ne le lance pas de lui-même.
+    """
+    from backend.services.inventaire_photos import InventaireImpossible, relever
+
+    try:
+        r = relever(session, annee_id=annee_id)
+    except InventaireImpossible as e:
+        raise HTTPException(400, str(e)) from None
+
+    return InventaireOut(
+        dossier=r.dossier,
+        nb_eleves=r.nb_eleves,
+        nb_avec=r.nb_avec,
+        nb_sans=r.nb_sans,
+        taux=r.taux,
+        par_classe=r.par_classe,
+        classes_incompletes=r.classes_incompletes,
+        manquantes=[EleveSansPhotoOut(**vars(e)) for e in r.manquantes],
+    )
+
+
+@router.get("/inventaire/classeur")
+def classeur_manquantes(annee_id: int, session: Session = Depends(db_session)):
+    """La liste des manquantes, triée par classe — celle qu'on distribue."""
+    from fastapi.responses import Response
+
+    from backend.services.inventaire_photos import (
+        InventaireImpossible,
+        classeur,
+        relever,
+    )
+
+    try:
+        r = relever(session, annee_id=annee_id)
+    except InventaireImpossible as e:
+        raise HTTPException(400, str(e)) from None
+
+    return Response(
+        content=classeur(r),
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={
+            "content-disposition": 'attachment; filename="Photos_manquantes.xlsx"'
+        },
+    )
 
 
 @router.get("/{personne_id}")

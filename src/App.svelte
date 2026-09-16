@@ -34,6 +34,7 @@
   import Wrench from "@lucide/svelte/icons/wrench";
   import Cable from "@lucide/svelte/icons/cable";
   import Nfc from "@lucide/svelte/icons/nfc";
+  import Camera from "@lucide/svelte/icons/camera";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Coffre from "./routes/Coffre.svelte";
   import Arrivees from "./routes/Arrivees.svelte";
@@ -61,6 +62,7 @@
   import Parcours from "./routes/Parcours.svelte";
   import Atelier from "./routes/Atelier.svelte";
   import Ts1000 from "./routes/Ts1000.svelte";
+  import Photos from "./routes/Photos.svelte";
   import Accessoires from "./routes/Accessoires.svelte";
   import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
@@ -299,6 +301,9 @@
         { id: "ou_ca_coince", label: "Où ça coince", icon: Compass },
         { id: "personnes", label: "Référentiel", icon: Users2 },
         { id: "concordance", label: "Concordance", icon: GitCompare },
+        // « Qui n'a pas de photo » est demandé toutes les semaines : la
+        // réponse mérite une porte, pas une case à cocher dans un contrôle.
+        { id: "photos", label: "Les photos", icon: Camera },
         { id: "exports", label: "Produire un fichier", icon: FileDown },
       ],
     },
@@ -683,6 +688,8 @@
           <OuCaCoince onNaviguer={(p) => (page = p)} />
         {:else if page === "parcours"}
           <Parcours etats={etapesEtats} onRelireAvancement={relireAvancement} />
+        {:else if page === "photos"}
+          <Photos />
         {:else if page === "ts1000"}
           <Ts1000 />
         {:else if page === "atelier"}

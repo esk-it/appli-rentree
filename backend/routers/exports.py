@@ -1149,3 +1149,176 @@ def listes_koxo(
         nom_etiquettes=r.nom_etiquettes,
         etiquettes_base64=b64(r.etiquettes_nouveaux),
     )
+
+
+# ---------------------------------------------------------------------------
+# Les étiquettes en PDF, une planche par classe
+# ---------------------------------------------------------------------------
+
+
+class EtiquettesParClassePayload(ListesKoxoPayload):
+    """Mêmes entrées que les listes, mais une sortie par classe.
+
+    `classes` vide vaut ici « toutes celles du site » : c'est le geste
+    courant — on sort les douze planches d'un coup, et chacune part chez un
+    professeur principal différent.
+    """
+
+
+class PlancheOut(BaseModel):
+    classe: str
+    nom_fichier: str
+    nb_etiquettes: int
+
+
+class EtiquettesParClasseReponse(BaseModel):
+    site_nom: str
+    annee_libelle: str
+    moteur: str
+    """Le navigateur qui a imprimé — utile quand un rendu surprend."""
+    planches: list[PlancheOut]
+    echecs: list[dict]
+    zip_base64: str
+    nom_zip: str
+    nb_total_etiquettes: int
+
+
+@router.post("/etiquettes-par-classe", response_model=EtiquettesParClasseReponse)
+def etiquettes_par_classe(
+    payload: EtiquettesParClassePayload, session: Session = Depends(db_session)
+) -> EtiquettesParClasseReponse:
+    """Une planche PDF par classe, dans une archive.
+
+    Sortir les étiquettes classe par classe est le geste réel. Les demander
+    une à une prenait une demi-heure par campagne, et obligeait à convertir
+    chaque HTML à la main pour obtenir un PDF imprimable.
+
+    Le rendu passe par le navigateur du poste : c'est exactement ce que
+    donne le bouton « Imprimer », donc la même page que celle qu'on voit.
+    """
+    import io
+    import zipfile
+    from pathlib import Path
+    from tempfile import NamedTemporaryFile
+
+    from backend.models import AnneeScolaire, Site
+    from backend.services.controle_koxo import lire_export_brut
+    from backend.services.impression_pdf import (
+        ImpressionImpossible,
+        Planche,
+        nom_de_fichier,
+        rendre,
+    )
+    from backend.services.listes_depuis_koxo import (
+        ListesImpossibles,
+        listes_depuis_koxo,
+    )
+
+    site = session.query(Site).filter_by(id=payload.site_id).one_or_none()
+    annee = (
+        session.query(AnneeScolaire).filter_by(id=payload.annee_cible_id).one_or_none()
+    )
+    if site is None or annee is None:
+        raise HTTPException(404, "Site ou année introuvable.")
+
+    try:
+        contenu = base64.b64decode(payload.koxo_base64)
+    except Exception as e:
+        raise HTTPException(400, f"Base64 invalide : {e}") from e
+
+    with NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
+        tmp.write(contenu)
+        chemin = Path(tmp.name)
+    try:
+        lignes, _colonnes, _sep, _enc, avait_mdp = lire_export_brut(
+            chemin, garder_mots_de_passe=True
+        )
+    except Exception as e:
+        raise HTTPException(400, f"Export KoXo illisible : {e}") from None
+    finally:
+        try:
+            chemin.unlink()
+        except OSError:
+            pass
+
+    if not avait_mdp:
+        raise HTTPException(
+            400,
+            "Cet export ne porte pas de colonne « Mot de passe » : sans elle "
+            "les étiquettes n'ont pas d'objet.",
+        )
+
+    # Une première passe sans filtre apprend quelles classes existent — on
+    # ne demande pas à l'utilisateur de les énumérer pour lui rendre ce que
+    # le fichier contient déjà.
+    try:
+        apercu = listes_depuis_koxo(
+            session,
+            lignes,
+            site_id=payload.site_id,
+            annee_cible_id=payload.annee_cible_id,
+            annee_source_id=payload.annee_source_id,
+            documents={"etiquettes_tous"},
+            par_page=payload.par_page,
+        )
+    except ListesImpossibles as e:
+        raise HTTPException(400, str(e)) from None
+
+    classes = payload.classes or sorted(apercu.classes_disponibles)
+    if not classes:
+        raise HTTPException(400, "Aucune classe dans cet export.")
+
+    planches: list[Planche] = []
+    comptes: dict[str, int] = {}
+    for classe in classes:
+        r = listes_depuis_koxo(
+            session,
+            lignes,
+            site_id=payload.site_id,
+            annee_cible_id=payload.annee_cible_id,
+            annee_source_id=payload.annee_source_id,
+            classes=[classe],
+            personne_ids=payload.personne_ids,
+            documents={"etiquettes_tous"},
+            par_page=payload.par_page,
+            police=payload.police,
+            modele=payload.modele,
+        )
+        if not r.etiquettes_tous or not r.lignes:
+            continue
+        nom = nom_de_fichier(f"Etiquettes_{site.nom}_{annee.libelle}_{classe}")
+        planches.append(Planche(nom=nom, html=r.etiquettes_tous))
+        comptes[nom] = len(r.lignes)
+
+    if not planches:
+        raise HTTPException(400, "Aucune étiquette à produire pour ces classes.")
+
+    try:
+        impression = rendre(planches)
+    except ImpressionImpossible as e:
+        raise HTTPException(400, str(e)) from None
+
+    archive = io.BytesIO()
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+        for nom, pdf in impression.pdfs.items():
+            zf.writestr(f"{nom}.pdf", pdf)
+
+    par_nom = {p.nom: p for p in planches}
+    return EtiquettesParClasseReponse(
+        site_nom=site.nom,
+        annee_libelle=annee.libelle,
+        moteur=impression.moteur,
+        planches=[
+            PlancheOut(
+                classe=nom.rsplit("_", 1)[-1],
+                nom_fichier=f"{nom}.pdf",
+                nb_etiquettes=comptes.get(nom, 0),
+            )
+            for nom in impression.pdfs
+            if nom in par_nom
+        ],
+        echecs=[{"planche": nom, "motif": motif} for nom, motif in impression.echecs],
+        zip_base64=base64.b64encode(archive.getvalue()).decode("ascii"),
+        nom_zip=nom_de_fichier(f"Etiquettes_{site.nom}_{annee.libelle}") + ".zip",
+        nb_total_etiquettes=sum(comptes.values()),
+    )

@@ -603,6 +603,47 @@
     );
   });
 
+  /**
+   * Les planches PDF, une par classe, dans une archive.
+   *
+   * Le HTML laissait la conversion à l'utilisateur : ouvrir le fichier,
+   * imprimer, choisir « Microsoft Print to PDF », recommencer douze fois.
+   * Le rendu passe désormais par le navigateur du poste — même moteur, donc
+   * même page, mais douze fichiers d'un geste.
+   */
+  let planchesPdf = $state(/** @type {any} */ (null));
+  let impressionEnCours = $state(false);
+
+  async function genererPlanchesPdf() {
+    if (!fichierListes || !siteId || !anneeCibleId) return;
+    impressionEnCours = true;
+    try {
+      planchesPdf = await exportsCible.etiquettesParClasse({
+        fichierKoxo: fichierListes,
+        siteId,
+        anneeCibleId,
+        anneeSourceId: anneeSourceId ?? null,
+        classes: [...classesRetenues],
+        personneIds: [...elevesRetenus],
+        modele: modeleChoisi,
+        parPage,
+        police: policeChoisie,
+      });
+      const n = planchesPdf.planches.length;
+      notify.succes(
+        `${n} planche(s) rendue(s) — ${planchesPdf.nb_total_etiquettes} étiquettes`,
+        { duree: 9000 },
+      );
+      for (const e of planchesPdf.echecs) {
+        notify.erreur(`${e.planche} : ${e.motif}`, { duree: 12000 });
+      }
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 14000 });
+    } finally {
+      impressionEnCours = false;
+    }
+  }
+
   async function genererListes() {
     if (!fichierListes || !siteId || !anneeCibleId) return;
     chargement = true;
@@ -1695,6 +1736,43 @@
             </div>
           {/if}
         {/each}
+
+        <!-- Le geste réel : douze planches, une par professeur principal. -->
+        <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-2.5 dark:border-emerald-800 dark:bg-emerald-900/20">
+          <div class="min-w-0">
+            <p class="text-sm font-medium">Étiquettes en PDF, une planche par classe</p>
+            <p class="text-xs text-stone-500 dark:text-stone-400">
+              {#if planchesPdf}
+                {planchesPdf.planches.length} planche(s) · {planchesPdf.nb_total_etiquettes}
+                étiquettes · rendu par {planchesPdf.moteur}
+              {:else}
+                Une archive à dézipper, un fichier par classe — prêt à imprimer.
+              {/if}
+            </p>
+          </div>
+          {#if planchesPdf}
+            <Bouton
+              icon={Download}
+              taille="sm"
+              onclick={() =>
+                enregistrerPaquet(
+                  { nom_fichier: planchesPdf.nom_zip, contenu_base64: planchesPdf.zip_base64 },
+                  "application/zip",
+                )}
+            >
+              {planchesPdf.nom_zip}
+            </Bouton>
+          {:else}
+            <Bouton
+              variante="primary"
+              taille="sm"
+              occupe={impressionEnCours}
+              onclick={genererPlanchesPdf}
+            >
+              Rendre les PDF
+            </Bouton>
+          {/if}
+        </div>
 
         {#if !r.xlsx_nouveaux_base64}
           <p class="rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
