@@ -30,6 +30,7 @@
   import Activity from "@lucide/svelte/icons/activity";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
+  import Compass from "@lucide/svelte/icons/compass";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Coffre from "./routes/Coffre.svelte";
   import Arrivees from "./routes/Arrivees.svelte";
@@ -53,6 +54,7 @@
   import Exports from "./routes/Exports.svelte";
   import Suivi from "./routes/Suivi.svelte";
   import Statistiques from "./routes/Statistiques.svelte";
+  import OuCaCoince from "./routes/OuCaCoince.svelte";
   import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
   import Aide from "./routes/Aide.svelte";
@@ -71,15 +73,6 @@
 
   // Command Palette (Ctrl+K / Cmd+K)
   let paletteOuverte = $state(false);
-
-  /**
-   * Raccourcis de navigation.
-   *
-   * `Ctrl+1` à `Ctrl+9` suivent l'ordre visuel de la barre latérale, donc
-   * l'ordre du travail : configuration, traitement, consultation. On atteint
-   * ainsi une page fréquente sans quitter le clavier.
-   */
-  let ordreRaccourcis = $derived(sections.flatMap((s) => s.items.map((i) => i.id)));
 
   function gererTouchesGlobales(e) {
     // Ne pas détourner les touches pendant une saisie.
@@ -267,133 +260,115 @@
   }
 
   /**
-   * Navigation groupée par moment d'usage plutôt qu'en liste plate.
+   * Trois parties, parce que le programme sert à trois moments distincts.
    *
-   * Quatorze entrées alignées sans hiérarchie obligeaient à toutes les lire
-   * pour en trouver une. Les sections suivent l'ordre réel du travail :
-   * on configure une fois, on traite à chaque campagne, on surveille ensuite.
+   * La barre latérale rangeait les écrans par ce qu'ils **font** :
+   * « parcours », « outils », « consulter ». Il fallait connaître
+   * l'architecture pour deviner où aller, et vingt-cinq entrées ouvertes en
+   * permanence ne laissaient de place ni au regard ni au tableau.
+   *
+   * Ces trois-là rangent par **quand on s'en sert** — et ça, on le sait
+   * avant même d'ouvrir le programme :
+   *
+   * - **La rentrée** : la campagne d'août, qui a un début et une fin ;
+   * - **L'année** : le cas ponctuel, la vérification, la réédition ;
+   * - **Le matériel** : les machines et les accessoires, un domaine à part.
+   *
+   * Aucun écran n'a été retiré ni réécrit : ils sont rangés ailleurs. Les
+   * deux qui ne relèvent d'aucune des trois — Paramètres et Aide — vivent
+   * dans le coin de la barre, là où l'on va une fois par an.
    */
-  /**
-   * Le menu, rangé par usage plutôt que par module.
-   *
-   * Vingt entrées alignées demandaient de toutes les lire pour en trouver
-   * une, et surtout : elles laissaient croire que naviguer était la façon
-   * de travailler. Ce n'en est pas une. Une rentrée se conduit par le
-   * parcours, qui donne l'ordre et l'état de chaque étape ; le menu ne
-   * sert qu'à revenir sur un écran précis.
-   *
-   * Les onze écrans qui sont des **étapes** du parcours sont donc repliés :
-   * on y arrive depuis la frise, qui sait où l'on en est. Restent dépliés
-   * ceux qu'on consulte à tout moment, sans qu'ils appartiennent à une
-   * étape.
-   *
-   * `repliable` n'est pas `caché` : un groupe replié s'ouvre d'un clic, et
-   * son état se retient. Rien n'a été retiré.
-   */
-  const sections = [
+  const PARTIES = [
     {
-      titre: null, // le tableau de bord n'appartient à aucun groupe
-      items: [{ id: "accueil", label: "Tableau de bord", icon: Home }],
-    },
-    {
-      id: "parcours",
-      titre: "Parcours de rentrée",
-      repliable: true,
-      items: [
+      id: "rentree",
+      label: "La rentrée",
+      icon: Rocket,
+      resume: "La campagne d'août, du premier export au bilan",
+      ecrans: [
+        { id: "accueil", label: "Où on en est", icon: Home },
         { id: "sites", label: "Sites", icon: Building2 },
         { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon },
         { id: "amorcage", label: "Amorçage KoXo", icon: Rocket },
         { id: "snapshots", label: "Snapshots d'années", icon: Database },
-        {
-          id: "arbitrage",
-          label: "Arbitrage",
-          icon: Scale,
-          badge: () => nbArbitragesEnAttente,
-        },
-        { id: "sortants", label: "Sortants", icon: LogOut },
-        { id: "controle_koxo", label: "Contrôle KoXo", icon: ShieldCheck },
-        { id: "exports", label: "Exports", icon: FileDown },
-        // Vérifier avant d'agir : Conformité précède les écrans qui écrivent.
-        { id: "conformite_google", label: "Conformité Google", icon: ShieldCheck },
+        { id: "arbitrage", label: "Arbitrage", icon: Scale, badge: () => nbArbitragesEnAttente },
+        { id: "simulation", label: "Simulation", icon: Zap },
         { id: "bascule", label: "Bascule des OU", icon: FolderTree },
-        { id: "chromebooks", label: "Chromebooks", icon: Laptop },
-        // Il clôt la campagne : c'est le geste qui dit si elle a abouti.
-        // Croise les quatre sources : c'est lui qui dit ce qui a bougé
-        // dans Charlemagne sans être redescendu ailleurs.
-        { id: "concordance", label: "Concordance", icon: GitCompare },
+        { id: "sortants", label: "Sortants", icon: LogOut },
+        { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
         { id: "bilan", label: "Bilan de rentrée", icon: ClipboardCheck },
       ],
     },
     {
-      id: "outils",
-      titre: "Outils",
-      repliable: true,
-      items: [
-        // Les deux écrans qui servent toute l'année, et non à la campagne.
+      id: "annee",
+      label: "L'année",
+      icon: Users2,
+      resume: "Chercher quelqu'un, corriger, vérifier, rééditer",
+      ecrans: [
+        // Ouvrir sur les constats plutôt que sur le référentiel : la
+        // première question n'est pas « qui est là » mais « qu'est-ce qui
+        // ne colle pas ». Le référentiel vient juste après, et la
+        // recherche y mène de toute façon depuis n'importe où.
+        { id: "ou_ca_coince", label: "Où ça coince", icon: Compass },
+        { id: "personnes", label: "Référentiel", icon: Users2 },
+        { id: "concordance", label: "Concordance", icon: GitCompare },
+        { id: "conformite_google", label: "Conformité Google", icon: ShieldCheck },
+        { id: "controle_koxo", label: "Contrôle KoXo", icon: ShieldCheck },
+        { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
         { id: "arrivees", label: "Arrivée", icon: UserPlus },
         { id: "mouvements", label: "Mouvements", icon: ArrowRightLeft },
-        { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
-        { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
-        { id: "simulation", label: "Simulation", icon: Zap },
-      ],
-    },
-    {
-      titre: "Consulter",
-      items: [
-        { id: "personnes", label: "Référentiel", icon: Users2 },
-        // Retrouver un mot de passe est un geste de consultation, et
-        // fréquent : il n'a pas à être replié derrière un groupe.
+        { id: "exports", label: "Exports", icon: FileDown },
         { id: "coffre", label: "Coffre", icon: KeyRound },
-        { id: "suivi", label: "Suivi", icon: Activity },
         { id: "statistiques", label: "Statistiques", icon: BarChart3 },
+        { id: "suivi", label: "Suivi", icon: Activity },
       ],
     },
     {
-      titre: null,
-      items: [
-        { id: "parametres", label: "Paramètres", icon: Settings },
-        { id: "aide", label: "Aide", icon: HelpCircle },
-      ],
+      id: "materiel",
+      label: "Chromebooks",
+      icon: Laptop,
+      resume: "Le parc, le stock, les pannes, les prêts",
+      ecrans: [{ id: "chromebooks", label: "Le parc", icon: Laptop }],
     },
   ];
 
+  /** Hors des trois parties : on y va une fois par an. */
+  const A_PART = [
+    { id: "parametres", label: "Paramètres", icon: Settings },
+    { id: "aide", label: "Aide", icon: HelpCircle },
+  ];
+
+  const TOUS_LES_ECRANS = [...PARTIES.flatMap((p) => p.ecrans), ...A_PART];
+
   /**
-   * Quels groupes sont ouverts. Retenu d'une session à l'autre : refermer
-   * à chaque démarrage ce qu'on vient d'ouvrir serait une brimade.
+   * La partie ouverte suit l'écran, et non l'inverse.
+   *
+   * On arrive sur un écran par bien d'autres chemins que la barre : la
+   * recherche, la frise, un bouton d'un autre écran. Déduire la partie de
+   * l'écran courant garantit que l'onglet souligné est toujours celui où
+   * l'on se trouve — au lieu d'un état parallèle qui se désynchronise.
    */
-  const MEMOIRE_GROUPES = "menu.groupes.ouverts";
-  let groupesOuverts = $state(
-    /** @type {Record<string, boolean>} */ (
-      (() => {
-        try {
-          return JSON.parse(localStorage.getItem(MEMOIRE_GROUPES) ?? "{}");
-        } catch {
-          return {};
-        }
-      })()
-    ),
+  let partieActive = $derived(
+    PARTIES.find((p) => p.ecrans.some((e) => e.id === page))?.id ?? null,
+  );
+  let ecransDeLaPartie = $derived(
+    PARTIES.find((p) => p.id === partieActive)?.ecrans ?? [],
   );
 
-  $effect(() => {
-    try {
-      localStorage.setItem(MEMOIRE_GROUPES, JSON.stringify(groupesOuverts));
-    } catch {
-      // Le stockage peut être refusé : le menu marche sans mémoire.
-    }
-  });
+  /** Changer de partie ouvre son premier écran, qui en est l'entrée. */
+  function allerDansLaPartie(partie) {
+    if (partie.id === partieActive) return;
+    page = partie.ecrans[0].id;
+  }
 
-  // Un groupe replié qui contient l'écran courant s'ouvre de lui-même :
-  // arriver quelque part sans voir où l'on est serait désorientant.
-  let sectionsAffichees = $derived(
-    sections.map((s) => ({
-      ...s,
-      ouvert:
-        !s.repliable ||
-        groupesOuverts[s.id] === true ||
-        s.items.some((i) => i.id === page),
-      alerte: s.items.some((i) => i.badge && i.badge() > 0),
-    })),
-  );
+  /**
+   * Raccourcis de navigation.
+   *
+   * `Ctrl+1` à `Ctrl+9` suivent l'ordre visuel de la rangée d'écrans de la
+   * partie ouverte, et non un ordre global. Les neuf premiers changent donc
+   * avec la partie — c'est ce qu'on veut : le raccourci porte sur ce qu'on
+   * a sous les yeux, pas sur une liste qu'il faudrait mémoriser.
+   */
+  let ordreRaccourcis = $derived(ecransDeLaPartie.map((e) => e.id));
 
 </script>
 
@@ -485,133 +460,142 @@
     </div>
   {/if}
 
-<div class="flex flex-1 overflow-hidden">
-  <!-- Barre latérale -->
-  <aside class="flex w-64 shrink-0 flex-col border-r border-stone-200 bg-white dark:border-stone-700 dark:bg-stone-800">
-    <div class="flex items-center gap-2 border-b border-stone-200 px-5 py-4 dark:border-stone-700">
-      <GraduationCap class="h-7 w-7 text-emerald-700 dark:text-emerald-400" />
-      <div class="flex flex-1 flex-col leading-tight">
-        <span class="text-sm font-semibold text-stone-900 dark:text-stone-100">Appli Rentrée</span>
-        <span class="text-xs text-stone-500 dark:text-stone-400">Ensemble Scolaire du Kreisker</span>
+<div class="flex flex-1 flex-col overflow-hidden">
+  <!-- Barre du haut : les trois parties, puis les écrans de celle qu'on
+       ouvre. Deux niveaux, et à chaque niveau le choix est évident — au
+       lieu de vingt-cinq entrées présentées d'un bloc. -->
+  <header class="shrink-0 border-b border-stone-200 bg-white dark:border-stone-700 dark:bg-stone-800">
+    <div class="flex items-center gap-6 px-5 py-2.5">
+      <div class="flex items-center gap-2.5">
+        <GraduationCap class="h-6 w-6 shrink-0 text-emerald-700 dark:text-emerald-400" />
+        <div class="flex flex-col leading-tight">
+          <span class="text-sm font-semibold text-stone-900 dark:text-stone-100">Appli Rentrée</span>
+          <span class="text-[11px] text-stone-500 dark:text-stone-400">Ensemble Scolaire du Kreisker</span>
+        </div>
       </div>
-      <button
-        class="rounded-md p-1.5 text-stone-500 transition hover:bg-stone-100 hover:text-stone-800 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
-        title={$theme === "clair" ? "Passer en mode sombre" : "Passer en mode clair"}
-        onclick={basculerTheme}
-      >
-        {#if $theme === "clair"}
-          <Moon class="h-4 w-4" />
-        {:else}
-          <Sun class="h-4 w-4" />
-        {/if}
-      </button>
-    </div>
 
-    <div class="px-3 pt-3">
-      <button
-        class="flex w-full items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-sm text-stone-600 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400 dark:hover:border-emerald-600 dark:hover:bg-stone-700"
-        onclick={() => (paletteOuverte = true)}
-      >
-        <Search class="h-4 w-4" />
-        <span class="flex-1 text-left">Rechercher…</span>
-        <kbd class="rounded border border-stone-300 bg-white px-1 py-0 text-[10px] font-medium text-stone-500">
-          Ctrl K
-        </kbd>
-      </button>
-    </div>
+      <nav class="flex items-center gap-1" aria-label="Parties">
+        {#each PARTIES as partie (partie.id)}
+          {@const actif = partieActive === partie.id}
+          <button
+            class="flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm transition-colors duration-150
+                   {actif
+                     ? 'bg-emerald-50 font-semibold text-emerald-800 dark:bg-emerald-900/35 dark:text-emerald-300'
+                     : 'font-medium text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-700/60'}"
+            title={partie.resume}
+            aria-label={partie.label}
+            aria-current={actif ? "page" : undefined}
+            onclick={() => allerDansLaPartie(partie)}
+          >
+            <partie.icon class="h-4 w-4 shrink-0" />
+            {partie.label}
+            {#if partie.id === "rentree" && nbArbitragesEnAttente > 0}
+              <span class="rounded-full bg-amber-500 px-1.5 py-0 text-[10px] font-semibold text-white">
+                {nbArbitragesEnAttente}
+              </span>
+            {/if}
+          </button>
+        {/each}
+      </nav>
 
-    <nav class="flex-1 overflow-y-auto px-3 py-2">
-      {#each sectionsAffichees as section, iSection (iSection)}
-        <div class={section.titre ? "mt-4 first:mt-0" : "mt-2 first:mt-0"}>
-          {#if section.titre && section.repliable}
-            <!-- Un groupe replié s'ouvre d'un clic : rien n'a été retiré du
-                 menu, seulement mis à distance de la main. -->
-            <button
-              class="mb-1 flex w-full items-center gap-1.5 px-3 text-[10px] font-semibold uppercase tracking-widest text-stone-400 transition hover:text-stone-600 dark:text-stone-500 dark:hover:text-stone-300"
-              onclick={() => (groupesOuverts[section.id] = !section.ouvert)}
-            >
-              <ChevronRight
-                class="h-3 w-3 shrink-0 transition-transform duration-150 {section.ouvert ? 'rotate-90' : ''}"
-              />
-              <span class="flex-1 text-left">{section.titre}</span>
-              {#if !section.ouvert}
-                <span class="font-normal normal-case tracking-normal text-stone-400 dark:text-stone-500">
-                  {section.items.length}
-                </span>
-              {/if}
-              {#if section.alerte && !section.ouvert}
-                <span class="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500"></span>
-              {/if}
-            </button>
-          {:else if section.titre}
-            <p
-              class="mb-1 px-3 text-[10px] font-semibold uppercase tracking-widest text-stone-400 dark:text-stone-500"
-            >
-              {section.titre}
-            </p>
-          {/if}
-          <div class="space-y-0.5" class:hidden={!section.ouvert}>
-            {#each section.items as item (item.id)}
-              {@const actif = page === item.id}
-              <button
-                class="group relative flex w-full items-center gap-3 rounded-lg py-2 pl-4 pr-3 text-left text-sm transition-all duration-150
-                       {actif
-                         ? 'bg-emerald-50 font-semibold text-emerald-800 shadow-sm dark:bg-emerald-900/30 dark:text-emerald-300'
-                         : 'font-medium text-stone-700 hover:bg-stone-100 hover:pl-5 dark:text-stone-300 dark:hover:bg-stone-700/50'}"
-                onclick={() => (page = item.id)}
-              >
-                <!-- Barre latérale : repère plus lisible qu'un simple fond coloré -->
-                <span
-                  class="absolute left-0 top-1/2 w-1 -translate-y-1/2 rounded-r-full bg-emerald-600 transition-all duration-200 dark:bg-emerald-400
-                         {actif ? 'h-5 opacity-100' : 'h-0 opacity-0'}"
-                ></span>
-                <item.icon
-                  class="h-4 w-4 shrink-0 transition-transform duration-150 {actif
-                    ? ''
-                    : 'group-hover:scale-110'}"
-                />
-                <span class="flex-1 truncate">{item.label}</span>
-                {#if item.badge && item.badge() > 0}
-                  <span
-                    class="animate-[pulsation-douce_2s_ease-in-out_infinite] rounded-full bg-amber-500 px-1.5 py-0 text-[10px] font-semibold text-white shadow-sm"
-                  >
-                    {item.badge()}
-                  </span>
-                {/if}
-              </button>
-            {/each}
-          </div>
-        </div>
-      {/each}
-    </nav>
-
-    <div class="border-t border-stone-200 p-3 text-xs text-stone-500 dark:border-stone-700 dark:text-stone-400">
-      <div class="flex items-center justify-between gap-2">
-        <div class="flex items-center gap-2">
-          <span
-            class="inline-block h-2 w-2 rounded-full {backendOk === true ? 'bg-emerald-500' : backendOk === false ? 'bg-red-500' : 'bg-stone-300'}"
-          ></span>
-          Backend{backendOk === true ? ` v${versionBackend}` : backendOk === false ? " hors-ligne" : "…"}
-        </div>
+      <div class="ml-auto flex items-center gap-2">
         <button
-          class="rounded-md p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700 disabled:opacity-40 dark:hover:bg-stone-700 dark:hover:text-stone-200"
-          title="Vérifier les mises à jour maintenant"
-          onclick={() => verifierMiseAJour({ manuelle: true })}
-          disabled={majVerificationEnCours}
+          class="flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-sm text-stone-600 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400 dark:hover:border-emerald-600 dark:hover:bg-stone-700"
+          onclick={() => (paletteOuverte = true)}
         >
-          <RefreshCw class="h-3.5 w-3.5 {majVerificationEnCours ? 'animate-spin' : ''}" />
+          <Search class="h-4 w-4" />
+          <span>Rechercher…</span>
+          <kbd class="rounded border border-stone-300 bg-white px-1 py-0 text-[10px] font-medium text-stone-500 dark:border-stone-600 dark:bg-stone-800">
+            Ctrl K
+          </kbd>
         </button>
+
+        {#each A_PART as ecran (ecran.id)}
+          <button
+            class="rounded-md p-2 transition {page === ecran.id
+              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-300'
+              : 'text-stone-500 hover:bg-stone-100 hover:text-stone-800 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200'}"
+            title={ecran.label}
+            aria-label={ecran.label}
+            onclick={() => (page = ecran.id)}
+          >
+            <ecran.icon class="h-4 w-4" />
+          </button>
+        {/each}
+
+        <button
+          class="rounded-md p-2 text-stone-500 transition hover:bg-stone-100 hover:text-stone-800 dark:text-stone-400 dark:hover:bg-stone-700 dark:hover:text-stone-200"
+          title={$theme === "clair" ? "Passer en mode sombre" : "Passer en mode clair"}
+          onclick={basculerTheme}
+        >
+          {#if $theme === "clair"}<Moon class="h-4 w-4" />{:else}<Sun class="h-4 w-4" />{/if}
+        </button>
+
+        <div class="flex items-center gap-1.5 border-l border-stone-200 pl-3 text-xs text-stone-500 dark:border-stone-700 dark:text-stone-400">
+          <span
+            class="inline-block h-2 w-2 rounded-full {backendOk === true
+              ? 'bg-emerald-500'
+              : backendOk === false
+                ? 'bg-red-500'
+                : 'bg-stone-300'}"
+          ></span>
+          <span class="tabular-nums">
+            {backendOk === true ? `v${versionBackend}` : backendOk === false ? "hors-ligne" : "…"}
+          </span>
+          <button
+            class="rounded-md p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700 disabled:opacity-40 dark:hover:bg-stone-700 dark:hover:text-stone-200"
+            title="Vérifier les mises à jour maintenant"
+            onclick={() => verifierMiseAJour({ manuelle: true })}
+            disabled={majVerificationEnCours}
+          >
+            <RefreshCw class="h-3.5 w-3.5 {majVerificationEnCours ? 'animate-spin' : ''}" />
+          </button>
+        </div>
       </div>
     </div>
-  </aside>
+
+    <!-- Les écrans de la partie ouverte. Ils défilent plutôt que de passer
+         à la ligne : la hauteur de la barre doit rester constante, sinon le
+         contenu saute d'une partie à l'autre. -->
+    {#if ecransDeLaPartie.length > 1}
+      <nav class="flex gap-0.5 overflow-x-auto px-5" aria-label="Écrans">
+        {#each ecransDeLaPartie as ecran (ecran.id)}
+          {@const actif = page === ecran.id}
+          <button
+            class="relative flex shrink-0 items-center gap-2 px-3 py-2 text-[13px] transition-colors duration-150
+                   {actif
+                     ? 'font-semibold text-emerald-800 dark:text-emerald-300'
+                     : 'font-medium text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200'}"
+            aria-current={actif ? "page" : undefined}
+            onclick={() => (page = ecran.id)}
+          >
+            <ecran.icon class="h-3.5 w-3.5 shrink-0" />
+            {ecran.label}
+            {#if ecran.badge && ecran.badge() > 0}
+              <span class="rounded-full bg-amber-500 px-1.5 py-0 text-[10px] font-semibold text-white">
+                {ecran.badge()}
+              </span>
+            {/if}
+            <span
+              class="absolute inset-x-1.5 bottom-0 h-0.5 rounded-t-full bg-emerald-600 transition-opacity duration-150 dark:bg-emerald-400
+                     {actif ? 'opacity-100' : 'opacity-0'}"
+            ></span>
+          </button>
+        {/each}
+      </nav>
+    {/if}
+  </header>
 
   <!-- Zone principale -->
   <main class="flex-1 overflow-auto bg-stone-50 dark:bg-stone-900">
-    <!-- La frise reste hors du bloc `{#key}` : la rejouer à chaque
-         navigation la ferait clignoter, alors qu'elle est justement le
-         repère fixe pendant qu'on avance. -->
-    <FriseRentree {page} faites={etapesFaites} etats={etapesEtats}
-                  onNaviguer={(p) => (page = p)} />
+    <!-- La frise n'a de sens que pendant la campagne : elle occupait le haut
+         de chaque écran toute l'année pour rien. Elle reste hors du bloc
+         `{#key}`, sinon elle clignoterait à chaque navigation alors qu'elle
+         est justement le repère fixe pendant qu'on avance. -->
+    {#if partieActive === "rentree"}
+      <FriseRentree {page} faites={etapesFaites} etats={etapesEtats}
+                    onNaviguer={(p) => (page = p)} />
+    {/if}
 
     <!-- `{#key}` reconstruit le bloc à chaque navigation, ce qui relance
          l'animation d'apparition — sinon Svelte réutilise le nœud et rien
@@ -620,7 +604,12 @@
       <!-- Apparition sans `transform` : ce conteneur englobe les modales des
            écrans, et un transform ferait d'elles des enfants de cette div
            plutôt que de la fenêtre — elles se retrouveraient rognées. -->
-      <div class="anim-apparition-sans-transform mx-auto max-w-7xl p-6">
+      <!-- La largeur suit l'écran plutôt qu'un gabarit de lecture : ces
+           pages portent surtout des tableaux, où chaque colonne gagnée
+           évite une troncature. Ce qui se lit en prose — la description
+           d'en-tête — garde son propre plafond, sinon les lignes de texte
+           deviendraient interminables. -->
+      <div class="anim-apparition-sans-transform mx-auto max-w-[1800px] p-6">
         {#if page === "accueil"}
           <TableauDeBord onNaviguer={(p) => (page = p)} />
         {:else if page === "personnes"}
@@ -672,6 +661,8 @@
           <Suivi />
         {:else if page === "statistiques"}
           <Statistiques />
+        {:else if page === "ou_ca_coince"}
+          <OuCaCoince onNaviguer={(p) => (page = p)} />
         {:else if page === "parametres"}
           <Parametres />
         {:else if page === "aide"}
@@ -686,7 +677,7 @@
 <CommandPalette
   bind:ouvert={paletteOuverte}
   onFermer={() => (paletteOuverte = false)}
-  ecrans={sections.flatMap((s) => s.items)}
+  ecrans={TOUS_LES_ECRANS}
   onAller={(id) => (page = id)}
 />
 <ToasterContainer />

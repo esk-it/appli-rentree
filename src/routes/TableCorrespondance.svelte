@@ -495,7 +495,7 @@
         </EtatVide>
       </div>
     {:else}
-      <div class="max-h-[640px] overflow-auto">
+      <div class="max-h-[max(24rem,calc(100vh-21rem))] overflow-auto">
         <table class="w-full text-sm">
           <thead class="sticky top-0 z-10 bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
             <tr>

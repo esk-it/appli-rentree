@@ -96,7 +96,7 @@
   class="border-b border-stone-200 bg-white/70 backdrop-blur-sm dark:border-stone-700 dark:bg-stone-800/60"
   aria-label="Parcours de la rentrée"
 >
-  <div class="mx-auto max-w-7xl px-6 pt-2.5 {replie ? 'pb-2.5' : 'pb-3'}">
+  <div class="mx-auto max-w-[1800px] px-6 pt-2.5 {replie ? 'pb-2.5' : 'pb-3'}">
     <!-- Le rail : chaque phase garde son groupe, séparé par un intervalle
          plus large qu'entre deux étapes — la respiration dit la coupure
          mieux qu'un trait. -->

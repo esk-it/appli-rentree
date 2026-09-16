@@ -742,7 +742,7 @@
     </div>
 
     <div class="card overflow-hidden">
-      <div class="max-h-[640px] overflow-auto">
+      <div class="max-h-[max(24rem,calc(100vh-21rem))] overflow-auto">
         <table class="tableau w-full text-sm">
           <thead class="sticky top-0 z-10">
             <tr>
