@@ -94,6 +94,18 @@ export const personnes = {
     if (site) p.set("site", site);
     return jsonOrThrow(await fetch(`${BASE}/personnes/mouvements?${p}`));
   },
+  /**
+   * Ce que chaque source dit de cette personne.
+   *
+   * Interroge Google en direct — deux appels pour une personne, et c'est
+   * précisément la réponse qu'on vient chercher.
+   */
+  async enquete(id, { anneeId = null, interrogerGoogle = true } = {}) {
+    const p = new URLSearchParams();
+    if (anneeId) p.set("annee_id", String(anneeId));
+    p.set("interroger_google", String(interrogerGoogle));
+    return jsonOrThrow(await fetch(`${BASE}/personnes/${id}/enquete?${p}`));
+  },
   /** Tout ce que le référentiel sait d'une personne : parcours et comptes. */
   async fiche(id) {
     return jsonOrThrow(await fetch(`${BASE}/personnes/${id}/fiche`));

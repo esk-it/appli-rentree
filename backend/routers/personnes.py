@@ -431,3 +431,112 @@ def fiche(personne_id: int, session: Session = Depends(db_session)) -> FicheOut:
         parcours=parcours,
         comptes=comptes,
     )
+
+
+# ---------------------------------------------------------------------------
+# L'enquête : ce que chaque source dit de cette personne
+# ---------------------------------------------------------------------------
+
+
+class DireOut(BaseModel):
+    source: str
+    consultee: bool
+    valeurs: dict[str, str | None]
+    motif: str | None
+
+
+class DivergenceOut(BaseModel):
+    quoi: str
+    entre: tuple[str, str]
+    valeurs: tuple[str | None, str | None]
+    gravite: str
+
+
+class EnqueteOut(BaseModel):
+    personne_id: int
+    libelle: str
+    cle_pivot: str | None
+    badge: int | None
+    login: str | None
+    adresse: str | None
+    adresse_constatee: bool
+    dires: list[DireOut]
+    divergences: list[DivergenceOut]
+    sources_consultees: list[str]
+    tout_concorde: bool
+
+
+@router.get("/{personne_id}/enquete", response_model=EnqueteOut)
+def enquete(
+    personne_id: int,
+    annee_id: int | None = None,
+    interroger_google: bool = True,
+    session: Session = Depends(db_session),
+) -> EnqueteOut:
+    """Ce que chaque système dit de cette personne.
+
+    Google est interrogé en direct — deux appels pour une seule personne,
+    et c'est précisément la réponse qu'on vient chercher. Quand il n'est pas
+    joignable, l'enquête le **dit** plutôt que de rendre une case vide : une
+    absence de regard n'est pas une absence d'écart.
+    """
+    from backend.services.enquete_personne import enqueter
+
+    etat_google = None
+    groupes = None
+    motif = None
+
+    if interroger_google:
+        personne = session.query(Personne).filter_by(id=personne_id).one_or_none()
+        adresse = (
+            (personne.email_constate or personne.email_attribuee or "").strip()
+            if personne
+            else ""
+        )
+        if not adresse:
+            motif = (
+                "Aucune adresse constatée : l'annuaire ne peut pas être "
+                "interrogé sans risquer de désigner un homonyme."
+            )
+        else:
+            from backend.services.google_api import ClientGoogle, charger_config
+
+            try:
+                client = ClientGoogle(charger_config(session))
+                lus = client.lire_utilisateurs([adresse])
+                decrit = lus.get(adresse.lower())
+                if decrit is None:
+                    etat_google = {"existe": False}
+                else:
+                    etat_google = {"existe": True, **decrit}
+                    groupes = client.lister_groupes_de(adresse)
+            except Exception as e:
+                motif = f"Annuaire injoignable : {type(e).__name__}."
+    else:
+        motif = "Annuaire non interrogé — relance l'enquête pour le consulter."
+
+    try:
+        e = enqueter(
+            session,
+            personne_id,
+            annee_id=annee_id,
+            etat_google=etat_google,
+            groupes_google=groupes,
+            motif_google=motif,
+        )
+    except ValueError as err:
+        raise HTTPException(404, str(err)) from None
+
+    return EnqueteOut(
+        personne_id=e.personne_id,
+        libelle=e.libelle,
+        cle_pivot=e.cle_pivot,
+        badge=e.badge,
+        login=e.login,
+        adresse=e.adresse,
+        adresse_constatee=e.adresse_constatee,
+        dires=[DireOut(**vars(d)) for d in e.dires],
+        divergences=[DivergenceOut(**vars(d)) for d in e.divergences],
+        sources_consultees=e.sources_consultees,
+        tout_concorde=e.tout_concorde,
+    )

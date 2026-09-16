@@ -9,6 +9,7 @@
   import LayoutGrid from "@lucide/svelte/icons/layout-grid";
   import Rows3 from "@lucide/svelte/icons/rows-3";
   import FolderTree from "@lucide/svelte/icons/folder-tree";
+  import Radar from "@lucide/svelte/icons/radar";
   import Avatar from "$lib/components/Avatar.svelte";
   import DeplacementGoogle from "$lib/components/DeplacementGoogle.svelte";
   import Bouton from "$lib/components/Bouton.svelte";
@@ -185,6 +186,37 @@
     selection = s;
   }
 
+  /**
+   * Ce que chaque source dit de la personne ouverte.
+   *
+   * L'enquête interroge Google en direct : elle ne part donc pas toute
+   * seule à l'ouverture de la fiche. On la demande quand on doute — et
+   * c'est presque toujours le moment où on ouvre la fiche.
+   */
+  let enquete = $state(/** @type {any} */ (null));
+  let enqueteEnCours = $state(false);
+
+  async function enqueter(personneId) {
+    enqueteEnCours = true;
+    enquete = null;
+    try {
+      enquete = await personnes.enquete(personneId, { anneeId });
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 12000 });
+    } finally {
+      enqueteEnCours = false;
+    }
+  }
+
+  const LIBELLE_SOURCE = {
+    referentiel: "Référentiel",
+    google: "Google",
+    coffre: "Coffre",
+    charlemagne: "Charlemagne",
+    koxo: "KoXo",
+    ts1000: "TS1000",
+  };
+
   async function basculer(p) {
     if (p.sans_compte) {
       notify.info(
@@ -217,6 +249,9 @@
   function fermerFiche() {
     ouverte = null;
     fiche = null;
+    // L'enquête décrit une personne : la garder ouverte sur la suivante
+    // ferait lire le cas de quelqu'un d'autre.
+    enquete = null;
   }
 
   // Échap ferme la fiche, comme une fenêtre — c'est le geste attendu, et
@@ -583,6 +618,65 @@
                     </p>
                   {/if}
                 </div>
+
+                <!-- L'enquête : ce que chaque source dit, et ce qu'aucune
+                     n'a dit parce qu'on ne l'a pas interrogée. -->
+                {#if enquete && enquete.personne_id === p.id}
+                  <div class="min-w-64 flex-1 basis-80">
+                    <h3 class="titre-section mb-2">Ce que disent les sources</h3>
+
+                    {#if enquete.divergences.length}
+                      {#each enquete.divergences as d (d.quoi)}
+                        <p class="mb-1.5 rounded border-l-2 px-2 py-1 text-xs
+                                  {d.gravite === 'bloquant'
+                                    ? 'border-l-red-500 bg-red-50 text-red-800 dark:bg-red-900/25 dark:text-red-200'
+                                    : 'border-l-amber-500 bg-amber-50 text-amber-900 dark:bg-amber-900/25 dark:text-amber-200'}">
+                          <strong>{d.quoi}</strong> —
+                          <span class="font-mono">{d.valeurs[0] ?? "—"}</span>
+                          contre
+                          <span class="font-mono">{d.valeurs[1] ?? "—"}</span>
+                        </p>
+                      {/each}
+                    {:else if enquete.tout_concorde}
+                      <p class="mb-1.5 text-xs text-emerald-700 dark:text-emerald-400">
+                        Les sources consultées concordent.
+                      </p>
+                    {/if}
+
+                    <div class="flex flex-col gap-1.5">
+                      {#each enquete.dires as d (d.source)}
+                        <div class="rounded border border-stone-200 p-2 text-xs dark:border-stone-700">
+                          <p class="flex items-center gap-1.5 font-medium">
+                            {LIBELLE_SOURCE[d.source] ?? d.source}
+                            {#if !d.consultee}
+                              <span class="rounded-full bg-stone-100 px-1.5 text-[10px] font-normal text-stone-500 dark:bg-stone-700 dark:text-stone-400">
+                                pas consultée
+                              </span>
+                            {/if}
+                          </p>
+                          {#if d.motif}
+                            <p class="mt-0.5 text-stone-500 dark:text-stone-400">{d.motif}</p>
+                          {/if}
+                          {#each Object.entries(d.valeurs).filter(([, v]) => v) as [cle, valeur] (cle)}
+                            <div class="mt-0.5 flex gap-2">
+                              <span class="w-28 shrink-0 text-stone-500 dark:text-stone-400">
+                                {cle.replace(/_/g, " ")}
+                              </span>
+                              <span class="min-w-0 break-all font-mono">{valeur}</span>
+                            </div>
+                          {/each}
+                        </div>
+                      {/each}
+                    </div>
+
+                    {#if !enquete.adresse_constatee}
+                      <p class="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+                        Adresse seulement calculée : rien n'est écrit dessus,
+                        parce qu'une sur quatorze désigne l'homonyme.
+                      </p>
+                    {/if}
+                  </div>
+                {/if}
               </div>
 
               <div class="flex shrink-0 flex-col items-end gap-2">
@@ -612,6 +706,20 @@
                   }}
                 >
                   Déplacer dans Google
+                </Bouton>
+
+                <!-- Interroger les sources coûte deux appels réseau : on le
+                     demande, on ne le subit pas à chaque ouverture. -->
+                <Bouton
+                  taille="sm"
+                  icon={Radar}
+                  occupe={enqueteEnCours}
+                  onclick={(e) => {
+                    e?.stopPropagation?.();
+                    enqueter(p.id);
+                  }}
+                >
+                  Interroger les sources
                 </Bouton>
               </div>
             </div>
