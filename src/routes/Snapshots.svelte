@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, getContext } from "svelte";
   import Upload from "@lucide/svelte/icons/upload";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import PlayCircle from "@lucide/svelte/icons/play-circle";
@@ -141,19 +141,24 @@
   }
 
   let siteAmorce = $derived(listeSites.length >= 1);
+
+  /** Vrai quand une étape du parcours affiche cet écran chez elle. */
+  const embarque = getContext("parcours.embarque") === true;
 </script>
 
 <section class="space-y-5">
-  <header>
-    <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">
-      Ingestion Charlemagne
-    </h1>
-    <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
-      Dépose un export élèves ou adultes. La <strong>simulation</strong> te dit ce qui
-      serait fait sans écrire ; le mode <strong>réel</strong> commit après avoir vérifié
-      qu'aucune classe n'est absente de la table de correspondance.
-    </p>
-  </header>
+{#if !embarque}
+    <header>
+      <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">
+        Ingestion Charlemagne
+      </h1>
+      <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
+        Dépose un export élèves ou adultes. La <strong>simulation</strong> te dit ce qui
+        serait fait sans écrire ; le mode <strong>réel</strong> commit après avoir vérifié
+        qu'aucune classe n'est absente de la table de correspondance.
+      </p>
+    </header>
+{/if}
 
   {#if !siteAmorce}
     <div class="card border-amber-200 bg-amber-50/50 p-4 text-sm dark:border-amber-800 dark:bg-amber-900/20">

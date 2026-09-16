@@ -39,6 +39,10 @@ export const PHASES = [
  * @property {string} titre
  * @property {string} role      - à quoi sert cette étape
  * @property {string} [reperer] - ce qu'on doit voir quand elle a réussi
+ * @property {string[]} [pieges] - ce qui peut mal tourner, et qu'on ne
+ *   redécouvre qu'en se trompant. Écrit là plutôt que retenu : ces
+ *   phrases ont coûté des heures en 2026-2027, et douze mois séparent
+ *   deux campagnes.
  * @property {string} [ecran]   - onglet ou section précise, quand l'écran en a
  */
 
@@ -59,6 +63,9 @@ export const ETAPES = [
     titre: "Remplir la table de correspondance",
     role: "Elle fait le pont entre les codes classe de Charlemagne et les unités d'organisation et groupes Google. Une classe absente d'ici bloque son traitement plutôt que d'être devinée.",
     reperer: "Aucune classe constatée n'échappe à la table.",
+    pieges: [
+      "Une classe absente de la Table bloque son traitement partout — c'est voulu, mais ça se découvre tard si on ne la complète pas maintenant.",
+    ]
   },
   {
     id: "amorcage",
@@ -67,6 +74,9 @@ export const ETAPES = [
     titre: "Amorcer depuis KoXo",
     role: "Récupère les identifiants déjà attribués. Un login est fixé pour toute la scolarité : le régénérer romprait tout ce qui s'y rattache.",
     reperer: "Les personnes existantes portent leur login d'origine.",
+    pieges: [
+      "Un login est figé pour toute la scolarité. Ce qui entre ici ne se corrige plus ensuite sans casser Google, KoXo et les étiquettes d'un coup.",
+    ]
   },
   {
     id: "ingestion",
@@ -75,6 +85,10 @@ export const ETAPES = [
     titre: "Ingérer l'export Charlemagne",
     role: "Crée la photographie de l'année : qui est inscrit, dans quelle classe. C'est elle qui sert de référence à tout le reste.",
     reperer: "L'année préparée apparaît, avec son effectif.",
+    pieges: [
+      "Un export pris avant le 1er septembre omet les professeurs entrants : ils ne sont pas encore saisis dans Charlemagne.",
+      "Charlemagne refuse les .xlsx écrits par un programme. Passer par Excel pour ré-enregistrer, sinon erreur 40057.",
+    ]
   },
   {
     id: "arbitrage",
@@ -83,6 +97,9 @@ export const ETAPES = [
     titre: "Trancher les cas ambigus",
     role: "Collisions de login, homonymies, adresses visées par plusieurs personnes. Le programme ne tranche jamais seul : il présente et attend.",
     reperer: "Plus aucune décision en attente.",
+    pieges: [
+      "Le programme ne tranche jamais seul, et il a raison : une homonymie mal résolue donne à un élève l'adresse d'un autre.",
+    ]
   },
 
   {
@@ -93,6 +110,9 @@ export const ETAPES = [
     role: "Les comptes qui restent dans le plus ancien arbre sont ceux des élèves partis un an plus tôt. Ils rejoignent leur unité de sortie, sans être suspendus.",
     reperer: "La branche est annoncée vide, ou ne garde que des élèves encore inscrits.",
     ecran: "Vider une arborescence d'année",
+    pieges: [
+      "« Absent du référentiel » n'est pas une preuve de départ. Recouper avec un export Charlemagne frais avant de vider : en septembre 2026, 8 élèves montés de NDE seraient partis en OU de sortie, dont 3 qui n'utilisaient que leur ancien compte.",
+    ]
   },
   {
     id: "rotation",
@@ -102,6 +122,9 @@ export const ETAPES = [
     role: "Les chemins d'unités d'organisation portent l'année en toutes lettres. Tant qu'ils désignent l'ancienne, tout le reste vise la mauvaise cible.",
     reperer: "Toutes les lignes sont modifiées, aucune laissée de côté.",
     ecran: "Changer l'année des OU",
+    pieges: [
+      "NDK2026 désigne l'année 2025-2026 : le millésime est l'année de fin. Se tromper d'un an fait viser l'arbre qu'on vient de vider.",
+    ]
   },
   {
     id: "arborescence",
@@ -111,6 +134,9 @@ export const ETAPES = [
     role: "Google refuse un déplacement vers une unité absente, et le refuse élève par élève sans nommer la cause. On recycle l'arbre vidé, on crée ce qui manque.",
     reperer: "Aucun avertissement sur l'année visée.",
     ecran: "onglet Arborescence",
+    pieges: [
+      "Google refuse un déplacement vers une unité absente, et le refuse élève par élève sans nommer la cause. Créer avant de basculer, jamais l'inverse.",
+    ]
   },
   {
     id: "adresses",
@@ -120,6 +146,9 @@ export const ETAPES = [
     role: "Une adresse enregistrée qui ne désigne aucun compte fait échouer le déplacement, puis crée un doublon à l'export. Seuls les cas sans ambiguïté sont corrigés.",
     reperer: "Plus aucun écart corrigeable.",
     ecran: "onglet Adresses",
+    pieges: [
+      "Une adresse calculée n'est juste qu'à 93 % sur cet annuaire : une sur quatorze désigne l'homonyme. Ne jamais écrire sur une adresse qui n'a pas été constatée dans Google.",
+    ]
   },
   {
     id: "controle_koxo",
@@ -128,6 +157,9 @@ export const ETAPES = [
     titre: "Contrôler l'export KoXo",
     role: "La synchronisation reconnaît un compte par son ID unique, et la date de naissance n'est pas renseignée pour la départager. Un compte non reconnu est recréé sous un autre identifiant, ou supprimé en mode destructif.",
     reperer: "Aucun écart à corriger dans KoXo — seules restent les créations.",
+    pieges: [
+      "La synchronisation reconnaît par ID unique, pas par date de naissance — elle n'est pas renseignée. Un compte non reconnu est recréé sous un autre identifiant.",
+    ]
   },
   {
     id: "synchro_koxo",
@@ -137,6 +169,11 @@ export const ETAPES = [
     role: "Deux passes, dans cet ordre : les sortants d'abord, rangés dans un groupe dédié, puis tous les autres. Les deux en mode non destructif — le mode destructif supprime ce qui ne figure pas dans le fichier, à commencer par les comptes que la reconnaissance a manqués.",
     reperer: "Les élèves ont changé de groupe secondaire dans KoXo, et les nouveaux ont un mot de passe.",
     ecran: "cible KoXo",
+    pieges: [
+      "KoXo lit le fichier comme un ÉTAT COMPLET : tout compte absent du fichier est désactivé. Un essai sur une seule ligne désactive tous les autres.",
+      "À l'écran 7/8 de l'assistant, vérifier le nombre de désactivations avant de valider. Il doit correspondre à ce qu'on attend, pas à la taille de la base.",
+      "Toujours en mode non destructif. Les sortants d'abord, tous les autres ensuite.",
+    ]
   },
   {
     id: "comptes",
@@ -145,6 +182,9 @@ export const ETAPES = [
     titre: "Créer les comptes des nouveaux",
     role: "KoXo d'abord, qui génère les mots de passe, puis Google avec ce fichier en retour. Sans lui, la colonne mot de passe reste vide et Google refuse les créations.",
     reperer: "Le rapport indique combien de lignes ont reçu leur mot de passe.",
+    pieges: [
+      "KoXo d'abord, Google ensuite avec le fichier en retour. Sans lui, la colonne mot de passe reste vide et Google refuse les créations.",
+    ]
   },
   {
     id: "bascule",
@@ -153,6 +193,9 @@ export const ETAPES = [
     titre: "Basculer les élèves",
     role: "Deux temps : tout le monde à la racine avant la rentrée, puis dans sa classe le jour J. Un élève dont la classe manque à la table arrête le traitement.",
     reperer: "Aucun élève « sans OU calculable ».",
+    pieges: [
+      "Un élève monté d'un autre site peut avoir gardé son ancien compte : vérifier qu'il n'en a pas deux avant de déplacer, sinon on range le mauvais.",
+    ]
   },
   {
     id: "groupes",
@@ -162,6 +205,10 @@ export const ETAPES = [
     role: "L'export ajoute des membres sans jamais en retirer : un groupe garde ses promotions passées. La composition se calcule ici dans les deux sens.",
     reperer: "Aucun groupe déclaré ne manque à Google.",
     ecran: "onglet Groupes",
+    pieges: [
+      "L'export CSV ajoute des membres sans jamais en retirer : un groupe garde ses promotions passées. Seule la synchronisation par l'API fait les deux sens.",
+      "Un membre inconnu du référentiel n'est jamais retiré d'office — le programme ignore pourquoi il est là.",
+    ]
   },
   {
     id: "chromebooks",
@@ -170,6 +217,10 @@ export const ETAPES = [
     titre: "Faire le point sur les Chromebooks",
     role: "Ce qu'il faut réclamer aux partants, attribuer aux arrivants, et à ceux qui ont rendu leur machine avant l'été puis sont revenus.",
     reperer: "Plus personne n'attend de machine.",
+    pieges: [
+      "Dans TS1000, un interne, un AVS ou un agent d'entretien vit dans un groupe d'ACCÈS, pas de classe. L'en sortir lui ferme les portes : ne jamais proposer de déplacement depuis autre chose qu'un groupe de classe.",
+      "Reprendre le CardId existant sur une modification, sinon la carte encodée cesse d'ouvrir.",
+    ]
   },
 ];
 

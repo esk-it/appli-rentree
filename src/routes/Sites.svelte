@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, getContext } from "svelte";
   import Building2 from "@lucide/svelte/icons/building-2";
   import Plus from "@lucide/svelte/icons/plus";
   import Trash2 from "@lucide/svelte/icons/trash-2";
@@ -66,17 +66,22 @@
       notify.erreur(String(e));
     }
   }
+
+  /** Vrai quand une étape du parcours affiche cet écran chez elle. */
+  const embarque = getContext("parcours.embarque") === true;
 </script>
 
 <section class="space-y-4">
   <header class="flex items-end justify-between gap-4">
-    <div>
-      <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">Sites de l'ensemble</h1>
-      <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
-        Chaque site porte son domaine mail Google Workspace et son préfixe d'arborescence OU.
-        Amorçage minimal : NDE (@ndecleder.fr), NDK (@lekreisker.fr), SU (@lekreisker.fr).
-      </p>
-    </div>
+{#if !embarque}
+      <div>
+        <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">Sites de l'ensemble</h1>
+        <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
+          Chaque site porte son domaine mail Google Workspace et son préfixe d'arborescence OU.
+          Amorçage minimal : NDE (@ndecleder.fr), NDK (@lekreisker.fr), SU (@lekreisker.fr).
+        </p>
+      </div>
+{/if}
     <button class="btn-primary" onclick={ouvrirNouveau}>
       <Plus class="h-4 w-4" />
       Nouveau site

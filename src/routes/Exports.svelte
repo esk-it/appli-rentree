@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, getContext } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import Download from "@lucide/svelte/icons/download";
   import FileDown from "@lucide/svelte/icons/file-down";
@@ -709,20 +709,25 @@
       chargement = false;
     }
   }
+
+  /** Vrai quand une étape du parcours affiche cet écran chez elle. */
+  const embarque = getContext("parcours.embarque") === true;
 </script>
 
 <section class="space-y-5">
-  <header>
-    <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">
-      Exports vers les cibles
-    </h1>
-    <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
-      Génère les fichiers à importer dans les systèmes tiers. KoXo, PMB, JPM
-      et CardStudio n'ont pas d'API : ces exports restent le seul canal. Côté
-      Google, le CSV reste disponible, mais l'écran <strong>Conformité
-      Google</strong> fait le même travail directement.
-    </p>
-  </header>
+{#if !embarque}
+    <header>
+      <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">
+        Exports vers les cibles
+      </h1>
+      <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
+        Génère les fichiers à importer dans les systèmes tiers. KoXo, PMB, JPM
+        et CardStudio n'ont pas d'API : ces exports restent le seul canal. Côté
+        Google, le CSV reste disponible, mais l'écran <strong>Conformité
+        Google</strong> fait le même travail directement.
+      </p>
+    </header>
+{/if}
 
   {#if listeSites.length === 0 || listeAnnees.length === 0}
     <div class="card border-amber-200 bg-amber-50/50 p-4 text-sm dark:border-amber-800 dark:bg-amber-900/20">

@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from "svelte";
+  import { onMount, getContext } from "svelte";
   import Upload from "@lucide/svelte/icons/upload";
   import Sparkles from "@lucide/svelte/icons/sparkles";
   import PlayCircle from "@lucide/svelte/icons/play-circle";
@@ -82,21 +82,26 @@
       chargement = false;
     }
   }
+
+  /** Vrai quand une étape du parcours affiche cet écran chez elle. */
+  const embarque = getContext("parcours.embarque") === true;
 </script>
 
 <section class="space-y-5">
-  <header>
-    <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">
-      Amorçage
-    </h1>
-    <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
-      Charge le référentiel <strong>depuis tes comptes KoXo existants</strong> — les
-      <code>Personne</code> sont créées avec leurs vrais logins figés, ceux que
-      tes utilisateurs connaissent déjà. Étape à faire <strong>avant</strong> la première
-      ingestion Charlemagne, pour éviter que le programme régénère des logins
-      pour des élèves qui en ont déjà.
-    </p>
-  </header>
+{#if !embarque}
+    <header>
+      <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">
+        Amorçage
+      </h1>
+      <p class="mt-1 text-sm text-stone-600 dark:text-stone-400">
+        Charge le référentiel <strong>depuis tes comptes KoXo existants</strong> — les
+        <code>Personne</code> sont créées avec leurs vrais logins figés, ceux que
+        tes utilisateurs connaissent déjà. Étape à faire <strong>avant</strong> la première
+        ingestion Charlemagne, pour éviter que le programme régénère des logins
+        pour des élèves qui en ont déjà.
+      </p>
+    </header>
+{/if}
 
   <div class="card border-emerald-200 bg-emerald-50/50 p-3 text-xs dark:border-emerald-800 dark:bg-emerald-900/20">
     <div class="flex items-start gap-2 text-emerald-900 dark:text-emerald-200">

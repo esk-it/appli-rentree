@@ -57,13 +57,13 @@
   import Suivi from "./routes/Suivi.svelte";
   import Statistiques from "./routes/Statistiques.svelte";
   import OuCaCoince from "./routes/OuCaCoince.svelte";
+  import Parcours from "./routes/Parcours.svelte";
   import Atelier from "./routes/Atelier.svelte";
   import Accessoires from "./routes/Accessoires.svelte";
   import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
   import Aide from "./routes/Aide.svelte";
   import CommandPalette from "$lib/components/CommandPalette.svelte";
-  import FriseRentree from "$lib/components/FriseRentree.svelte";
   import ToasterContainer from "$lib/components/ToasterContainer.svelte";
   import { notify } from "$lib/toasts.js";
   import { theme, basculerTheme } from "$lib/theme.js";
@@ -164,12 +164,6 @@
    * appels réseau pour rien.
    */
   let etapesEtats = $state(/** @type {Record<string, any>} */ ({}));
-  let etapesFaites = $derived(
-    Object.fromEntries(
-      Object.entries(etapesEtats).map(([id, e]) => [id, e.etat === "faite"]),
-    ),
-  );
-
   async function relireAvancement() {
     try {
       const annees = await anneesApi.lister();
@@ -287,20 +281,8 @@
       id: "rentree",
       label: "La rentrée",
       icon: Rocket,
-      resume: "La campagne d'août, du premier export au bilan",
-      ecrans: [
-        { id: "accueil", label: "Où on en est", icon: Home },
-        { id: "sites", label: "Sites", icon: Building2 },
-        { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon },
-        { id: "amorcage", label: "Amorçage KoXo", icon: Rocket },
-        { id: "snapshots", label: "Snapshots d'années", icon: Database },
-        { id: "arbitrage", label: "Arbitrage", icon: Scale, badge: () => nbArbitragesEnAttente },
-        { id: "simulation", label: "Simulation", icon: Zap },
-        { id: "bascule", label: "Bascule des OU", icon: FolderTree },
-        { id: "sortants", label: "Sortants", icon: LogOut },
-        { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
-        { id: "bilan", label: "Bilan de rentrée", icon: ClipboardCheck },
-      ],
+      resume: "La campagne conduite étape par étape",
+      ecrans: [{ id: "parcours", label: "Le parcours", icon: Rocket }],
     },
     {
       id: "annee",
@@ -310,20 +292,12 @@
       ecrans: [
         // Ouvrir sur les constats plutôt que sur le référentiel : la
         // première question n'est pas « qui est là » mais « qu'est-ce qui
-        // ne colle pas ». Le référentiel vient juste après, et la
-        // recherche y mène de toute façon depuis n'importe où.
+        // ne colle pas ». Viennent ensuite les deux écrans que l'usage
+        // réclame vraiment — chercher quelqu'un, et tout recouper.
         { id: "ou_ca_coince", label: "Où ça coince", icon: Compass },
         { id: "personnes", label: "Référentiel", icon: Users2 },
         { id: "concordance", label: "Concordance", icon: GitCompare },
-        { id: "conformite_google", label: "Conformité Google", icon: ShieldCheck },
-        { id: "controle_koxo", label: "Contrôle KoXo", icon: ShieldCheck },
-        { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
-        { id: "arrivees", label: "Arrivée", icon: UserPlus },
-        { id: "mouvements", label: "Mouvements", icon: ArrowRightLeft },
-        { id: "exports", label: "Exports", icon: FileDown },
-        { id: "coffre", label: "Coffre", icon: KeyRound },
-        { id: "statistiques", label: "Statistiques", icon: BarChart3 },
-        { id: "suivi", label: "Suivi", icon: Activity },
+        { id: "exports", label: "Produire un fichier", icon: FileDown },
       ],
     },
     {
@@ -341,13 +315,46 @@
     },
   ];
 
+  /**
+   * Les modules bruts, atteignables sans passer par une étape.
+   *
+   * Le parcours et les constats couvrent l'usage courant, mais il arrive
+   * qu'on veuille lancer une bascule ou une conformité seule, hors de toute
+   * campagne. Rien n'a été retiré : ces écrans restent ici et dans la
+   * recherche, simplement hors du chemin.
+   */
+  const OUTILS = [
+    { id: "sites", label: "Sites", icon: Building2 },
+    { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon },
+    { id: "amorcage", label: "Amorçage KoXo", icon: Rocket },
+    { id: "snapshots", label: "Snapshots d'années", icon: Database },
+    { id: "arbitrage", label: "Arbitrage", icon: Scale },
+    { id: "simulation", label: "Simulation", icon: Zap },
+    { id: "bascule", label: "Bascule des OU", icon: FolderTree },
+    { id: "conformite_google", label: "Conformité Google", icon: ShieldCheck },
+    { id: "controle_koxo", label: "Contrôle KoXo", icon: ShieldCheck },
+    { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
+    { id: "sortants", label: "Sortants", icon: LogOut },
+    { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
+    { id: "arrivees", label: "Arrivée", icon: UserPlus },
+    { id: "mouvements", label: "Mouvements", icon: ArrowRightLeft },
+    { id: "bilan", label: "Bilan de rentrée", icon: ClipboardCheck },
+    { id: "coffre", label: "Coffre", icon: KeyRound },
+    { id: "statistiques", label: "Statistiques", icon: BarChart3 },
+    { id: "suivi", label: "Suivi", icon: Activity },
+  ];
+
   /** Hors des trois parties : on y va une fois par an. */
   const A_PART = [
     { id: "parametres", label: "Paramètres", icon: Settings },
     { id: "aide", label: "Aide", icon: HelpCircle },
   ];
 
-  const TOUS_LES_ECRANS = [...PARTIES.flatMap((p) => p.ecrans), ...A_PART];
+  const TOUS_LES_ECRANS = [
+    ...PARTIES.flatMap((p) => p.ecrans),
+    ...OUTILS,
+    ...A_PART,
+  ].filter((e, i, tous) => tous.findIndex((x) => x.id === e.id) === i);
 
   /**
    * La partie ouverte suit l'écran, et non l'inverse.
@@ -598,14 +605,10 @@
 
   <!-- Zone principale -->
   <main class="flex-1 overflow-auto bg-stone-50 dark:bg-stone-900">
-    <!-- La frise n'a de sens que pendant la campagne : elle occupait le haut
-         de chaque écran toute l'année pour rien. Elle reste hors du bloc
-         `{#key}`, sinon elle clignoterait à chaque navigation alors qu'elle
-         est justement le repère fixe pendant qu'on avance. -->
-    {#if partieActive === "rentree"}
-      <FriseRentree {page} faites={etapesFaites} etats={etapesEtats}
-                    onNaviguer={(p) => (page = p)} />
-    {/if}
+    <!-- La frise a disparu : le parcours porte désormais son propre rail,
+         qui dit la même chose en mieux — l'étape ouverte y est en entier,
+         pas seulement pointée. Deux rails empilés diraient deux fois la
+         même chose et repousseraient l'outil hors de l'écran. -->
 
     <!-- `{#key}` reconstruit le bloc à chaque navigation, ce qui relance
          l'animation d'apparition — sinon Svelte réutilise le nœud et rien
@@ -673,6 +676,8 @@
           <Statistiques />
         {:else if page === "ou_ca_coince"}
           <OuCaCoince onNaviguer={(p) => (page = p)} />
+        {:else if page === "parcours"}
+          <Parcours etats={etapesEtats} onRelireAvancement={relireAvancement} />
         {:else if page === "atelier"}
           <Atelier />
         {:else if page === "accessoires"}
