@@ -12,6 +12,11 @@ from backend.models.generation import Generation
 from backend.models.login_reserve import LoginReserve
 from backend.models.mouvement_prof import MouvementProf
 from backend.models.parametre import Parametre
+from backend.models.parc_materiel import (
+    Accessoire,
+    PanneChromebook,
+    PretAccessoire,
+)
 from backend.models.personne import Personne
 from backend.models.secret_conserve import SecretConserve
 from backend.models.site import Site
@@ -27,7 +32,10 @@ __all__ = [
     "Generation",
     "LoginReserve",
     "MouvementProf",
+    "Accessoire",
+    "PanneChromebook",
     "Parametre",
+    "PretAccessoire",
     "Personne",
     "SecretConserve",
     "Site",

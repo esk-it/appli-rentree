@@ -31,6 +31,8 @@
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Compass from "@lucide/svelte/icons/compass";
+  import Wrench from "@lucide/svelte/icons/wrench";
+  import Cable from "@lucide/svelte/icons/cable";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Coffre from "./routes/Coffre.svelte";
   import Arrivees from "./routes/Arrivees.svelte";
@@ -55,6 +57,8 @@
   import Suivi from "./routes/Suivi.svelte";
   import Statistiques from "./routes/Statistiques.svelte";
   import OuCaCoince from "./routes/OuCaCoince.svelte";
+  import Atelier from "./routes/Atelier.svelte";
+  import Accessoires from "./routes/Accessoires.svelte";
   import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
   import Aide from "./routes/Aide.svelte";
@@ -327,7 +331,13 @@
       label: "Chromebooks",
       icon: Laptop,
       resume: "Le parc, le stock, les pannes, les prêts",
-      ecrans: [{ id: "chromebooks", label: "Le parc", icon: Laptop }],
+      ecrans: [
+        { id: "chromebooks", label: "Le parc", icon: Laptop },
+        // L'atelier avant les accessoires : c'est lui qui répond à la
+        // question qu'on se pose devant un carton de machines mortes.
+        { id: "atelier", label: "L'atelier", icon: Wrench },
+        { id: "accessoires", label: "Les accessoires", icon: Cable },
+      ],
     },
   ];
 
@@ -663,6 +673,10 @@
           <Statistiques />
         {:else if page === "ou_ca_coince"}
           <OuCaCoince onNaviguer={(p) => (page = p)} />
+        {:else if page === "atelier"}
+          <Atelier />
+        {:else if page === "accessoires"}
+          <Accessoires />
         {:else if page === "parametres"}
           <Parametres />
         {:else if page === "aide"}

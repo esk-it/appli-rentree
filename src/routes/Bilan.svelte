@@ -25,13 +25,19 @@
   import StatCard from "$lib/components/StatCard.svelte";
   import { annees as anneesApi, bilan as bilanApi, sites as sitesApi } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+  import { lire, ecrire } from "$lib/memoire.svelte.js";
 
   let listeAnnees = $state(/** @type {any[]} */ ([]));
   let listeSites = $state(/** @type {any[]} */ ([]));
   let anneeId = $state(/** @type {number | null} */ (null));
   let anneeSourceId = $state(/** @type {number | null} */ (null));
   let siteId = $state(/** @type {number | null} */ (null));
-  let rapport = $state(/** @type {any} */ (null));
+  let rapport = $state(lire("bilan.rapport", /** @type {any} */ (null)));
+
+  // Un scan coûteux ne doit pas se perdre parce qu'on est allé vérifier un
+  // nom ailleurs : ces résultats survivent à la navigation. Voir
+  // `memoire.svelte.js` pour ce qui n'est délibérément pas retenu.
+  $effect(() => ecrire("bilan.rapport", rapport));
   let occupe = $state(false);
   let chargement = $state(true);
 

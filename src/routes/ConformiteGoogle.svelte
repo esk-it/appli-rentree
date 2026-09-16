@@ -15,6 +15,7 @@
   import Segments from "$lib/components/Segments.svelte";
   import { annees, googleApi, sites, tableCorrespondance } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+  import { lire, ecrire } from "$lib/memoire.svelte.js";
 
   /** @type {{ onRotationTable?: (a: {chercher: string, remplacer: string}) => void }} */
   let { onRotationTable = null } = $props();
@@ -38,7 +39,7 @@
   let siteAdr = $state(/** @type {number | null} */ (null));
 
   // Vérification de comptes — lecture seule, après un import.
-  let verification = $state(/** @type {any} */ (null));
+  let verification = $state(lire("conformite.verification", /** @type {any} */ (null)));
   let verificationEnCours = $state(false);
   let adressesSaisies = $state("");
   let job = $state(/** @type {any} */ (null));
@@ -150,7 +151,13 @@
   }
 
   // --- Groupes --------------------------------------------------------------
-  let diffGroupes = $state(/** @type {any} */ (null));
+  let diffGroupes = $state(lire("conformite.diffGroupes", /** @type {any} */ (null)));
+
+  // Un scan coûteux ne doit pas se perdre parce qu'on est allé vérifier un
+  // nom ailleurs : ces résultats survivent à la navigation. Voir
+  // `memoire.svelte.js` pour ce qui n'est délibérément pas retenu.
+  $effect(() => ecrire("conformite.verification", verification));
+  $effect(() => ecrire("conformite.diffGroupes", diffGroupes));
 
   /**
    * Les classes retenues, vide = toutes.

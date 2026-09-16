@@ -29,6 +29,7 @@
   import EtatVide from "$lib/components/EtatVide.svelte";
   import { annees as anneesApi, koxo, sites as sitesApi } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+  import { lire, ecrire } from "$lib/memoire.svelte.js";
 
   /**
    * Les genres d'écart, rangés du plus bloquant au plus anodin.
@@ -108,8 +109,14 @@
   let siteId = $state(/** @type {null | number} */ (null));
   let anneeId = $state(/** @type {null | number} */ (null));
   let typePersonne = $state(/** @type {"eleve"|"adulte"} */ ("eleve"));
-  let fichier = $state(/** @type {File|null} */ (null));
-  let rapport = $state(/** @type {null | any} */ (null));
+  let fichier = $state(lire("controle_koxo.fichier", /** @type {File|null} */ (null)));
+  let rapport = $state(lire("controle_koxo.rapport", /** @type {null | any} */ (null)));
+
+  // Un scan coûteux ne doit pas se perdre parce qu'on est allé vérifier un
+  // nom ailleurs : ces résultats survivent à la navigation. Voir
+  // `memoire.svelte.js` pour ce qui n'est délibérément pas retenu.
+  $effect(() => ecrire("controle_koxo.fichier", fichier));
+  $effect(() => ecrire("controle_koxo.rapport", rapport));
   let chargement = $state(false);
   let erreur = $state("");
   let deplie = $state(/** @type {string|null} */ (null));

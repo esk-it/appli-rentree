@@ -46,6 +46,20 @@ class SuiviChromebook(Base):
 
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
+    etat: Mapped[str] = mapped_column(String(20), default="en_service")
+    """Une valeur parmi `ETATS_MACHINE` — voir `parc_materiel`.
+
+    Le suivi ne notait que des mouvements : rendue, confiée. Il ne savait
+    pas dire si une machine est disponible, morte, ou simplement en
+    circulation — donc ni « combien m'en reste-t-il en stock », ni
+    « lesquelles puis-je démonter ». La valeur par défaut est
+    `en_service` : c'est l'état des machines déjà suivies au moment où la
+    colonne apparaît, et le seul qui ne prétende rien de neuf."""
+
+    etat_depuis: Mapped[date | None] = mapped_column(Date, nullable=True)
+    """Depuis quand elle est dans cet état. Une machine en stock depuis
+    deux ans et une rentrée hier ne posent pas la même question."""
+
     date_derniere_maj: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )

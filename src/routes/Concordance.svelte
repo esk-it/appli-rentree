@@ -45,19 +45,40 @@
     mouvementsApi,
   } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+  import { lire, ecrire } from "$lib/memoire.svelte.js";
 
   let listeAnnees = $state(/** @type {any[]} */ ([]));
   let anneeId = $state(/** @type {number | null} */ (null));
-  let fichier = $state(/** @type {File | null} */ (null));
+
+  /**
+   * Ce que l'écran retient quand on le quitte.
+   *
+   * Croiser quatre sources demande un export Charlemagne, parfois deux
+   * exports KoXo, et plusieurs secondes. Aller vérifier un nom dans le
+   * référentiel effaçait tout : on revenait devant un écran vide, avec les
+   * fichiers à redéposer. Le résultat, les fichiers déposés et les lignes
+   * cochées survivent donc à la navigation — et l'écran dit de quand date
+   * ce qu'il montre, pour qu'un constat d'il y a une heure ne passe pas
+   * pour l'état du moment.
+   */
+  let fichier = $state(lire("concordance.fichier", /** @type {File | null} */ (null)));
   /** Un export par base : KoXo a un serveur par établissement. */
-  let fichiersKoxo = $state(/** @type {File[]} */ ([]));
-  let rapport = $state(/** @type {any} */ (null));
+  let fichiersKoxo = $state(lire("concordance.fichiersKoxo", /** @type {File[]} */ ([])));
+  let rapport = $state(lire("concordance.rapport", /** @type {any} */ (null)));
+  let croiseLe = $state(lire("concordance.croiseLe", /** @type {number | null} */ (null)));
   let occupe = $state(false);
   let chargement = $state(true);
 
   /** Les lignes qu'on va aligner. Cochées par défaut — Charlemagne fait foi. */
-  let retenues = $state(new SvelteSet());
-  let application = $state(/** @type {null | any} */ (null));
+  let retenues = $state(lire("concordance.retenues", new SvelteSet()));
+  let application = $state(lire("concordance.application", /** @type {null | any} */ (null)));
+
+  $effect(() => ecrire("concordance.fichier", fichier));
+  $effect(() => ecrire("concordance.fichiersKoxo", fichiersKoxo));
+  $effect(() => ecrire("concordance.rapport", rapport));
+  $effect(() => ecrire("concordance.croiseLe", croiseLe));
+  $effect(() => ecrire("concordance.retenues", retenues));
+  $effect(() => ecrire("concordance.application", application));
 
   const LIBELLES = {
     referentiel: "Référentiel en retard",
@@ -86,6 +107,24 @@
     }
   });
 
+  /**
+   * Depuis quand ce croisement date.
+   *
+   * Un rapport retrouvé au retour sur l'écran ressemble trait pour trait à
+   * un rapport qui vient de tourner. Sans cette mention, on prendrait un
+   * constat d'il y a une heure pour l'état du moment — et c'est justement
+   * l'erreur que cet écran existe pour éviter.
+   */
+  let age = $derived.by(() => {
+    if (!croiseLe) return "";
+    const s = Math.round((Date.now() - croiseLe) / 1000);
+    if (s < 90) return "à l'instant";
+    const m = Math.round(s / 60);
+    if (m < 60) return `il y a ${m} min`;
+    const h = Math.round(m / 60);
+    return h < 24 ? `il y a ${h} h` : `il y a ${Math.round(h / 24)} j`;
+  });
+
   let corrigeables = $derived(
     (rapport?.lignes ?? []).filter(
       (l) => l.personne_id && !l.genres.every((g) => HORS_PORTEE.has(g)),
@@ -99,6 +138,7 @@
     application = null;
     try {
       rapport = await concordanceApi.croiser({ fichier, anneeId, fichiersKoxo });
+      croiseLe = Date.now();
       retenues.clear();
       for (const l of rapport.lignes) {
         if (l.personne_id && !l.genres.every((g) => HORS_PORTEE.has(g))) {
@@ -318,6 +358,12 @@
     </div>
 
     {#if rapport}
+      {#if age && age !== "à l'instant"}
+        <p class="text-xs text-stone-500 dark:text-stone-400">
+          Croisement retrouvé — il date de <strong>{age}</strong>. Relance-le si
+          Charlemagne a bougé depuis.
+        </p>
+      {/if}
       <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Lignes lues" value={rapport.nb_lignes_lues} />
         <StatCard

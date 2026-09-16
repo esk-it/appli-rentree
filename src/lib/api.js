@@ -479,6 +479,88 @@ export const statistiques = {
 };
 
 // ---------------------------------------------------------------------------
+// Le parc : états, pannes, réserve de pièces, prêts d'accessoires
+// ---------------------------------------------------------------------------
+export const parc = {
+  /** Les listes fermées — le front n'invente ni organe ni état. */
+  async vocabulaire() {
+    return jsonOrThrow(await fetch(`${BASE}/parc/vocabulaire`));
+  },
+  async machines() {
+    return jsonOrThrow(await fetch(`${BASE}/parc/machines`));
+  },
+  async poserEtat(serie, { etat, note = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/machines/${encodeURIComponent(serie)}/etat`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ etat, note }),
+      }),
+    );
+  },
+  async declarerPanne(serie, { organe, note = null, passerHs = true }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/machines/${encodeURIComponent(serie)}/panne`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ organe, note, passer_hs: passerHs }),
+      }),
+    );
+  },
+  async pannes(serie) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/machines/${encodeURIComponent(serie)}/pannes`),
+    );
+  },
+  async resoudrePanne(panneId, resolution = "reparee") {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/pannes/${panneId}/resoudre`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ resolution }),
+      }),
+    );
+  },
+  /** Ce que la réserve permet de remonter. N'écrit rien. */
+  async atelier() {
+    return jsonOrThrow(await fetch(`${BASE}/parc/atelier`));
+  },
+  /** Un organe pris sur une machine pour en réparer une autre. */
+  async prelever({ depuis, vers, organe, note = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/prelever`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ depuis, vers, organe, note }),
+      }),
+    );
+  },
+  async accessoires() {
+    return jsonOrThrow(await fetch(`${BASE}/parc/accessoires`));
+  },
+  async ajouterAccessoire({ serie, type = "chargeur", note = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/accessoires`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ serie, type, note }),
+      }),
+    );
+  },
+  async preter(serie, { aQui, retourPrevuLe = null, note = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/accessoires/${encodeURIComponent(serie)}/preter`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ a_qui: aQui, retour_prevu_le: retourPrevuLe, note }),
+      }),
+    );
+  },
+  async rendre(serie, { etat = "en_stock" } = {}) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/accessoires/${encodeURIComponent(serie)}/rendre`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ etat }),
+      }),
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Mode API Google Workspace (optionnel)
 // ---------------------------------------------------------------------------
 export const googleApi = {
