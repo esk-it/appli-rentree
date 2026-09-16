@@ -479,6 +479,27 @@ export const statistiques = {
 };
 
 // ---------------------------------------------------------------------------
+// TS1000 — le différentiel contre l'état réel de la centrale
+// ---------------------------------------------------------------------------
+export const ts1000 = {
+  /** Ce qu'il faudrait porter. N'écrit rien nulle part. */
+  async differentiel({ fichier, anneeId }) {
+    if (!fichier) throw new Error("Export TS1000 requis");
+    return jsonOrThrow(
+      await fetch(`${BASE}/ts1000/differentiel`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contenu_base64: arrayBufferEnBase64(await fichier.arrayBuffer()),
+          nom_fichier: fichier.name,
+          annee_id: anneeId,
+        }),
+      }),
+    );
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Le parc : états, pannes, réserve de pièces, prêts d'accessoires
 // ---------------------------------------------------------------------------
 export const parc = {

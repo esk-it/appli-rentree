@@ -33,6 +33,7 @@
   import Compass from "@lucide/svelte/icons/compass";
   import Wrench from "@lucide/svelte/icons/wrench";
   import Cable from "@lucide/svelte/icons/cable";
+  import Nfc from "@lucide/svelte/icons/nfc";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Coffre from "./routes/Coffre.svelte";
   import Arrivees from "./routes/Arrivees.svelte";
@@ -59,6 +60,7 @@
   import OuCaCoince from "./routes/OuCaCoince.svelte";
   import Parcours from "./routes/Parcours.svelte";
   import Atelier from "./routes/Atelier.svelte";
+  import Ts1000 from "./routes/Ts1000.svelte";
   import Accessoires from "./routes/Accessoires.svelte";
   import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
@@ -311,6 +313,9 @@
         // question qu'on se pose devant un carton de machines mortes.
         { id: "atelier", label: "L'atelier", icon: Wrench },
         { id: "accessoires", label: "Les accessoires", icon: Cable },
+        // Les badges tiennent au matériel autant qu'aux comptes : la
+        // carte est un objet qu'on encode, qu'on perd et qu'on refait.
+        { id: "ts1000", label: "Badges et accès", icon: Nfc },
       ],
     },
   ];
@@ -678,6 +683,8 @@
           <OuCaCoince onNaviguer={(p) => (page = p)} />
         {:else if page === "parcours"}
           <Parcours etats={etapesEtats} onRelireAvancement={relireAvancement} />
+        {:else if page === "ts1000"}
+          <Ts1000 />
         {:else if page === "atelier"}
           <Atelier />
         {:else if page === "accessoires"}

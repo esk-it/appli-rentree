@@ -47,6 +47,7 @@ from backend.routers import (
     mouvements as mouvements_router,
     parcours as parcours_router,
     parc as parc_router,
+    ts1000 as ts1000_router,
 )
 
 
@@ -261,3 +262,4 @@ app.include_router(arrivees_router.router)
 app.include_router(bilan_router.router)
 app.include_router(concordance_router.router)
 app.include_router(parc_router.router)
+app.include_router(ts1000_router.router)
