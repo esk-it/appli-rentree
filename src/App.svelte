@@ -704,7 +704,7 @@
         {:else if page === "bouge"}
           <QuelquunBouge onNaviguer={(p) => (page = p)} />
         {:else if page === "sodexo"}
-          <Sodexo onNaviguer={(p) => (page = p)} />
+          <Sodexo />
         {:else if page === "journal"}
           <Journal />
         {:else if page === "photos"}
