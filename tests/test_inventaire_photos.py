@@ -144,3 +144,67 @@ def test_le_classeur_porte_les_colonnes_quon_distribue(session, contexte):
     lignes = list(feuille.iter_rows(values_only=True))
     assert lignes[0][:4] == ("Classe", "Nom", "Prénom", "Site")
     assert lignes[1][:3] == ("1_G3", "SANSPHOTO", "Zoe")
+
+
+# ---------------------------------------------------------------------------
+# Les adultes : un autre dossier, une autre maille
+# ---------------------------------------------------------------------------
+
+
+def test_les_adultes_ont_leur_propre_dossier(session, contexte, personne_factory, tmp_path):
+    """Chercher un professeur parmi les photos d'élèves ne ferait que des
+    absences fausses : les deux arborescences ne se recoupent pas."""
+    from backend.models import Parametre, Snapshot
+    from backend.services.inventaire_photos import relever
+
+    dossier_adultes = tmp_path / "Enseignants"
+    dossier_adultes.mkdir()
+    session.add(
+        Parametre(
+            cle="chemin_dossier_photos_adultes",
+            valeur_json=json.dumps(str(dossier_adultes)),
+        )
+    )
+    prof = personne_factory(
+        type="adulte", nom="ABIVEN", prenom="Ingrid", site_id=contexte["site"].id
+    )
+    session.add(
+        Snapshot(
+            personne_id=prof.id, annee_scolaire_id=contexte["annee"].id,
+            nom="ABIVEN", prenom="Ingrid",
+        )
+    )
+    session.commit()
+    (dossier_adultes / "ABIVEN Ingrid.jpg").write_bytes(b"x")
+
+    r = relever(session, annee_id=contexte["annee"].id, type_personne="adulte")
+    assert (r.nb_eleves, r.nb_avec, r.nb_sans) == (1, 1, 0)
+    # La maille d'un adulte est son site, pas une classe qu'il n'a pas.
+    assert list(r.par_classe) == ["NDK"]
+
+
+def test_un_adulte_sans_annee_nentre_pas_dans_le_compte(session, contexte, personne_factory, tmp_path):
+    """Sinon la liste des relances serait pleine de gens partis."""
+    from backend.models import Parametre
+    from backend.services.inventaire_photos import relever
+
+    dossier_adultes = tmp_path / "Enseignants"
+    dossier_adultes.mkdir()
+    session.add(
+        Parametre(
+            cle="chemin_dossier_photos_adultes",
+            valeur_json=json.dumps(str(dossier_adultes)),
+        )
+    )
+    personne_factory(type="adulte", nom="PARTI", prenom="Depuis", site_id=contexte["site"].id)
+    session.commit()
+
+    r = relever(session, annee_id=contexte["annee"].id, type_personne="adulte")
+    assert r.nb_eleves == 0
+
+
+def test_le_dossier_adultes_manquant_se_dit_pour_les_adultes(session, contexte):
+    from backend.services.inventaire_photos import InventaireImpossible, relever
+
+    with pytest.raises(InventaireImpossible, match="photos adultes"):
+        relever(session, annee_id=contexte["annee"].id, type_personne="adulte")

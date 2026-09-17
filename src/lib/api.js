@@ -525,14 +525,16 @@ export const statistiques = {
 // ---------------------------------------------------------------------------
 export const photos = {
   /** Le relevé complet du partage. Volontairement lent : c'est le sujet. */
-  async inventaire(anneeId) {
+  async inventaire(anneeId, typePersonne = "eleve") {
     return jsonOrThrow(
-      await fetch(`${BASE}/photos/inventaire?annee_id=${anneeId}`),
+      await fetch(
+        `${BASE}/photos/inventaire?annee_id=${anneeId}&type_personne=${typePersonne}`,
+      ),
     );
   },
   /** L'URL du classeur des manquantes, à ouvrir directement. */
-  urlClasseur(anneeId) {
-    return `${BASE}/photos/inventaire/classeur?annee_id=${anneeId}`;
+  urlClasseur(anneeId, typePersonne = "eleve") {
+    return `${BASE}/photos/inventaire/classeur?annee_id=${anneeId}&type_personne=${typePersonne}`;
   },
 };
 

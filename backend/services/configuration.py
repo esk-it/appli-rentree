@@ -135,6 +135,19 @@ CATALOGUE: list[DefinitionParametre] = [
         defaut="",
         categorie="Photos",
     ),
+    DefinitionParametre(
+        cle="chemin_dossier_photos_adultes",
+        libelle="Dossier des photos adultes",
+        description=(
+            "Les photos du personnel ne sont pas rangées avec celles des "
+            "élèves : elles vivent dans un dossier à part, hors de "
+            r"l'arborescence par année (ex. …\Photos\Eleves\KREISKER"
+            r"\Enseignants). Vide = les adultes gardent leur avatar initiales."
+        ),
+        type="str",
+        defaut="",
+        categorie="Photos",
+    ),
 ]
 
 # Index par clé pour lookup rapide

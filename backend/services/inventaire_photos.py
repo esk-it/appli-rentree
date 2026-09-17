@@ -59,6 +59,7 @@ class EleveSansPhoto:
 @dataclass
 class InventairePhotos:
     dossier: str = ""
+    type_personne: str = "eleve"
     nb_eleves: int = 0
     nb_avec: int = 0
     manquantes: list[EleveSansPhoto] = field(default_factory=list)
@@ -85,10 +86,18 @@ class InventairePhotos:
         ]
 
 
-def dossier_photos(session: Session) -> str | None:
-    param = (
-        session.query(Parametre).filter_by(cle="chemin_dossier_photos").one_or_none()
+def dossier_photos(session: Session, *, type_personne: str = "eleve") -> str | None:
+    """Le dossier de cette population.
+
+    Les photos du personnel vivent à part, hors de l'arborescence par
+    année : un seul réglage ne peut pas servir les deux.
+    """
+    cle = (
+        "chemin_dossier_photos_adultes"
+        if type_personne == "adulte"
+        else "chemin_dossier_photos"
     )
+    param = session.query(Parametre).filter_by(cle=cle).one_or_none()
     if param is None:
         return None
     try:
@@ -113,18 +122,26 @@ def _candidats(racine: Path, personne: Personne) -> list[Path]:
     return [racine / f"{b}{ext}" for b in bases for ext in EXTENSIONS]
 
 
-def relever(session: Session, *, annee_id: int) -> InventairePhotos:
+def relever(
+    session: Session, *, annee_id: int, type_personne: str = "eleve"
+) -> InventairePhotos:
     """Qui a sa photo sur le partage, et qui ne l'a pas.
+
+    Args:
+        type_personne: `eleve` ou `adulte`. Chacun a son dossier, et ils ne
+            se recoupent pas — chercher un professeur parmi les photos
+            d'élèves ne ferait que des absences fausses.
 
     Raises:
         InventaireImpossible: dossier non réglé, ou inaccessible — les deux
             se disent différemment, parce qu'ils se corrigent différemment.
     """
-    dossier = dossier_photos(session)
+    dossier = dossier_photos(session, type_personne=type_personne)
     if not dossier:
+        qui = "adultes" if type_personne == "adulte" else "élèves"
         raise InventaireImpossible(
-            "Le dossier des photos n'est pas réglé. Il se déclare dans les "
-            "Paramètres — c'est le partage où Charlemagne les dépose."
+            f"Le dossier des photos {qui} n'est pas réglé. Il se déclare "
+            "dans les Paramètres — c'est le partage où Charlemagne les dépose."
         )
     racine = Path(dossier)
     if not racine.exists():
@@ -155,12 +172,23 @@ def relever(session: Session, *, annee_id: int) -> InventairePhotos:
     from backend.models import Site
 
     sites = {s.id: s.nom for s in session.query(Site).all()}
-    inventaire = InventairePhotos(dossier=dossier)
+    inventaire = InventairePhotos(dossier=dossier, type_personne=type_personne)
     par_classe: dict[str, dict[str, int]] = defaultdict(lambda: {"avec": 0, "sans": 0})
 
-    for p in session.query(Personne).filter(Personne.type == "eleve").all():
+    for p in session.query(Personne).filter(Personne.type == type_personne).all():
         sn = derniers.get(p.id)
-        classe = (sn.classe or "").strip() if sn else ""
+        # Présent cette année, et lui seul : sans ce filtre, tout le
+        # personnel passé serait compté comme sans photo, et la liste des
+        # relances serait pleine de gens partis depuis des années.
+        if sn is None:
+            continue
+        # Un adulte n'a pas de classe : sa maille de regroupement est son
+        # site. Exiger une classe l'écarterait purement et simplement.
+        classe = (
+            (sn.classe or "").strip()
+            if type_personne == "eleve"
+            else (sites.get(p.site_id) or "Sans site")
+        )
         if not classe:
             continue
         inventaire.nb_eleves += 1

@@ -24,6 +24,34 @@ from backend.models import Parametre, Personne, Snapshot
 router = APIRouter(prefix="/api/photos", tags=["photos"])
 
 
+def _dossier_pour(session: Session, personne: Personne) -> str | None:
+    """Le dossier où chercher la photo de cette personne.
+
+    Les photos du personnel ne sont pas rangées avec celles des élèves :
+    celles-ci vivent dans une arborescence par année, celles-là dans un
+    dossier à part. Un seul réglage ne pouvait donc pas servir les deux —
+    et c'est pourquoi les adultes n'avaient jamais de visage.
+    """
+    if personne.type == "adulte":
+        adultes = _lire_parametre(session, "chemin_dossier_photos_adultes")
+        if adultes:
+            return adultes
+        # Pas de repli sur le dossier des élèves : il ne contient pas les
+        # adultes, et y chercher ne ferait que des 404 plus lents.
+        return None
+    return _lire_parametre(session, "chemin_dossier_photos")
+
+
+def _lire_parametre(session: Session, cle: str) -> str | None:
+    p = session.query(Parametre).filter_by(cle=cle).one_or_none()
+    if p is None:
+        return None
+    try:
+        return json.loads(p.valeur_json) or None
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 def _lire_chemin_dossier_photos(session: Session) -> str | None:
     p = session.query(Parametre).filter_by(cle="chemin_dossier_photos").one_or_none()
     if p is None:
@@ -51,6 +79,7 @@ class EleveSansPhotoOut(BaseModel):
 
 class InventaireOut(BaseModel):
     dossier: str
+    type_personne: str
     nb_eleves: int
     nb_avec: int
     nb_sans: int
@@ -61,7 +90,11 @@ class InventaireOut(BaseModel):
 
 
 @router.get("/inventaire", response_model=InventaireOut)
-def inventaire(annee_id: int, session: Session = Depends(db_session)) -> InventaireOut:
+def inventaire(
+    annee_id: int,
+    type_personne: str = "eleve",
+    session: Session = Depends(db_session),
+) -> InventaireOut:
     """Le relevé complet du partage. Lecture seule, et volontairement lente.
 
     Un accès par élève sur un partage réseau : c'est le sujet de l'écran, on
@@ -70,12 +103,13 @@ def inventaire(annee_id: int, session: Session = Depends(db_session)) -> Inventa
     from backend.services.inventaire_photos import InventaireImpossible, relever
 
     try:
-        r = relever(session, annee_id=annee_id)
+        r = relever(session, annee_id=annee_id, type_personne=type_personne)
     except InventaireImpossible as e:
         raise HTTPException(400, str(e)) from None
 
     return InventaireOut(
         dossier=r.dossier,
+        type_personne=r.type_personne,
         nb_eleves=r.nb_eleves,
         nb_avec=r.nb_avec,
         nb_sans=r.nb_sans,
@@ -87,7 +121,11 @@ def inventaire(annee_id: int, session: Session = Depends(db_session)) -> Inventa
 
 
 @router.get("/inventaire/classeur")
-def classeur_manquantes(annee_id: int, session: Session = Depends(db_session)):
+def classeur_manquantes(
+    annee_id: int,
+    type_personne: str = "eleve",
+    session: Session = Depends(db_session),
+):
     """La liste des manquantes, triée par classe — celle qu'on distribue."""
     from fastapi.responses import Response
 
@@ -98,7 +136,7 @@ def classeur_manquantes(annee_id: int, session: Session = Depends(db_session)):
     )
 
     try:
-        r = relever(session, annee_id=annee_id)
+        r = relever(session, annee_id=annee_id, type_personne=type_personne)
     except InventaireImpossible as e:
         raise HTTPException(400, str(e)) from None
 
@@ -108,7 +146,9 @@ def classeur_manquantes(annee_id: int, session: Session = Depends(db_session)):
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ),
         headers={
-            "content-disposition": 'attachment; filename="Photos_manquantes.xlsx"'
+            "content-disposition": (
+                f'attachment; filename="Photos_manquantes_{type_personne}s.xlsx"'
+            )
         },
     )
 
@@ -116,13 +156,17 @@ def classeur_manquantes(annee_id: int, session: Session = Depends(db_session)):
 @router.get("/{personne_id}")
 def obtenir_photo(personne_id: int, session: Session = Depends(db_session)):
     """Renvoie l'image de la personne. 404 si absente ou dossier non configuré."""
-    dossier = _lire_chemin_dossier_photos(session)
-    if not dossier:
-        raise HTTPException(404, "Paramètre `chemin_dossier_photos` non configuré")
-
     personne = session.query(Personne).filter_by(id=personne_id).one_or_none()
     if personne is None:
         raise HTTPException(404, "Personne introuvable")
+
+    dossier = _dossier_pour(session, personne)
+    if not dossier:
+        raise HTTPException(
+            404,
+            "Aucun dossier de photos réglé pour "
+            + ("les adultes" if personne.type == "adulte" else "les élèves"),
+        )
 
     # Utilise chemin_photo_constate en priorité (fixé à l'ingestion),
     # sinon fallback sur le nom du dernier snapshot.

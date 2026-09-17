@@ -31,15 +31,37 @@
 
   let listeAnnees = $state(/** @type {any[]} */ ([]));
   let anneeId = $state(/** @type {number | null} */ (null));
-  let inventaire = $state(lire("photos.inventaire", /** @type {any} */ (null)));
-  let releveLe = $state(lire("photos.releveLe", /** @type {number | null} */ (null)));
+  /**
+   * Élèves ou adultes : deux dossiers, deux relevés.
+   *
+   * Les photos du personnel vivent hors de l'arborescence par année. Les
+   * mêler dans un seul relevé donnerait des absences fausses des deux
+   * côtés — chacun cherche dans son dossier.
+   */
+  let population = $state(lire("photos.population", "eleve"));
+  let inventaires = $state(
+    lire("photos.inventaires", /** @type {Record<string, any>} */ ({})),
+  );
+  let inventaire = $derived(inventaires[population] ?? null);
+  let relevesLe = $state(
+    lire("photos.relevesLe", /** @type {Record<string, number>} */ ({})),
+  );
+  let releveLe = $derived(relevesLe[population] ?? null);
   let occupe = $state(false);
   let erreur = $state("");
   let recherche = $state("");
   let classeRetenue = $state("");
 
-  $effect(() => ecrire("photos.inventaire", inventaire));
-  $effect(() => ecrire("photos.releveLe", releveLe));
+  $effect(() => ecrire("photos.inventaires", inventaires));
+  $effect(() => ecrire("photos.relevesLe", relevesLe));
+  $effect(() => ecrire("photos.population", population));
+
+  // Changer de population change la maille : un filtre « 2_5 » gardé en
+  // passant aux adultes masquerait la liste entière sans rien dire.
+  $effect(() => {
+    population;
+    classeRetenue = "";
+  });
 
   onMount(async () => {
     try {
@@ -57,16 +79,17 @@
     occupe = true;
     erreur = "";
     try {
-      inventaire = await photos.inventaire(anneeId);
-      releveLe = Date.now();
+      inventaires = { ...inventaires, [population]: await photos.inventaire(anneeId, population) };
+      relevesLe = { ...relevesLe, [population]: Date.now() };
       notify.succes(
-        inventaire.nb_sans === 0
+        inventaires[population].nb_sans === 0
           ? "Tout le monde a sa photo."
-          : `${inventaire.nb_sans} photo(s) manquante(s) sur ${inventaire.nb_eleves}`,
+          : `${inventaires[population].nb_sans} photo(s) manquante(s) sur ` +
+            `${inventaires[population].nb_eleves}`,
         { duree: 8000 },
       );
     } catch (e) {
-      inventaire = null;
+      inventaires = { ...inventaires, [population]: null };
       erreur = String(e).replace(/^Error:\s*/, "");
       notify.erreur(erreur, { duree: 12000 });
     } finally {
@@ -108,8 +131,20 @@
     description="Qui a sa photo sur le partage, et surtout qui ne l'a pas — nommément, par classe, pour relancer les professeurs principaux."
   >
     {#snippet actions()}
+      <div class="flex overflow-hidden rounded-lg border border-stone-300 dark:border-stone-600">
+        {#each [["eleve", "Élèves"], ["adulte", "Adultes"]] as [id, label] (id)}
+          <button
+            class="px-3 py-1.5 text-sm transition {population === id
+              ? 'bg-emerald-600 font-medium text-white'
+              : 'text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-700'}"
+            onclick={() => (population = id)}
+          >
+            {label}
+          </button>
+        {/each}
+      </div>
       {#if inventaire && anneeId}
-        <a class="btn-secondary" href={photos.urlClasseur(anneeId)}>
+        <a class="btn-secondary" href={photos.urlClasseur(anneeId, population)}>
           <Download class="h-4 w-4" /> La liste en classeur
         </a>
       {/if}
@@ -129,7 +164,7 @@
     <EtatVide
       icon={Camera}
       titre="Le partage n'a pas encore été relu"
-      message="Un accès disque par élève, sur le réseau : c'est trop cher pour partir tout seul à chaque ouverture. Lance le relevé quand le partage est monté."
+      message="Un accès disque par personne, sur le réseau : c'est trop cher pour partir tout seul à chaque ouverture. Lance le relevé quand le partage est monté."
     />
   {:else}
     {#if age && age !== "à l'instant"}
@@ -159,7 +194,8 @@
           {inventaire.nb_sans}
         </p>
         <p class="text-xs text-stone-500 dark:text-stone-400">
-          dans {classes.length} classe{classes.length > 1 ? "s" : ""}
+          dans {classes.length}
+          {population === "adulte" ? "site" : "classe"}{classes.length > 1 ? "s" : ""}
         </p>
       </div>
       <div class="bg-white p-4 dark:bg-stone-800 sm:col-span-2">
@@ -188,7 +224,9 @@
     {:else}
       <!-- Par classe : c'est à cette maille qu'on relance. -->
       <div class="card p-4">
-        <h2 class="titre-section mb-2">Par classe, les plus incomplètes d'abord</h2>
+        <h2 class="titre-section mb-2">
+          {population === "adulte" ? "Par site" : "Par classe, les plus incomplètes d'abord"}
+        </h2>
         <div class="flex flex-wrap gap-1.5">
           <button
             class="rounded-full border px-2.5 py-1 text-xs transition {classeRetenue === ''
@@ -223,7 +261,7 @@
           <table class="tableau">
             <thead class="entete-tableau">
               <tr>
-                <th class="px-3 py-2 text-left">Classe</th>
+                <th class="px-3 py-2 text-left">{population === "adulte" ? "Site" : "Classe"}</th>
                 <th class="px-3 py-2 text-left">Nom</th>
                 <th class="px-3 py-2 text-left">Prénom</th>
                 <th class="px-3 py-2 text-left">Site</th>
