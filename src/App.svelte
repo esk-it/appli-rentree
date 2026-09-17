@@ -36,6 +36,8 @@
   import Nfc from "@lucide/svelte/icons/nfc";
   import Camera from "@lucide/svelte/icons/camera";
   import History from "@lucide/svelte/icons/history";
+  import Shuffle from "@lucide/svelte/icons/shuffle";
+  import UtensilsCrossed from "@lucide/svelte/icons/utensils-crossed";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Coffre from "./routes/Coffre.svelte";
   import Arrivees from "./routes/Arrivees.svelte";
@@ -65,6 +67,8 @@
   import Ts1000 from "./routes/Ts1000.svelte";
   import Photos from "./routes/Photos.svelte";
   import Journal from "./routes/Journal.svelte";
+  import QuelquunBouge from "./routes/QuelquunBouge.svelte";
+  import Sodexo from "./routes/Sodexo.svelte";
   import Accessoires from "./routes/Accessoires.svelte";
   import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
@@ -302,6 +306,9 @@
         // réclame vraiment — chercher quelqu'un, et tout recouper.
         { id: "ou_ca_coince", label: "Où ça coince", icon: Compass },
         { id: "personnes", label: "Référentiel", icon: Users2 },
+        // Un mouvement en cours d'année déclenche sept ou huit gestes
+        // dans autant de systèmes. Personne ne les retient tous.
+        { id: "bouge", label: "Quelqu'un bouge", icon: Shuffle },
         { id: "concordance", label: "Concordance", icon: GitCompare },
         // « Qui n'a pas de photo » est demandé toutes les semaines : la
         // réponse mérite une porte, pas une case à cocher dans un contrôle.
@@ -309,6 +316,7 @@
         { id: "exports", label: "Produire un fichier", icon: FileDown },
         // « Pourquoi ce compte est-il là ? » se pose des mois après :
         // le journal existait, il n'avait simplement pas de porte.
+        { id: "sodexo", label: "Sodexo", icon: UtensilsCrossed },
         { id: "journal", label: "Ce qui a été fait", icon: History },
       ],
     },
@@ -693,6 +701,10 @@
           <OuCaCoince onNaviguer={(p) => (page = p)} />
         {:else if page === "parcours"}
           <Parcours etats={etapesEtats} onRelireAvancement={relireAvancement} />
+        {:else if page === "bouge"}
+          <QuelquunBouge onNaviguer={(p) => (page = p)} />
+        {:else if page === "sodexo"}
+          <Sodexo onNaviguer={(p) => (page = p)} />
         {:else if page === "journal"}
           <Journal />
         {:else if page === "photos"}

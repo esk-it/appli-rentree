@@ -27,6 +27,7 @@ l'attend, et on le demande.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +56,12 @@ class EleveSansPhoto:
     """Là où le fichier aurait dû se trouver — c'est ce qu'on regarde en
     premier quand on doute du relevé."""
 
+    pistes: list[str] = field(default_factory=list)
+    """Fichiers portant ce nom avec une parenthèse qu'on n'a pas su
+    rattacher. Les nommer vaut mieux que les taire : c'est souvent la
+    photo, sous une abréviation de classe que le référentiel n'écrit pas
+    ainsi."""
+
 
 @dataclass
 class InventairePhotos:
@@ -69,6 +76,11 @@ class InventairePhotos:
     @property
     def nb_sans(self) -> int:
         return len(self.manquantes)
+
+    @property
+    def nb_a_verifier(self) -> int:
+        """Manquantes pour lesquelles un fichier presque juste existe."""
+        return sum(1 for e in self.manquantes if e.pistes)
 
     @property
     def taux(self) -> float:
@@ -106,11 +118,16 @@ def dossier_photos(session: Session, *, type_personne: str = "eleve") -> str | N
         return None
 
 
-def _candidats(racine: Path, personne: Personne) -> list[Path]:
-    """Les noms sous lesquels la photo de cette personne peut exister.
+def _sans_separateurs(texte: str) -> str:
+    """`BTS_2` et `BTS2` désignent la même classe."""
+    return re.sub(r"[\s_\-.]", "", texte or "").casefold()
+
+
+def _bases(personne: Personne) -> list[str]:
+    """Les écritures du nom rencontrées sur le partage.
 
     Charlemagne nomme d'après l'état civil, avec des variations selon
-    l'export. On essaie les formes rencontrées plutôt que d'en imposer une :
+    l'export. On essaie les formes vues plutôt que d'en imposer une :
     déclarer manquante une photo qui est là ferait relancer une famille
     pour rien.
     """
@@ -119,7 +136,82 @@ def _candidats(racine: Path, personne: Personne) -> list[Path]:
     bases = [f"{nom} {prenom}", f"{nom}_{prenom}", f"{prenom} {nom}"]
     if personne.badge:
         bases.append(str(personne.badge))
-    return [racine / f"{b}{ext}" for b in bases for ext in EXTENSIONS]
+    return bases
+
+
+def _candidats(racine: Path, personne: Personne) -> list[Path]:
+    """Les chemins exacts attendus, dans l'ordre de préférence."""
+    return [racine / f"{b}{ext}" for b in _bases(personne) for ext in EXTENSIONS]
+
+
+def _homonymes(presents: set[str], base: str) -> list[str]:
+    """Les fichiers `NOM Prénom (quelque chose)` portant ce nom.
+
+    Deux élèves du même nom ne peuvent pas partager un fichier : la vie
+    scolaire ajoute alors la classe entre parenthèses — `SAOUT Marie (44)`
+    et `SAOUT Marie (BTS2)`. Sans les chercher, les deux sont déclarées
+    sans photo alors qu'elles en ont chacune une.
+    """
+    prefixe = f"{base.casefold()} ("
+    return sorted(
+        n
+        for n in presents
+        if n.startswith(prefixe) and Path(n).suffix.casefold() in EXTENSIONS
+    )
+
+
+def _trouver(presents: set[str], personne: Personne, classe: str) -> str | None:
+    """Le fichier de cette personne, quand il ne fait aucun doute.
+
+    La parenthèse porte la classe, mais pas toujours telle que le
+    référentiel l'écrit : `(BTS2)` se déduit de `BTS_2`, `(TMCV1)` ne se
+    déduit pas de `T_BPMCV1`. On ne tranche que ce qui se déduit —
+    attribuer au jugé mettrait le visage d'une élève sur la carte de son
+    homonyme.
+    """
+    # La parenthèse d'abord : elle désigne quelqu'un exprès, quand le nom
+    # nu ne désigne que « la personne qui s'appelle ainsi ».
+    classe_normalisee = _sans_separateurs(classe)
+    if classe_normalisee:
+        for base in _bases(personne):
+            for fichier in _homonymes(presents, base):
+                suffixe = fichier[len(base) + 2 : fichier.rfind(")")]
+                if _sans_separateurs(suffixe) == classe_normalisee:
+                    return fichier
+
+    for base in _bases(personne):
+        for ext in EXTENSIONS:
+            if f"{base}{ext}".casefold() in presents:
+                return f"{base}{ext}"
+    return None
+
+
+def _pistes(
+    presents: set[str],
+    personne: Personne,
+    pris: set[str],
+    disputes: set[str],
+) -> list[str]:
+    """Les fichiers portant ce nom qui restent à rattacher.
+
+    Deux sortes : les parenthésés dont le suffixe n'a pas été reconnu, et
+    le fichier au nom nu que plusieurs personnes revendiquaient. Les deux
+    méritent d'être nommés — un fichier retiré du compte sans être montré
+    laisse croire qu'il n'existe pas.
+
+    Un fichier attribué avec certitude à quelqu'un n'est en revanche jamais
+    proposé à un autre : ce serait inviter précisément l'erreur que la
+    parenthèse existe pour éviter.
+    """
+    vus: list[str] = []
+    for base in _bases(personne):
+        vus += [f for f in _homonymes(presents, base) if f not in pris]
+        vus += [
+            f"{base}{ext}".casefold()
+            for ext in EXTENSIONS
+            if f"{base}{ext}".casefold() in disputes
+        ]
+    return sorted(set(vus))
 
 
 def relever(
@@ -175,6 +267,9 @@ def relever(
     inventaire = InventairePhotos(dossier=dossier, type_personne=type_personne)
     par_classe: dict[str, dict[str, int]] = defaultdict(lambda: {"avec": 0, "sans": 0})
 
+    # Première passe : qui revendique quoi. Rien n'est attribué encore.
+    retenus: list[tuple[Personne, str, str | None]] = []
+    revendications: dict[str, int] = defaultdict(int)
     for p in session.query(Personne).filter(Personne.type == type_personne).all():
         sn = derniers.get(p.id)
         # Présent cette année, et lui seul : sans ce filtre, tout le
@@ -191,26 +286,43 @@ def relever(
         )
         if not classe:
             continue
-        inventaire.nb_eleves += 1
-
-        candidats = _candidats(racine, p)
-        trouve = any(c.name.casefold() in presents for c in candidats)
+        trouve = _trouver(
+            presents, p, classe if type_personne == "eleve" else ""
+        )
         if trouve:
+            revendications[trouve.casefold()] += 1
+        retenus.append((p, classe, trouve))
+
+    # Un fichier revendiqué par deux personnes n'appartient à aucune des
+    # deux : `BELLEC Manon.jpg` existe à côté de `BELLEC Manon (21).jpg` et
+    # `(TMCV1).jpg`, et les deux Manon s'en réclamaient — chacune comptée
+    # « avec photo », sur la même image. C'est précisément ce que la
+    # parenthèse existe pour éviter ; on rend donc le fichier au doute.
+    disputes = {f for f, n in revendications.items() if n > 1}
+    pris = {f for f in revendications if f not in disputes}
+
+    # Seconde passe : ce qui reste, et les pistes encore libres.
+    for p, classe, trouve in retenus:
+        inventaire.nb_eleves += 1
+        if trouve and trouve.casefold() not in disputes:
             inventaire.nb_avec += 1
             par_classe[classe]["avec"] += 1
-        else:
-            par_classe[classe]["sans"] += 1
-            inventaire.manquantes.append(
-                EleveSansPhoto(
-                    personne_id=p.id,
-                    nom=p.nom or "",
-                    prenom=p.prenom or "",
-                    classe=classe,
-                    site=sites.get(p.site_id),
-                    badge=p.badge,
-                    chemin_attendu=str(candidats[0]) if candidats else None,
-                )
+            continue
+
+        candidats = _candidats(racine, p)
+        par_classe[classe]["sans"] += 1
+        inventaire.manquantes.append(
+            EleveSansPhoto(
+                personne_id=p.id,
+                nom=p.nom or "",
+                prenom=p.prenom or "",
+                classe=classe,
+                site=sites.get(p.site_id),
+                badge=p.badge,
+                chemin_attendu=str(candidats[0]) if candidats else None,
+                pistes=_pistes(presents, p, pris, disputes),
             )
+        )
 
     inventaire.manquantes.sort(key=lambda e: (e.classe, e.nom, e.prenom))
     inventaire.par_classe = dict(par_classe)

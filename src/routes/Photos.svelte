@@ -51,6 +51,7 @@
   let erreur = $state("");
   let recherche = $state("");
   let classeRetenue = $state("");
+  let siteRetenu = $state("");
 
   $effect(() => ecrire("photos.inventaires", inventaires));
   $effect(() => ecrire("photos.relevesLe", relevesLe));
@@ -61,6 +62,7 @@
   $effect(() => {
     population;
     classeRetenue = "";
+    siteRetenu = "";
   });
 
   onMount(async () => {
@@ -106,8 +108,17 @@
     return h < 24 ? `il y a ${h} h` : `il y a ${Math.round(h / 24)} j`;
   });
 
+  let sites = $derived.by(() => {
+    const par = new Map();
+    for (const e of inventaire?.manquantes ?? []) {
+      par.set(e.site ?? "—", (par.get(e.site ?? "—") ?? 0) + 1);
+    }
+    return [...par.entries()].sort((a, b) => b[1] - a[1]);
+  });
+
   let manquantes = $derived.by(() => {
     let r = inventaire?.manquantes ?? [];
+    if (siteRetenu) r = r.filter((e) => (e.site ?? "—") === siteRetenu);
     if (classeRetenue) r = r.filter((e) => e.classe === classeRetenue);
     const q = recherche.trim().toLowerCase();
     if (q) r = r.filter((e) => `${e.nom} ${e.prenom}`.toLowerCase().includes(q));
@@ -211,6 +222,22 @@
       </div>
     </div>
 
+    {#if inventaire.nb_a_verifier > 0}
+      <div class="rounded-lg border-l-4 border-l-amber-500 bg-amber-50 p-3 dark:bg-amber-900/25">
+        <p class="text-sm font-medium text-amber-900 dark:text-amber-200">
+          {inventaire.nb_a_verifier} cas à trancher — un fichier existe, mais
+          rien ne dit à qui il est.
+        </p>
+        <p class="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
+          Des homonymes. La vie scolaire ajoute la classe entre parenthèses
+          pour les départager ; quand l'abréviation ne correspond à aucune
+          classe connue, le programme refuse de choisir — mettre le visage
+          d'une élève sur la carte de son homonyme serait pire que rien.
+          Les fichiers candidats sont nommés dans la liste.
+        </p>
+      </div>
+    {/if}
+
     {#if inventaire.nb_sans === 0}
       <div class="card flex items-center gap-3 p-5">
         <CheckCircle2 class="h-6 w-6 shrink-0 text-emerald-600 dark:text-emerald-400" />
@@ -223,6 +250,35 @@
       </div>
     {:else}
       <!-- Par classe : c'est à cette maille qu'on relance. -->
+      {#if sites.length > 1}
+        <div class="card p-4">
+          <h2 class="titre-section mb-2">Par site</h2>
+          <div class="flex flex-wrap gap-1.5">
+            <button
+              class="rounded-full border px-2.5 py-1 text-xs transition {siteRetenu === ''
+                ? 'border-emerald-500 bg-emerald-50 font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                : 'border-stone-300 text-stone-600 hover:border-stone-400 dark:border-stone-600 dark:text-stone-300'}"
+              onclick={() => (siteRetenu = "")}
+            >
+              Tous <span class="tabular-nums">{inventaire.nb_sans}</span>
+            </button>
+            {#each sites as [nom, nb] (nom)}
+              <button
+                class="rounded-full border px-2.5 py-1 text-xs transition {siteRetenu === nom
+                  ? 'border-emerald-500 bg-emerald-50 font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
+                  : 'border-stone-300 text-stone-600 hover:border-stone-400 dark:border-stone-600 dark:text-stone-300'}"
+                onclick={() => {
+                  siteRetenu = nom;
+                  classeRetenue = "";
+                }}
+              >
+                {nom} <span class="tabular-nums font-semibold">{nb}</span>
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
       <div class="card p-4">
         <h2 class="titre-section mb-2">
           {population === "adulte" ? "Par site" : "Par classe, les plus incomplètes d'abord"}
@@ -279,8 +335,14 @@
                   <td class="px-3 py-1.5 text-right font-mono text-xs tabular-nums text-stone-500">
                     {e.badge ?? "—"}
                   </td>
-                  <td class="truncate px-3 py-1.5 font-mono text-[11px] text-stone-400">
-                    {e.chemin_attendu ?? ""}
+                  <td class="px-3 py-1.5 font-mono text-[11px]">
+                    {#if e.pistes?.length}
+                      <span class="text-amber-700 dark:text-amber-400">
+                        à trancher : {e.pistes.join(" · ")}
+                      </span>
+                    {:else}
+                      <span class="truncate text-stone-400">{e.chemin_attendu ?? ""}</span>
+                    {/if}
                   </td>
                 </tr>
               {/each}

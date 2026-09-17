@@ -148,6 +148,18 @@ CATALOGUE: list[DefinitionParametre] = [
         defaut="",
         categorie="Photos",
     ),
+    DefinitionParametre(
+        cle="url_classeur_sodexo_eleves",
+        libelle="Classeur « SoHappy - Import des élèves »",
+        description=(
+            "Adresse du classeur Google qui transforme l'export Charlemagne "
+            "en CSV pour le portail. Elle est ici plutôt que dans le code : "
+            "elle change si le document est déplacé ou dupliqué."
+        ),
+        type="str",
+        defaut="",
+        categorie="Sodexo",
+    ),
 ]
 
 # Index par clé pour lookup rapide

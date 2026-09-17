@@ -75,6 +75,7 @@ class EleveSansPhotoOut(BaseModel):
     site: str | None
     badge: int | None
     chemin_attendu: str | None
+    pistes: list[str]
 
 
 class InventaireOut(BaseModel):
@@ -83,6 +84,7 @@ class InventaireOut(BaseModel):
     nb_eleves: int
     nb_avec: int
     nb_sans: int
+    nb_a_verifier: int
     taux: float
     par_classe: dict[str, dict[str, int]]
     classes_incompletes: list[str]
@@ -113,6 +115,7 @@ def inventaire(
         nb_eleves=r.nb_eleves,
         nb_avec=r.nb_avec,
         nb_sans=r.nb_sans,
+        nb_a_verifier=r.nb_a_verifier,
         taux=r.taux,
         par_classe=r.par_classe,
         classes_incompletes=r.classes_incompletes,

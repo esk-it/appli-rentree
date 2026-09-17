@@ -25,8 +25,8 @@ def contexte(session, site_factory, annee_factory, personne_factory, tmp_path):
     )
     session.commit()
 
-    def _eleve(nom, prenom, classe="2_5"):
-        p = personne_factory(nom=nom, prenom=prenom, site_id=site.id)
+    def _eleve(nom, prenom, classe="2_5", **kw):
+        p = personne_factory(nom=nom, prenom=prenom, site_id=site.id, **kw)
         session.add(
             Snapshot(
                 personne_id=p.id,
@@ -208,3 +208,100 @@ def test_le_dossier_adultes_manquant_se_dit_pour_les_adultes(session, contexte):
 
     with pytest.raises(InventaireImpossible, match="photos adultes"):
         relever(session, annee_id=contexte["annee"].id, type_personne="adulte")
+
+
+# ---------------------------------------------------------------------------
+# Les homonymes : la classe entre parenthèses
+# ---------------------------------------------------------------------------
+
+
+def test_deux_homonymes_trouvent_chacune_sa_photo(session, contexte):
+    """Deux SAOUT Marie ne peuvent pas partager un fichier.
+
+    La vie scolaire ajoute alors la classe entre parenthèses. Sans les
+    chercher, les deux sont déclarées sans photo alors qu'elles en ont
+    chacune une.
+    """
+    contexte["eleve"]("SAOUT", "Marie", classe="44", login="msaout")
+    contexte["eleve"]("SAOUT", "Marie", classe="BTS_2", login="msaout2")
+    (contexte["dossier"] / "SAOUT Marie (44).JPG").write_bytes(b"x")
+    (contexte["dossier"] / "SAOUT Marie (BTS2).JPG").write_bytes(b"x")
+
+    r = _relever(session, contexte)
+    assert (r.nb_eleves, r.nb_avec, r.nb_sans) == (2, 2, 0)
+
+
+def test_un_suffixe_non_deductible_est_signale_pas_devine(session, contexte):
+    """`(TMCV1)` ne se déduit pas de `T_BPMCV1`.
+
+    Attribuer au jugé mettrait le visage d'une élève sur la carte de son
+    homonyme. On nomme le fichier et on laisse trancher.
+    """
+    contexte["eleve"]("BELLEC", "Manon", classe="21", login="mbellec")
+    contexte["eleve"]("BELLEC", "Manon", classe="T_BPMCV1", login="mbellec2")
+    (contexte["dossier"] / "BELLEC Manon (21).JPG").write_bytes(b"x")
+    (contexte["dossier"] / "BELLEC Manon (TMCV1).JPG").write_bytes(b"x")
+
+    r = _relever(session, contexte)
+    assert r.nb_avec == 1
+    assert r.nb_sans == 1
+    assert r.nb_a_verifier == 1
+    manquante = r.manquantes[0]
+    assert manquante.classe == "T_BPMCV1"
+    assert manquante.pistes == ["bellec manon (tmcv1).jpg"]
+
+
+def test_une_photo_exacte_lemporte_sur_une_parenthesee(session, contexte):
+    """Le fichier sans parenthèse désigne la personne sans ambiguïté."""
+    contexte["eleve"]("SEULE", "Anne", classe="2_5")
+    (contexte["dossier"] / "SEULE Anne.jpg").write_bytes(b"x")
+    (contexte["dossier"] / "SEULE Anne (autre).jpg").write_bytes(b"x")
+
+    r = _relever(session, contexte)
+    assert r.nb_sans == 0
+
+
+def test_sans_parenthese_aucune_piste_nest_inventee(session, contexte):
+    contexte["eleve"]("ABSENTE", "Zoe", classe="2_5")
+
+    r = _relever(session, contexte)
+    assert r.manquantes[0].pistes == []
+    assert r.nb_a_verifier == 0
+
+
+def test_un_fichier_revendique_par_deux_nest_a_personne(session, contexte):
+    """`BELLEC Manon.jpg` existe à côté des deux fichiers parenthésés.
+
+    Les deux Manon s'en réclamaient, et chacune était comptée « avec
+    photo » — sur la même image. C'est exactement ce que la parenthèse
+    existe pour éviter : on rend le fichier au doute.
+    """
+    contexte["eleve"]("BELLEC", "Manon", classe="BTS_1", login="mbellec")
+    contexte["eleve"]("BELLEC", "Manon", classe="1_ST2S1", login="mbellec2")
+    (contexte["dossier"] / "BELLEC Manon.jpg").write_bytes(b"x")
+    (contexte["dossier"] / "BELLEC Manon (21).JPG").write_bytes(b"x")
+    (contexte["dossier"] / "BELLEC Manon (TMCV1).JPG").write_bytes(b"x")
+
+    r = _relever(session, contexte)
+    assert r.nb_avec == 0
+    assert r.nb_sans == 2
+    assert r.nb_a_verifier == 2
+    # Les trois fichiers leur sont proposés, le disputé compris : retirer
+    # un fichier du compte sans le montrer laisserait croire qu'il n'existe
+    # pas. C'est à elle de trancher, pas au programme.
+    for e in r.manquantes:
+        assert e.pistes == [
+            "bellec manon (21).jpg",
+            "bellec manon (tmcv1).jpg",
+            "bellec manon.jpg",
+        ]
+
+
+def test_la_parenthese_lemporte_sur_le_nom_nu(session, contexte):
+    """Le fichier parenthésé désigne quelqu'un exprès ; le nom nu, non."""
+    contexte["eleve"]("SAOUT", "Marie", classe="44", login="msaout")
+    (contexte["dossier"] / "SAOUT Marie.jpg").write_bytes(b"x")
+    (contexte["dossier"] / "SAOUT Marie (44).JPG").write_bytes(b"x")
+
+    r = _relever(session, contexte)
+    assert r.nb_sans == 0
