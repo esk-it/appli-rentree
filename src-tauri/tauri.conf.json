@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Appli-Rentree",
-  "version": "0.154.0",
+  "version": "0.155.0",
   "identifier": "com.esk-it.appli-rentree",
   "build": {
     "frontendDist": "../dist",
@@ -34,7 +34,7 @@
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEUxODA5NDMzMzMwMDFDNwpSV1RIQVRBelF3a1lEa05aclhsQ2FEbnZNKzlUQVRpVGNZUU00MW0ydjd2bXRRZUJNRFdWeHloSQo="
     },
     "shell": {
-      "open": "^https?://"
+      "open": true
     }
   },
   "bundle": {

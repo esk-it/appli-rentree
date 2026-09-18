@@ -112,10 +112,13 @@
     }
   }
 
+  /**
+   * Un lien qui ne s'ouvre pas doit dire pourquoi : « ça n'a pas marché »
+   * oblige à tout rouvrir pour savoir ce qui a été refusé.
+   */
   async function ouvrir(url) {
-    if (!(await ouvrirLien(url))) {
-      notify.erreur("Le navigateur n'a pas pu être ouvert.");
-    }
+    const erreur = await ouvrirLien(url);
+    if (erreur) notify.erreur(erreur, { duree: 12000 });
   }
 </script>
 
