@@ -1311,32 +1311,6 @@ export const exportsCible = {
       }),
     );
   },
-  /**
-   * CardStudio : l'export de Charlemagne, filtré avant d'être importé.
-   *
-   * Le programme ne fabrique pas ce fichier — `Code niveau`,
-   * `Code établissement`, `Photo` et `Date Entrée pour tri` n'existent nulle
-   * part dans le référentiel, et sans `Photo` CardStudio imprime des badges
-   * sans visage. Charlemagne, lui, sait l'écrire.
-   *
-   * Ce que le programme apporte : le choix. CardStudio n'accepte qu'un
-   * fichier par projet, et rien ne s'y ajoute après coup — il faut donc
-   * décider avant d'importer. Les trois filtres se cumulent ; laissés vides,
-   * ils ne filtrent rien.
-   */
-  async cardstudio({ fichier, sites = [], classes = [], badges = [], avecChambres = false }) {
-    if (!fichier) throw new Error("Export CardStudio de Charlemagne requis");
-    const contenu_base64 = arrayBufferEnBase64(await fichier.arrayBuffer());
-    return jsonOrThrow(
-      await fetch(`${BASE}/exports/cardstudio`, {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          contenu_base64, nom_fichier: fichier.name,
-          sites, classes, badges, avec_chambres: avecChambres,
-        }),
-      }),
-    );
-  },
 };
 
 // ---------------------------------------------------------------------------
@@ -1556,6 +1530,52 @@ export const annees = {
 export const etablissements = {
   async lister() {
     return jsonOrThrow(await fetch(`${BASE}/etablissements`));
+  },
+};
+
+// ---------------------------------------------------------------------------
+// L'atelier des cartes — CardStudio
+// ---------------------------------------------------------------------------
+//
+// Le fichier se fabrique depuis le référentiel : aucun export de Charlemagne
+// n'est demandé pour produire des cartes. On désigne des personnes, pas des
+// numéros de badge recopiés à la main.
+//
+// `apprendre` est l'exception, et une opération d'installation : un export
+// CardStudio de Charlemagne enseigne au programme les trois choses qu'il ne
+// peut pas déduire — code niveau et code établissement par classe, date
+// d'entrée par élève. Ensuite il n'en a plus besoin.
+export const cartes = {
+  async candidats(anneeId = null) {
+    const q = anneeId ? `?annee_id=${anneeId}` : "";
+    return jsonOrThrow(await fetch(`${BASE}/cartes/candidats${q}`));
+  },
+  async fichier({ personneIds, anneeId = null, avecChambres = false, intitule = "" }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/cartes/fichier`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          personne_ids: personneIds,
+          annee_id: anneeId,
+          avec_chambres: avecChambres,
+          intitule,
+        }),
+      }),
+    );
+  },
+  async apprendre(fichier) {
+    if (!fichier) throw new Error("Export CardStudio de Charlemagne requis");
+    return jsonOrThrow(
+      await fetch(`${BASE}/cartes/apprendre`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contenu_base64: arrayBufferEnBase64(await fichier.arrayBuffer()),
+          nom_fichier: fichier.name,
+        }),
+      }),
+    );
   },
 };
 

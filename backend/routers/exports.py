@@ -29,10 +29,6 @@ from backend.services.cycle_vie import (
     SUFFIXE_SERVEUR_PAR_SITE,
     enregistrer_prevus_pour_export,
 )
-from backend.services.exports_cardstudio import (
-    ExportImpossible as ExportCardStudioImpossible,
-    repartir_export_cardstudio,
-)
 from backend.services.exports_google import (
     generer_csv_google,
     generer_csv_google_avec_mdp,
@@ -812,77 +808,6 @@ def exporter_jpm(payload: ExportJpmPayload, session: Session = Depends(db_sessio
 # ---------------------------------------------------------------------------
 # Lot 11c — CardStudio (XLSX badges)
 # ---------------------------------------------------------------------------
-
-
-class ExportCardStudioPayload(BaseModel):
-    """L'export CardStudio de Charlemagne, à filtrer avant de l'importer.
-
-    CardStudio n'accepte qu'un fichier par projet : le choix de qui entre se
-    fait donc ici, et nulle part ailleurs. Les trois filtres se cumulent ;
-    chacun laissé vide ne filtre rien.
-    """
-
-    contenu_base64: str
-    nom_fichier: str
-    sites: list[str] = []
-    classes: list[str] = []
-    badges: list[str] = []
-    avec_chambres: bool = False
-
-
-class LigneEcarteeOut(BaseModel):
-    badge: str
-    nom: str
-    classe: str
-    motif: str
-
-
-class ExportCardStudioReponse(BaseModel):
-    nb_lignes_lues: int
-    nb_lignes: int
-    nom_fichier: str
-    contenu_base64: str
-    colonnes_completees: list[str]
-    ecartees: list[LigneEcarteeOut]
-    inconnus_referentiel: list[str]
-    chambres_reportees: int
-    sites_rencontres: list[str]
-    classes_rencontrees: list[str]
-
-
-@router.post("/cardstudio", response_model=ExportCardStudioReponse)
-def exporter_cardstudio(
-    payload: ExportCardStudioPayload, session: Session = Depends(db_session)
-) -> ExportCardStudioReponse:
-    """Filtre l'export de Charlemagne et rend le XLSX prêt pour CardStudio."""
-    try:
-        brut = base64.b64decode(payload.contenu_base64)
-    except (ValueError, binascii.Error):
-        raise HTTPException(400, "Contenu illisible : base64 invalide.")
-    try:
-        contenu, rapport = repartir_export_cardstudio(
-            session,
-            contenu=brut,
-            nom_fichier=payload.nom_fichier,
-            sites=payload.sites,
-            classes=payload.classes,
-            badges=payload.badges,
-            avec_chambres=payload.avec_chambres,
-        )
-    except ExportCardStudioImpossible as e:
-        raise HTTPException(400, str(e))
-    return ExportCardStudioReponse(
-        nb_lignes_lues=rapport.nb_lignes_lues,
-        nb_lignes=rapport.nb_lignes_retenues,
-        nom_fichier=rapport.nom_fichier_suggere,
-        contenu_base64=base64.b64encode(contenu).decode("ascii"),
-        colonnes_completees=rapport.colonnes_completees,
-        ecartees=[LigneEcarteeOut(**vars(e)) for e in rapport.ecartees],
-        inconnus_referentiel=rapport.inconnus_referentiel,
-        chambres_reportees=rapport.chambres_reportees,
-        sites_rencontres=rapport.sites_rencontres,
-        classes_rencontrees=rapport.classes_rencontrees,
-    )
 
 
 # ---------------------------------------------------------------------------

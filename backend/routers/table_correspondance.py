@@ -34,6 +34,8 @@ class LigneOut(BaseModel):
     ou_pre_rentree: str
     ou_definitive: str
     groupe_profs_google: str | None
+    code_niveau: str | None
+    code_etablissement: str | None
 
 
 class LignePayload(BaseModel):
@@ -44,6 +46,11 @@ class LignePayload(BaseModel):
     ou_pre_rentree: str = Field(..., min_length=1, max_length=200)
     ou_definitive: str = Field(..., min_length=1, max_length=200)
     groupe_profs_google: str | None = None
+    # Codes CardStudio. Ils voyagent avec le reste de la ligne : sans eux
+    # dans la charge utile, `modifier` les remettrait à vide dès qu'on
+    # corrige une unité d'organisation, et personne ne le verrait.
+    code_niveau: str | None = None
+    code_etablissement: str | None = None
 
 
 def _serialiser(l: TableCorrespondance, sites_par_id: dict[int, Site]) -> LigneOut:
@@ -57,6 +64,8 @@ def _serialiser(l: TableCorrespondance, sites_par_id: dict[int, Site]) -> LigneO
         ou_pre_rentree=l.ou_pre_rentree,
         ou_definitive=l.ou_definitive,
         groupe_profs_google=l.groupe_profs_google,
+        code_niveau=l.code_niveau,
+        code_etablissement=l.code_etablissement,
     )
 
 

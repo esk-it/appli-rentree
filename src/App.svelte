@@ -38,6 +38,7 @@
   import History from "@lucide/svelte/icons/history";
   import Shuffle from "@lucide/svelte/icons/shuffle";
   import UtensilsCrossed from "@lucide/svelte/icons/utensils-crossed";
+  import CreditCard from "@lucide/svelte/icons/credit-card";
   import TableauDeBord from "./routes/TableauDeBord.svelte";
   import Coffre from "./routes/Coffre.svelte";
   import Arrivees from "./routes/Arrivees.svelte";
@@ -69,6 +70,7 @@
   import Journal from "./routes/Journal.svelte";
   import QuelquunBouge from "./routes/QuelquunBouge.svelte";
   import Sodexo from "./routes/Sodexo.svelte";
+  import Cartes from "./routes/Cartes.svelte";
   import Accessoires from "./routes/Accessoires.svelte";
   import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
@@ -313,6 +315,10 @@
         // « Qui n'a pas de photo » est demandé toutes les semaines : la
         // réponse mérite une porte, pas une case à cocher dans un contrôle.
         { id: "photos", label: "Les photos", icon: Camera },
+        // Faire des cartes est une tâche à part entière, et récurrente :
+        // elle avait sa place dans un onglet d'un écran d'export, où
+        // personne n'allait la chercher.
+        { id: "cartes", label: "Les cartes", icon: CreditCard },
         { id: "exports", label: "Produire un fichier", icon: FileDown },
         // « Pourquoi ce compte est-il là ? » se pose des mois après :
         // le journal existait, il n'avait simplement pas de porte.
@@ -705,6 +711,8 @@
           <QuelquunBouge onNaviguer={(p) => (page = p)} />
         {:else if page === "sodexo"}
           <Sodexo />
+        {:else if page === "cartes"}
+          <Cartes />
         {:else if page === "journal"}
           <Journal />
         {:else if page === "photos"}

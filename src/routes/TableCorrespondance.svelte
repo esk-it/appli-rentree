@@ -131,6 +131,8 @@
       ou_definitive: "",
       groupe_google: "",
       groupe_profs_google: "",
+      code_niveau: "",
+      code_etablissement: "",
     };
   }
 
@@ -171,6 +173,8 @@
       ou_definitive: l.ou_definitive,
       groupe_google: l.groupe_google ?? "",
       groupe_profs_google: l.groupe_profs_google ?? "",
+      code_niveau: l.code_niveau ?? "",
+      code_etablissement: l.code_etablissement ?? "",
     };
     modale = { mode: "modifier", id: l.id };
   }
@@ -205,6 +209,11 @@
         ou_definitive: form.ou_definitive.trim(),
         groupe_google: form.groupe_google.trim() || null,
         groupe_profs_google: form.groupe_profs_google.trim() || null,
+        // Renvoyés même inchangés : le backend réécrit toute la ligne,
+        // et les omettre effacerait les codes appris par l'atelier des
+        // cartes dès qu'on corrige une OU.
+        code_niveau: form.code_niveau.trim() || null,
+        code_etablissement: form.code_etablissement.trim() || null,
       };
       if (modale.mode === "creer") {
         await tableCorrespondance.creer(payload);
@@ -622,6 +631,31 @@
             type="text"
             bind:value={form.groupe_profs_google}
             placeholder="profs-1ere-st2s1@lekreisker.fr"
+            class="champ mt-1 font-mono text-xs"
+          />
+        </label>
+      </div>
+
+      <!-- Les deux codes que CardStudio réclame et que rien d'autre ne
+           connaît. Ils appartiennent à la classe, pas à l'élève : ils se
+           saisissent donc ici, une fois, et l'atelier des cartes sait aussi
+           les apprendre d'un export. -->
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block">
+          <span class="libelle-champ">Code niveau (cartes)</span>
+          <input
+            type="text"
+            bind:value={form.code_niveau}
+            placeholder="1-2NDES-LY"
+            class="champ mt-1 font-mono text-xs"
+          />
+        </label>
+        <label class="block">
+          <span class="libelle-champ">Code établissement (cartes)</span>
+          <input
+            type="text"
+            bind:value={form.code_etablissement}
+            placeholder="03-LY"
             class="champ mt-1 font-mono text-xs"
           />
         </label>

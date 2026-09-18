@@ -49,6 +49,19 @@ class TableCorrespondance(Base):
     groupe_profs_google: Mapped[str | None] = mapped_column(String(200), nullable=True)
     """Groupe Google des profs enseignant dans cette classe — ex. `profs-2nde-gatl@lekreisker.fr`."""
 
+    code_niveau: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    """Code niveau Charlemagne — ex. `1-2NDES-LY`, `4-BTS-LY`, `2-1ERES-LP`.
+
+    Attribut de la **classe**, pas de l'élève : mesuré sur l'export de
+    référence, 64 classes pour 64 niveaux, aucune ambiguïté. Il ne se
+    déduit pas du code classe (`1_BPAGORA` → `2-1ERES-LP`), il s'apprend.
+    CardStudio le réclame, et rien d'autre dans le programme ne le connaît."""
+
+    code_etablissement: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    """`02-COL`, `03-LY`, `04-LP`. Plus fin que le site : NDK regroupe le
+    lycée général (`03-LY`) et le lycée professionnel (`04-LP`), que
+    CardStudio distingue."""
+
     site: Mapped["Site"] = relationship()
 
     __table_args__ = (

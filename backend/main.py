@@ -48,6 +48,7 @@ from backend.routers import (
     parcours as parcours_router,
     parc as parc_router,
     ts1000 as ts1000_router,
+    cartes as cartes_router,
 )
 
 
@@ -263,3 +264,4 @@ app.include_router(bilan_router.router)
 app.include_router(concordance_router.router)
 app.include_router(parc_router.router)
 app.include_router(ts1000_router.router)
+app.include_router(cartes_router.router)

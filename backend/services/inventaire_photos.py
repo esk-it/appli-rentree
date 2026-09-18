@@ -214,15 +214,35 @@ def _pistes(
     return sorted(set(vus))
 
 
-def relever(
-    session: Session, *, annee_id: int, type_personne: str = "eleve"
-) -> InventairePhotos:
-    """Qui a sa photo sur le partage, et qui ne l'a pas.
+@dataclass
+class Parcours:
+    """Le partage lu une fois, et ce qu'on en a déduit.
 
-    Args:
-        type_personne: `eleve` ou `adulte`. Chacun a son dossier, et ils ne
-            se recoupent pas — chercher un professeur parmi les photos
-            d'élèves ne ferait que des absences fausses.
+    Deux écrans posent la même question au même dossier : *qui a sa
+    photo ?* pour relancer les familles, et *où est-elle ?* pour la poser
+    sur une carte. La règle du fichier disputé — une image revendiquée par
+    deux homonymes n'appartient à aucun des deux — ne doit exister qu'à un
+    seul endroit : dupliquée, elle finirait par diverger, et la carte
+    porterait le visage que la liste déclarait douteux.
+    """
+
+    racine: Path
+    dossier: str
+    reels: dict[str, str]
+    """Nom de fichier replié → nom réel. Le partage se lit sans égard à la
+    casse, mais un chemin qu'on écrit dans un fichier doit être le vrai."""
+    presents: set[str]
+    retenus: list[tuple[Personne, str, str | None]]
+    """(personne, classe, fichier trouvé — replié) pour les présents de l'année."""
+    disputes: set[str]
+    pris: set[str]
+    sites: dict[int, str]
+
+
+def _parcourir(
+    session: Session, *, annee_id: int, type_personne: str
+) -> Parcours:
+    """Lit le partage et attribue ce qui ne fait pas de doute.
 
     Raises:
         InventaireImpossible: dossier non réglé, ou inaccessible — les deux
@@ -255,17 +275,16 @@ def relever(
     # Un seul parcours du dossier plutôt qu'un test par nom candidat : sur un
     # partage réseau, lister une fois coûte bien moins que deux mille
     # interrogations de fichier.
-    presents = {
-        f.name.casefold()
+    reels = {
+        f.name.casefold(): f.name
         for f in racine.iterdir()
         if f.is_file() and f.suffix.casefold() in EXTENSIONS
     }
+    presents = set(reels)
 
     from backend.models import Site
 
     sites = {s.id: s.nom for s in session.query(Site).all()}
-    inventaire = InventairePhotos(dossier=dossier, type_personne=type_personne)
-    par_classe: dict[str, dict[str, int]] = defaultdict(lambda: {"avec": 0, "sans": 0})
 
     # Première passe : qui revendique quoi. Rien n'est attribué encore.
     retenus: list[tuple[Personne, str, str | None]] = []
@@ -301,8 +320,70 @@ def relever(
     disputes = {f for f, n in revendications.items() if n > 1}
     pris = {f for f in revendications if f not in disputes}
 
+    return Parcours(
+        racine=racine,
+        dossier=dossier,
+        reels=reels,
+        presents=presents,
+        retenus=retenus,
+        disputes=disputes,
+        pris=pris,
+        sites=sites,
+    )
+
+
+def chemins_attribues(
+    session: Session, *, annee_id: int, type_personne: str = "eleve"
+) -> dict[int, str]:
+    """Le chemin réseau de la photo, pour qui en a une sans conteste.
+
+    C'est ce que CardStudio réclame : pas un nom de fichier reconstruit à
+    la volée, mais le chemin d'un fichier dont on vient de constater
+    l'existence. Une carte se fabrique une fois ; un chemin faux ne se
+    découvre qu'à l'impression, sur une carte déjà gâchée.
+
+    Les absents et les litiges sont simplement **hors du dictionnaire** :
+    l'appelant décide quoi en faire, et il doit le décider.
+    """
+    parcours = _parcourir(session, annee_id=annee_id, type_personne=type_personne)
+    # `_trouver` rend tantôt le nom tel que la personne s'écrit (branche du
+    # nom nu), tantôt une entrée déjà repliée (branche des homonymes). C'est
+    # la forme repliée qui indexe le partage, ici comme dans les revendications.
+    attribues: dict[int, str] = {}
+    for p, _classe, trouve in parcours.retenus:
+        if not trouve:
+            continue
+        cle = trouve.casefold()
+        if cle in parcours.disputes or cle not in parcours.reels:
+            continue
+        attribues[p.id] = str(parcours.racine / parcours.reels[cle])
+    return attribues
+
+
+def relever(
+    session: Session, *, annee_id: int, type_personne: str = "eleve"
+) -> InventairePhotos:
+    """Qui a sa photo sur le partage, et qui ne l'a pas.
+
+    Args:
+        type_personne: `eleve` ou `adulte`. Chacun a son dossier, et ils ne
+            se recoupent pas — chercher un professeur parmi les photos
+            d'élèves ne ferait que des absences fausses.
+
+    Raises:
+        InventaireImpossible: dossier non réglé, ou inaccessible.
+    """
+    parcours = _parcourir(session, annee_id=annee_id, type_personne=type_personne)
+    racine, presents = parcours.racine, parcours.presents
+    disputes, pris, sites = parcours.disputes, parcours.pris, parcours.sites
+
+    inventaire = InventairePhotos(
+        dossier=parcours.dossier, type_personne=type_personne
+    )
+    par_classe: dict[str, dict[str, int]] = defaultdict(lambda: {"avec": 0, "sans": 0})
+
     # Seconde passe : ce qui reste, et les pistes encore libres.
-    for p, classe, trouve in retenus:
+    for p, classe, trouve in parcours.retenus:
         inventaire.nb_eleves += 1
         if trouve and trouve.casefold() not in disputes:
             inventaire.nb_avec += 1
