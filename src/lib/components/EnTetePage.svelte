@@ -1,5 +1,6 @@
 <script>
   import { getContext } from "svelte";
+  import { teinteCourante } from "$lib/ecran.svelte.js";
 
   /**
    * En-tête de page — titre, description, actions.
@@ -8,8 +9,18 @@
    * marges légèrement différentes. Les écarts ne se voient pas isolément
    * mais donnent une impression de flottement quand on navigue.
    *
-   * L'icône dans une pastille colorée sert de repère : on reconnaît la
-   * page avant même d'avoir lu le titre.
+   * ## La couleur vient de la navigation, pas de l'écran
+   *
+   * L'icône est posée sur un voile de la teinte de la famille — orange la
+   * rentrée, violet l'année, rose les photos. Aucun des trente écrans n'a
+   * eu à la déclarer : la navigation dépose l'écran ouvert dans un module,
+   * et l'en-tête l'y lit. Le `ton` explicite reste possible et l'emporte,
+   * pour les rares cas où un écran veut se signaler autrement.
+   *
+   * ## Le filet plutôt que la boîte
+   *
+   * L'en-tête ne s'enferme pas dans une carte : un trait sous le titre
+   * sépare autant, et laisse l'écran respirer.
    *
    * ## Embarqué dans une étape du parcours
    *
@@ -19,29 +30,28 @@
    * réduit alors à sa barre d'actions — les boutons, eux, restent
    * indispensables.
    *
-   * Le contexte plutôt qu'une propriété : l'écran embarqué ne sait pas
-   * qu'il l'est, et n'a pas à le savoir. Onze fichiers restent intacts.
-   *
    * @typedef {Object} Props
    * @property {string} titre
    * @property {string} [description]
    * @property {any} [icon]
-   * @property {"emerald"|"sky"|"amber"|"stone"|"red"} [ton]
+   * @property {"emerald"|"sky"|"amber"|"stone"|"red"} [ton] - force une couleur
    * @property {import('svelte').Snippet} [actions] - boutons alignés à droite
    */
   /** @type {Props} */
-  let { titre, description = "", icon: Icon, ton = "emerald", actions } = $props();
+  let { titre, description = "", icon: Icon, ton = null, actions } = $props();
 
   /** Vrai quand le parcours affiche cet écran dans une de ses étapes. */
   const embarque = getContext("parcours.embarque") === true;
 
   const TONS = {
-    emerald: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400",
-    sky: "bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-400",
-    amber: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
-    stone: "bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-400",
-    red: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400",
+    emerald: "var(--color-emerald-600)",
+    sky: "var(--color-sky-600)",
+    amber: "var(--color-amber-600)",
+    stone: "var(--color-stone-500)",
+    red: "var(--color-red-600)",
   };
+
+  let couleur = $derived(ton ? (TONS[ton] ?? TONS.emerald) : teinteCourante());
 </script>
 
 {#if embarque}
@@ -52,28 +62,34 @@
     </div>
   {/if}
 {:else}
-<header class="flex items-start justify-between gap-4">
-  <div class="flex min-w-0 items-start gap-3">
-    {#if Icon}
-      <div class="mt-0.5 shrink-0 rounded-xl p-2.5 {TONS[ton]}">
-        <Icon class="h-5 w-5" />
+  <header class="border-b border-stone-200 pb-4 dark:border-stone-800">
+    <div class="flex items-start justify-between gap-4">
+      <div class="flex min-w-0 items-center gap-3.5">
+        {#if Icon}
+          <span
+            class="plaque-icone h-12 w-12"
+            style="--teinte: {couleur};"
+            aria-hidden="true"
+          >
+            <Icon class="h-6 w-6" style="stroke-width: 1.8;" />
+          </span>
+        {/if}
+        <div class="min-w-0">
+          <h1 class="titre-affiche text-[28px] leading-tight text-stone-900 dark:text-stone-50">
+            {titre}
+          </h1>
+          {#if description}
+            <p class="mt-1 max-w-3xl text-sm leading-relaxed text-stone-600 dark:text-stone-400">
+              {description}
+            </p>
+          {/if}
+        </div>
       </div>
-    {/if}
-    <div class="min-w-0">
-      <h1 class="text-2xl font-semibold text-stone-900 dark:text-stone-100">
-        {titre}
-      </h1>
-      {#if description}
-        <p class="mt-1 max-w-3xl text-sm leading-relaxed text-stone-600 dark:text-stone-400">
-          {description}
-        </p>
+      {#if actions}
+        <div class="flex shrink-0 items-center gap-2">
+          {@render actions()}
+        </div>
       {/if}
     </div>
-  </div>
-  {#if actions}
-    <div class="flex shrink-0 items-center gap-2">
-      {@render actions()}
-    </div>
-  {/if}
-</header>
+  </header>
 {/if}

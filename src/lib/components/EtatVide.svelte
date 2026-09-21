@@ -16,39 +16,41 @@
   /** @type {Props} */
   let { icon: Icon, titre, message = "", ton = "neutre", children } = $props();
 
+  import { teinteCourante } from "$lib/ecran.svelte.js";
+
+  /**
+   * Le ton neutre prend la couleur de l'écran plutôt qu'un gris.
+   *
+   * Un écran vide est le premier que l'on voit en arrivant : c'est le
+   * moment où l'identité du module doit se poser, pas celui où tout
+   * devient gris. Les deux autres tons gardent la leur — un succès est
+   * vert et un avertissement ambre, quel que soit l'écran.
+   */
   const TONS = {
-    neutre: {
-      bloc: "border-stone-200 bg-stone-50/60 dark:border-stone-700 dark:bg-stone-800/40",
-      icone: "text-stone-300 dark:text-stone-600",
-      titre: "text-stone-700 dark:text-stone-300",
-    },
-    succes: {
-      bloc: "border-emerald-200 bg-emerald-50/60 dark:border-emerald-800 dark:bg-emerald-900/20",
-      icone: "text-emerald-500 dark:text-emerald-400",
-      titre: "text-emerald-900 dark:text-emerald-200",
-    },
-    attention: {
-      bloc: "border-amber-200 bg-amber-50/60 dark:border-amber-800 dark:bg-amber-900/20",
-      icone: "text-amber-500 dark:text-amber-400",
-      titre: "text-amber-900 dark:text-amber-200",
-    },
+    succes: "var(--color-fam-koxo)",
+    attention: "var(--color-amber-500)",
   };
 
-  let style = $derived(TONS[ton] ?? TONS.neutre);
+  let couleur = $derived(TONS[ton] ?? teinteCourante());
 </script>
 
-<div class="anim-apparition rounded-xl border border-dashed p-8 text-center {style.bloc}">
+<div
+  class="anim-apparition rounded-3xl p-10 text-center"
+  style="--teinte: {couleur}; background: color-mix(in oklab, {couleur} 7%, transparent);"
+>
   {#if Icon}
-    <Icon class="mx-auto mb-3 h-10 w-10 {style.icone}" />
+    <span class="plaque-icone mx-auto mb-4 h-14 w-14">
+      <Icon class="h-7 w-7" style="stroke-width: 1.6;" />
+    </span>
   {/if}
-  <p class="text-sm font-medium {style.titre}">{titre}</p>
+  <p class="titre-affiche text-lg" style="color: {couleur};">{titre}</p>
   {#if message}
-    <p class="mx-auto mt-1.5 max-w-md text-xs leading-relaxed text-stone-600 dark:text-stone-400">
+    <p class="mx-auto mt-2 max-w-md text-sm leading-relaxed text-stone-600 dark:text-stone-400">
       {message}
     </p>
   {/if}
   {#if children}
-    <div class="mt-4 flex justify-center gap-2">
+    <div class="mt-5 flex justify-center gap-2">
       {@render children()}
     </div>
   {/if}

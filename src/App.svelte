@@ -82,6 +82,7 @@
   import { theme, basculerTheme } from "$lib/theme.js";
   import { TEINTES, teinte } from "$lib/familles.js";
   import { charger as chargerAnnees } from "$lib/annee.svelte.js";
+  import { declarer as declarerEcran } from "$lib/ecran.svelte.js";
   import Sun from "@lucide/svelte/icons/sun";
   import Moon from "@lucide/svelte/icons/moon";
   import { attendreBackend } from "$lib/api.js";
@@ -423,6 +424,10 @@
    */
   let ordreRaccourcis = $derived(ecransDeLaPartie.map((e) => e.id));
 
+  // La couleur d'un écran est celle de sa famille, et c'est la
+  // navigation qui la connaît : elle la dépose, l'en-tête la lit.
+  $effect(() => declarerEcran(page, partieActive ?? "annee"));
+
   /**
    * Le trait qui souligne l'onglet ouvert, mesuré sur le bouton réel.
    *
@@ -576,10 +581,22 @@
        lieu de vingt-cinq entrées présentées d'un bloc. -->
   <header class="shrink-0 border-b border-stone-200 bg-white dark:border-stone-800 dark:bg-stone-900">
     <div class="flex items-center gap-6 px-5 py-2.5">
-      <div class="flex items-center gap-2.5">
+      <!-- Le logo ramène à l'accueil.
+           Il n'y menait pas : une fois entré dans une partie, plus aucun
+           chemin ne revenait à la page d'accueil, qui devenait un écran
+           qu'on ne voyait qu'au lancement. Cliquer le nom du programme pour
+           revenir à son entrée est la convention la plus répandue qui soit ;
+           elle manquait, simplement. -->
+      <button
+        type="button"
+        class="flex items-center gap-2.5 rounded-xl px-1.5 py-1 transition-colors hover:bg-stone-100 dark:hover:bg-stone-800"
+        title="Revenir à l'accueil"
+        aria-current={page === "accueil" ? "page" : undefined}
+        onclick={() => (page = "accueil")}
+      >
         <!-- Les quatre pastilles ne décorent pas : ce sont les couleurs des
              familles, et donc la clé du code employé partout ailleurs. -->
-        <div
+        <span
           class="grid h-9 w-9 shrink-0 grid-cols-2 grid-rows-2 gap-1 rounded-xl bg-stone-900 p-1.5 dark:bg-stone-800"
           aria-hidden="true"
         >
@@ -587,14 +604,14 @@
           <span class="rounded-full" style="background: {TEINTES.annee}"></span>
           <span class="rounded-full" style="background: {TEINTES.materiel}"></span>
           <span class="rounded-full" style="background: {TEINTES.repas}"></span>
-        </div>
-        <div class="flex flex-col leading-tight whitespace-nowrap">
+        </span>
+        <span class="flex flex-col text-left leading-tight whitespace-nowrap">
           <span class="titre-affiche text-[17px] text-stone-900 dark:text-stone-100">
             Appli Rentrée
           </span>
           <span class="text-[11px] text-stone-500 dark:text-stone-400">Ensemble Scolaire du Kreisker</span>
-        </div>
-      </div>
+        </span>
+      </button>
 
       <nav class="flex items-center gap-1" aria-label="Parties">
         {#each PARTIES as partie (partie.id)}

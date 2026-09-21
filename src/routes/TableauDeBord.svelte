@@ -4,11 +4,11 @@
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import Cloud from "@lucide/svelte/icons/cloud";
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
+  import Rocket from "@lucide/svelte/icons/rocket";
   import Squelette from "$lib/components/Squelette.svelte";
   import Bouton from "$lib/components/Bouton.svelte";
   import Progression from "$lib/components/Progression.svelte";
   import { annees, parcoursApi, statistiques } from "$lib/api.js";
-  import { PHASES, etapesDe } from "$lib/parcours.js";
   import { TEINTES, teinte } from "$lib/familles.js";
   import { annee, courante } from "$lib/annee.svelte.js";
   import { notify } from "$lib/toasts.js";
@@ -199,76 +199,64 @@
     {/if}
 
     <!-- ----------------------------------------------------------------
-         La rentrée : l'avancement réel, pas un compteur.
+         La rentrée : un bandeau, et le parcours à côté.
+
+         La liste des quinze étapes vivait ici en double de l'écran du
+         parcours, qui les montre en entier avec leurs pièges et leur
+         outil. Deux listes pour la même chose, dont une tronquée : celle
+         qui ne sert à rien est celle-ci. Reste ce que l'accueil doit
+         dire — où l'on en est — et la porte pour y aller.
          ---------------------------------------------------------------- -->
     {#if nbEtapes > 0}
-      <section>
-        <div class="flex items-center gap-3">
-          <span class="h-2.5 w-2.5 shrink-0 rounded-full" style="background: {TEINTES.rentree}"></span>
-          <h2 class="titre-affiche text-xl">La rentrée</h2>
-          <span class="text-[13px] text-stone-500 dark:text-stone-400">
-            {nbFaites} étape{nbFaites > 1 ? "s" : ""} faite{nbFaites > 1 ? "s" : ""} sur {nbEtapes}
+      <section
+        class="rounded-3xl p-6"
+        style="background: color-mix(in oklab, {TEINTES.rentree} 9%, transparent);"
+      >
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-3">
+          <span
+            class="plaque-icone h-12 w-12"
+            style="--teinte: {TEINTES.rentree};"
+            aria-hidden="true"
+          >
+            <Rocket class="h-6 w-6" style="stroke-width: 1.8;" />
           </span>
-          <span class="filet"></span>
-          {#if nbInconnues > 0}
+          <div class="min-w-0">
+            <h2 class="titre-affiche text-xl" style="color: {TEINTES.rentree};">
+              La rentrée {anneeCourante?.libelle ?? ""}
+            </h2>
+            <p class="text-[13px] text-stone-600 dark:text-stone-300">
+              <strong class="tabular-nums">{nbFaites}</strong> étape{nbFaites > 1 ? "s" : ""}
+              faite{nbFaites > 1 ? "s" : ""} sur {nbEtapes}
+              {#if nbInconnues > 0}
+                · <span class="tabular-nums">{nbInconnues}</span> qui ne se
+                constatent que dans Google
+              {/if}
+            </p>
+          </div>
+          <div class="ml-auto flex flex-wrap items-center gap-2">
+            {#if nbInconnues > 0}
+              <Bouton
+                taille="sm"
+                icon={Cloud}
+                occupe={interrogationGoogle}
+                onclick={interrogerGoogle}
+              >
+                Interroger Google
+              </Bouton>
+            {/if}
             <Bouton
+              variante="primary"
               taille="sm"
-              icon={Cloud}
-              occupe={interrogationGoogle}
-              onclick={interrogerGoogle}
+              icon={ArrowRight}
+              onclick={() => aller("parcours")}
             >
-              Interroger Google ({nbInconnues})
+              Ouvrir le parcours
             </Bouton>
-          {/if}
-          <Bouton taille="sm" icon={ArrowRight} onclick={() => aller("parcours")}>
-            Ouvrir le parcours
-          </Bouton>
+          </div>
         </div>
 
-        <div class="mt-4">
-          <Progression
-            valeur={nbFaites}
-            total={nbEtapes}
-            teinte={TEINTES.rentree}
-          />
-        </div>
-
-        <div class="mt-5 grid gap-x-10 gap-y-6 md:grid-cols-2">
-          {#each PHASES as phase (phase.id)}
-            <div>
-              <p class="titre-section">{phase.titre}</p>
-              <ul class="mt-2">
-                {#each etapesDe(phase.id) as etape (etape.id)}
-                  {@const e = etats[etape.id]}
-                  <li>
-                    <button
-                      class="flex w-full items-start gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-stone-100 dark:hover:bg-stone-900"
-                      onclick={() => aller(etape.page)}
-                    >
-                      <span
-                        class="mt-1.5 h-2 w-2 shrink-0 rounded-full"
-                        style="background: {e?.etat === 'faite'
-                          ? TEINTES.koxo
-                          : e?.etat === 'a_faire'
-                            ? 'var(--color-amber-500)'
-                            : 'var(--color-stone-300)'}"
-                      ></span>
-                      <span class="min-w-0 flex-1">
-                        <span class="block truncate text-sm font-medium text-stone-800 dark:text-stone-200">
-                          {etape.titre}
-                        </span>
-                        {#if e?.detail}
-                          <span class="block text-xs leading-snug text-stone-500 dark:text-stone-400">
-                            {e.detail}
-                          </span>
-                        {/if}
-                      </span>
-                    </button>
-                  </li>
-                {/each}
-              </ul>
-            </div>
-          {/each}
+        <div class="mt-5">
+          <Progression valeur={nbFaites} total={nbEtapes} teinte={TEINTES.rentree} />
         </div>
       </section>
     {/if}
@@ -284,32 +272,38 @@
             class="h-2.5 w-2.5 shrink-0 rounded-full"
             style="background: {TEINTES[partie.id] ?? TEINTES.annee}"
           ></span>
-          <h2 class="titre-affiche text-xl">{partie.label}</h2>
+          <h2 class="titre-affiche text-xl" style="color: {TEINTES[partie.id] ?? TEINTES.annee};">
+            {partie.label}
+          </h2>
           <span class="text-[13px] text-stone-500 dark:text-stone-400">{partie.resume}</span>
           <span class="filet"></span>
         </div>
 
-        <div class="anim-cascade mt-4 grid grid-cols-3 gap-1 sm:grid-cols-4 lg:grid-cols-6">
+        <div class="anim-cascade mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-6">
           {#each partie.ecrans as ecran (ecran.id)}
             {@const t = teinte(ecran.id, partie.id)}
             {@const compteur = ecran.badge ? ecran.badge() : 0}
             <button
-              class="anim-apparition flex flex-col items-center gap-2 rounded-2xl p-3 text-center transition-colors hover:bg-stone-100 dark:hover:bg-stone-900"
+              class="anim-apparition group flex flex-col items-center gap-2.5 rounded-2xl p-3 text-center transition-transform duration-150 hover:-translate-y-0.5"
               onclick={() => aller(ecran.id)}
             >
-              <span class="relative block h-12 w-12" style="color: {t}">
-                <!-- Le remplissage pâle est posé sur le tracé lui-même :
-                     c'est ce qui distingue une icône dessinée d'un
-                     pictogramme d'interface. -->
-                <ecran.icon
-                  class="h-12 w-12"
-                  style="fill: {voile(t)}; stroke-width: 1.5;"
-                />
+              <!-- L'icône sur sa plaque teintée : c'est la couleur du
+                   domaine qui se voit de loin, pas le trait. -->
+              <span class="relative">
+                <span
+                  class="plaque-icone h-16 w-16 transition-[background-color] duration-150"
+                  style="--teinte: {t};"
+                >
+                  <ecran.icon
+                    class="h-8 w-8"
+                    style="fill: {voile(t)}; stroke-width: 1.6;"
+                  />
+                </span>
                 {#if compteur > 0}
                   <span class="pastille-compteur">{compteur}</span>
                 {/if}
               </span>
-              <span class="text-sm leading-tight font-semibold text-stone-900 dark:text-stone-100">
+              <span class="text-[13px] leading-tight font-semibold text-stone-900 dark:text-stone-100">
                 {ecran.label}
               </span>
             </button>

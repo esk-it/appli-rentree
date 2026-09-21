@@ -1,4 +1,5 @@
 <script>
+  import { teinteCourante } from "$lib/ecran.svelte.js";
   /**
    * Sélecteur segmenté avec indicateur glissant.
    *
@@ -31,6 +32,9 @@
     pleineLargeur = false,
     onChange,
   } = $props();
+
+  /** La couleur de l'écran ouvert : un filtre actif porte sa teinte. */
+  let couleur = $derived(teinteCourante());
 
   let conteneur = $state(/** @type {HTMLElement|null} */ (null));
   let indicateur = $state({ gauche: 0, largeur: 0, pret: false });
@@ -82,15 +86,16 @@
 
 <div
   bind:this={conteneur}
-  class="relative inline-flex gap-0.5 rounded-lg border border-stone-200 bg-stone-50 p-1 dark:border-stone-700 dark:bg-stone-900/60
+  class="relative inline-flex gap-0.5 rounded-full border border-stone-200 bg-stone-100 p-1 dark:border-stone-800 dark:bg-stone-900
          {pleineLargeur ? 'flex w-full' : ''}"
   role="tablist"
 >
   <!-- Indicateur glissant, sous les boutons -->
   {#if indicateur.pret}
     <span
-      class="pointer-events-none absolute top-1 bottom-1 rounded-md bg-white shadow-sm ring-1 ring-stone-200 transition-all duration-200 ease-out dark:bg-stone-700 dark:ring-stone-600"
-      style="left: {indicateur.gauche}px; width: {indicateur.largeur}px;"
+      class="pointer-events-none absolute top-1 bottom-1 rounded-full transition-all duration-200 ease-out"
+      style="left: {indicateur.gauche}px; width: {indicateur.largeur}px;
+             background: color-mix(in oklab, {couleur} 16%, transparent);"
     ></span>
   {/if}
 
@@ -101,12 +106,13 @@
       role="tab"
       aria-selected={actif}
       data-actif={actif}
-      class="relative z-10 inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition-colors duration-150
+      class="relative z-10 inline-flex items-center justify-center gap-1.5 rounded-full font-semibold transition-colors duration-150
              {classesBouton}
              {pleineLargeur ? 'flex-1' : ''}
              {actif
-               ? 'text-emerald-800 dark:text-emerald-300'
+               ? ''
                : 'text-stone-600 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-200'}"
+      style={actif ? `color: ${couleur};` : ""}
       onclick={() => choisir(opt.id)}
     >
       {#if opt.icon}
