@@ -1,30 +1,135 @@
 @import "tailwindcss";
+@import "./lib/polices.css";
 
 /* Variante dark mode activée par la classe .dark sur <html> */
 @variant dark (&:where(.dark, .dark *));
 
-/* Palette et tokens spécifiques à l'app Rentrée.
- * Esprit : organisation scolaire chaleureuse — fond stone clair,
- * accent vert sapin pour les actions principales, codes couleur
- * status élève (entrant / restant / sortant). */
+/* ---------------------------------------------------------------------------
+ * L'identité visuelle
+ *
+ * ## Pourquoi re-teinter l'échelle plutôt que réécrire les écrans
+ *
+ * Trente écrans écrivent `bg-stone-50`, `text-stone-600`, `dark:bg-stone-800`.
+ * Changer l'identité en les reprenant un par un, c'est trente occasions
+ * d'oublier une ligne et de laisser un écran dans l'ancienne peau.
+ *
+ * L'échelle elle-même est donc redéfinie ici. `stone` n'est plus le gris
+ * neutre de Tailwind mais un **neutre teinté d'indigo**, tiré de l'encre
+ * `#1E1B3A` : le même mot dans les écrans, une autre couleur à l'écran, et
+ * la cohérence tient toute seule.
+ *
+ * Deux conséquences voulues :
+ * - le thème sombre naît du même geste, `stone-900` étant exactement
+ *   l'encre du thème clair — les deux mondes partagent une teinte ;
+ * - un neutre choisi plutôt qu'hérité. Un gris pur passe pour un oubli.
+ *
+ * `emerald` devient le **violet** de l'accent, `sky` le bleu, `amber`
+ * l'ambre d'alerte, `red` le rouge d'écart. Les noms mentent un peu ; les
+ * réécrire partout mentirait moins mais coûterait la cohérence.
+ * ------------------------------------------------------------------------ */
 @theme {
-  --color-rentree-primary: oklch(0.45 0.13 155); /* vert sapin */
-  --color-rentree-primary-hover: oklch(0.4 0.13 155);
+  /* Le neutre : indigo désaturé, de l'encre au presque-blanc. */
+  --color-stone-50: #fafafc;
+  --color-stone-100: #f4f3f8;
+  --color-stone-200: #eceaf3; /* le filet */
+  --color-stone-300: #dad7e8; /* bordure de champ */
+  --color-stone-400: #b0abc7;
+  --color-stone-500: #8a86a3;
+  --color-stone-600: #6b6885; /* texte secondaire */
+  --color-stone-700: #514e6b;
+  --color-stone-800: #2e2a4d; /* surface sombre, filet sombre */
+  --color-stone-900: #1e1b3a; /* l'encre */
+  --color-stone-950: #16142b; /* fond sombre */
 
-  /* Status élèves */
-  --color-status-nouveau: oklch(0.7 0.18 145); /* vert vif */
-  --color-status-restant: oklch(0.65 0.13 230); /* bleu calme */
-  --color-status-sortant: oklch(0.7 0.18 55); /* ambre */
+  /* L'accent : violet. */
+  --color-emerald-50: #f3f1ff;
+  --color-emerald-100: #ece9ff; /* le voile */
+  --color-emerald-200: #dad4ff;
+  --color-emerald-300: #bfb4ff;
+  --color-emerald-400: #a092ff; /* lisible sur fond sombre */
+  --color-emerald-500: #7c69f5;
+  --color-emerald-600: #5f4de8; /* l'accent */
+  --color-emerald-700: #4f3fd0;
+  --color-emerald-800: #4536b8; /* texte sur voile */
+  --color-emerald-900: #332a8a;
+  --color-emerald-950: #241d63;
 
-  /* Pile système affinée pour Windows.
+  /* Le bleu des systèmes tiers. */
+  --color-sky-50: #eff5ff;
+  --color-sky-100: #e0ebff;
+  --color-sky-200: #c7dbff;
+  --color-sky-300: #9fc0ff;
+  --color-sky-400: #79a6ff;
+  --color-sky-500: #4a82ee;
+  --color-sky-600: #2f6ce0;
+  --color-sky-700: #1f55c4;
+  --color-sky-800: #1b47a0;
+  --color-sky-900: #1a3c80;
+  --color-sky-950: #13274f;
+
+  /* L'ambre : ce qui attend, ce qui n'est pas vérifié. */
+  --color-amber-50: #fff6e0;
+  --color-amber-100: #ffedc2;
+  --color-amber-200: #ffdc8f;
+  --color-amber-300: #f7c65a;
+  --color-amber-400: #f0b44c;
+  --color-amber-500: #f0a017;
+  --color-amber-600: #d18400;
+  --color-amber-700: #a96a00;
+  --color-amber-800: #8f5b00;
+  --color-amber-900: #6d4500;
+  --color-amber-950: #472d00;
+
+  /* Le rouge : l'écart, la collision, ce qui bloque. */
+  --color-red-50: #fff0ee;
+  --color-red-100: #ffddd8;
+  --color-red-200: #f5c4bd;
+  --color-red-300: #f0a096;
+  --color-red-400: #f07a6c;
+  --color-red-500: #e5484d;
+  --color-red-600: #d93b2b;
+  --color-red-700: #c42f1d;
+  --color-red-800: #a12718;
+  --color-red-900: #812015;
+  --color-red-950: #4c1009;
+
+  /* ------------------------------------------------------------------
+   * Les familles.
    *
-   * « Inter » figurait ici sans jamais être chargée — ni fichier local ni
-   * @font-face — donc l'app retombait silencieusement sur la police par
-   * défaut. Plutôt que d'embarquer une police (poids ajouté au binaire,
-   * pour un gain discutable), on nomme explicitement les meilleures polices
-   * déjà présentes : Segoe UI Variable sur Windows 11, Segoe UI sur 10. */
-  --font-sans: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui,
-    -apple-system, sans-serif;
+   * Chaque domaine porte sa couleur, d'un bout à l'autre du programme :
+   * la pastille de sa section, le trait de son icône, le voile derrière.
+   * On reconnaît un écran à sa teinte avant d'avoir lu son titre.
+   * ------------------------------------------------------------------ */
+  --color-fam-rentree: #e4502f;
+  --color-fam-rentree-voile: #ffe8e1;
+  --color-fam-annee: #5f4de8;
+  --color-fam-annee-voile: #ece9ff;
+  --color-fam-materiel: #0c8fa1;
+  --color-fam-materiel-voile: #d9f3f7;
+  --color-fam-google: #2f6ce0;
+  --color-fam-google-voile: #e0ebff;
+  --color-fam-koxo: #16995f;
+  --color-fam-koxo-voile: #ddf4e8;
+  --color-fam-photos: #d93a8c;
+  --color-fam-photos-voile: #fce4f1;
+  --color-fam-repas: #c77f00;
+  --color-fam-repas-voile: #fff6e0;
+  --color-fam-fichiers: #58647e;
+  --color-fam-fichiers-voile: #e9ecf3;
+
+  /* ------------------------------------------------------------------
+   * Les polices, embarquées dans le paquet.
+   *
+   * Une grotesque de titrage à caractère, une sans-serif de lecture. La
+   * pile système précédente ne coûtait rien et ne disait rien ; celle-ci
+   * donne une voix au programme. Les deux sont servies depuis le disque :
+   * une application de bureau ne doit pas attendre le réseau pour
+   * s'afficher.
+   * ------------------------------------------------------------------ */
+  --font-display: "Bricolage Grotesque", "Segoe UI Variable Display",
+    "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Figtree", "Segoe UI Variable Text", "Segoe UI", ui-sans-serif,
+    system-ui, -apple-system, sans-serif;
   --font-mono: "Cascadia Code", "Cascadia Mono", ui-monospace, "SF Mono",
     Consolas, monospace;
 
@@ -48,12 +153,15 @@ html {
   font-feature-settings: "cv11", "ss01";
 }
 
-/* Les titres serrent légèrement leur interlettrage : à grande taille, les
- * espacements par défaut paraissent lâches. */
+/* Les titres prennent la grotesque et serrent leur interlettrage : à
+ * grande taille, les espacements par défaut paraissent lâches. Le corps
+ * du texte garde la sans-serif de lecture — deux voix, deux rôles. */
 h1,
 h2,
 h3 {
-  letter-spacing: -0.015em;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
 /* Tout ce qui est chiffré s'aligne en colonnes, y compris dans les
@@ -126,6 +234,36 @@ th {
   }
 }
 
+/* La barre qui ne connaît pas sa fin.
+ *
+ * Lire un partage réseau ou interroger Google ne donne aucun pourcentage
+ * honnête : le programme ne sait pas combien il reste. Une barre qui
+ * avance sans jamais promettre de terme dit « ça travaille » sans mentir
+ * sur « ça finit dans trois secondes ». */
+@keyframes va_et_vient {
+  0% {
+    transform: translateX(-100%) scaleX(0.4);
+  }
+  50% {
+    transform: translateX(20%) scaleX(0.7);
+  }
+  100% {
+    transform: translateX(160%) scaleX(0.4);
+  }
+}
+
+/* Le glissement d'un écran à l'autre : court, et sur l'axe de la lecture. */
+@keyframes entree_ecran {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .anim-apparition {
   animation: apparition var(--duree-normale) ease-out both;
 }
@@ -169,40 +307,64 @@ th {
  * Composants utilitaires
  * ------------------------------------------------------------------------ */
 
+/* Le bouton principal porte l'**encre**, pas l'accent.
+ *
+ * Un accent posé sur chaque bouton cesse d'être un accent : quand tout est
+ * mis en avant, plus rien ne l'est. La couleur reste donc à ce qui porte du
+ * sens — l'état d'une ligne, la famille d'un écran — et l'action se signale
+ * par le contraste. En thème sombre, le rapport s'inverse. */
 .btn-primary {
-  @apply inline-flex items-center gap-2 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-150 hover:bg-emerald-800 hover:shadow active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:bg-emerald-600 dark:hover:bg-emerald-500 dark:focus-visible:ring-offset-stone-900;
+  @apply inline-flex items-center gap-2 rounded-full bg-stone-900 px-5 py-2 text-sm font-semibold text-white transition-all duration-150 hover:bg-stone-800 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white dark:focus-visible:ring-offset-stone-950;
 }
 
 .btn-secondary {
-  @apply inline-flex items-center gap-2 rounded-lg border border-stone-300 bg-white px-4 py-2 text-sm font-medium text-stone-700 shadow-sm transition-all duration-150 hover:border-stone-400 hover:bg-stone-50 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-400 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-200 dark:hover:border-stone-500 dark:hover:bg-stone-700 dark:focus-visible:ring-offset-stone-900;
+  @apply inline-flex items-center gap-2 rounded-full border border-stone-300 bg-transparent px-5 py-2 text-sm font-semibold text-stone-700 transition-all duration-150 hover:border-stone-400 hover:bg-stone-100 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40 dark:border-stone-700 dark:text-stone-200 dark:hover:border-stone-600 dark:hover:bg-stone-800 dark:focus-visible:ring-offset-stone-950;
 }
 
 /* Variante destructive — réservée aux actions irréversibles */
 .btn-danger {
-  @apply inline-flex items-center gap-2 rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition-all duration-150 hover:bg-red-800 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 dark:bg-red-600 dark:hover:bg-red-500 dark:focus-visible:ring-offset-stone-900;
+  @apply inline-flex items-center gap-2 rounded-full bg-red-700 px-5 py-2 text-sm font-semibold text-white transition-all duration-150 hover:bg-red-800 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-40 dark:bg-red-500 dark:hover:bg-red-400 dark:focus-visible:ring-offset-stone-950;
 }
 
+/* La carte se tait.
+ *
+ * Bordure, fond, ombre et rayon disent chacun « objet distinct ». Les
+ * quatre sur tous les blocs à la fois aplatissent la hiérarchie : plus rien
+ * ne ressort parce que tout ressort. Il reste un filet et un fond ; ce qui
+ * doit vraiment être soulevé le demande explicitement (`card-relief`). */
 .card {
-  @apply rounded-xl border border-stone-200 bg-white shadow-sm transition-shadow duration-200 dark:border-stone-700 dark:bg-stone-800;
+  @apply rounded-2xl border border-stone-200 bg-white transition-colors duration-200 dark:border-stone-800 dark:bg-stone-900;
+}
+
+.card-relief {
+  @apply shadow-[0_1px_2px_rgba(30,27,58,0.06),0_8px_24px_-12px_rgba(30,27,58,0.18)];
 }
 
 /* Carte cliquable : léger soulèvement au survol pour signaler l'interaction */
 .card-interactive {
-  @apply cursor-pointer hover:-translate-y-0.5 hover:shadow-md;
+  @apply cursor-pointer hover:-translate-y-0.5 hover:border-stone-300 hover:shadow-[0_1px_2px_rgba(30,27,58,0.06),0_8px_24px_-12px_rgba(30,27,58,0.18)] dark:hover:border-stone-700;
 }
 
 /* Champs de formulaire — évite de répéter la même longue classe partout */
 .champ {
-  @apply w-full rounded-lg border border-stone-300 bg-white px-3 py-2 text-sm text-stone-900 transition-colors duration-150 placeholder:text-stone-400 hover:border-stone-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-100 dark:hover:border-stone-500;
+  @apply w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2 text-sm text-stone-900 transition-colors duration-150 placeholder:text-stone-400 hover:border-stone-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 dark:border-stone-700 dark:bg-stone-950 dark:text-stone-100 dark:hover:border-stone-600;
 }
 
+/* L'étiquette de colonne : petite, espacée, jamais criarde.
+ * C'est ce qui permet à un tableau de se passer de fond d'en-tête. */
 .libelle-champ {
-  @apply block text-xs font-medium uppercase tracking-wide text-stone-600 dark:text-stone-400;
+  @apply block text-[11px] font-bold tracking-[0.08em] text-stone-600 uppercase dark:text-stone-400;
 }
 
 /* Titre de section — unifie les en-têtes répétés dans les écrans */
 .titre-section {
-  @apply text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400;
+  @apply text-[11px] font-bold tracking-[0.08em] text-stone-600 uppercase dark:text-stone-400;
+}
+
+/* Les titres parlent avec la grotesque, et serrent leur interlettrage. */
+.titre-affiche {
+  font-family: var(--font-display);
+  @apply font-bold tracking-[-0.02em];
 }
 
 /* Squelette de chargement : barre de chatoiement qui traverse un bloc gris */
@@ -229,34 +391,39 @@ th {
   );
 }
 
+/* Les pastilles d'état : voile pâle, texte foncé, jamais de bordure. */
 .badge-nouveau {
-  @apply inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300;
+  @apply inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-300;
 }
 
 .badge-restant {
-  @apply inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-900/40 dark:text-sky-300;
+  @apply inline-flex items-center gap-1 rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-bold text-sky-700 dark:bg-sky-400/15 dark:text-sky-300;
 }
 
 .badge-sortant {
-  @apply inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300;
+  @apply inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-bold text-amber-800 dark:bg-amber-400/15 dark:text-amber-300;
 }
 
 .badge-neutre {
-  @apply inline-flex items-center gap-1 rounded-full bg-stone-100 px-2 py-0.5 text-xs font-medium text-stone-700 dark:bg-stone-700 dark:text-stone-300;
+  @apply inline-flex items-center gap-1 rounded-full bg-stone-100 px-2.5 py-0.5 text-xs font-bold text-stone-700 dark:bg-stone-800 dark:text-stone-300;
 }
 
-/* Tableaux — mêmes règles partout plutôt qu'une variante par écran */
+/* Tableaux — mêmes règles partout plutôt qu'une variante par écran.
+ *
+ * L'en-tête perd son fond : ce sont l'espacement et la petite capitale
+ * espacée qui le distinguent, pas une bande grise. Une bande de moins,
+ * c'est une hiérarchie de plus ailleurs. */
 .tableau {
-  @apply min-w-full divide-y divide-stone-200 text-sm dark:divide-stone-700;
+  @apply min-w-full divide-y divide-stone-200 text-sm dark:divide-stone-800;
 }
 .tableau thead {
-  @apply bg-stone-50 text-xs uppercase tracking-wide text-stone-500 dark:bg-stone-800/80 dark:text-stone-400;
+  @apply text-[11px] font-bold tracking-[0.08em] text-stone-600 uppercase dark:text-stone-400;
 }
 .tableau tbody {
-  @apply divide-y divide-stone-100 dark:divide-stone-800;
+  @apply divide-y divide-stone-100 dark:divide-stone-800/70;
 }
 .tableau tbody tr {
-  @apply transition-colors duration-100 hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10;
+  @apply transition-colors duration-100 hover:bg-emerald-50/60 dark:hover:bg-emerald-400/5;
 }
 
 /* ---------------------------------------------------------------------------
@@ -358,5 +525,33 @@ th {
 
 /* À l'écran aussi, une ligne douteuse se signale */
 .ligne-douteuse {
-  @apply bg-amber-50/70 dark:bg-amber-900/15;
+  @apply bg-amber-50/70 dark:bg-amber-400/10;
+}
+
+/* ---------------------------------------------------------------------------
+ * L'identité en pièces réutilisables
+ * ------------------------------------------------------------------------ */
+
+/* Le filet qui prolonge un titre de section jusqu'au bord.
+ * C'est lui qui remplace la carte : il sépare sans enfermer. */
+.filet {
+  @apply h-px flex-grow bg-stone-200 dark:bg-stone-800;
+}
+
+/* La plaque d'une icône de module : voile de la famille, trait plein.
+ * La couleur se pose par une variable, pour qu'un seul gabarit serve les
+ * huit familles. */
+.plaque-icone {
+  @apply flex shrink-0 items-center justify-center rounded-2xl;
+  background: color-mix(in oklab, var(--teinte) 12%, transparent);
+  color: var(--teinte);
+}
+.dark .plaque-icone {
+  background: color-mix(in oklab, var(--teinte) 18%, transparent);
+}
+
+/* Le compteur posé au coin d'une icône — ce qui réclame une visite. */
+.pastille-compteur {
+  @apply absolute -top-1 -right-2 flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold text-white;
+  background: var(--color-red-500);
 }

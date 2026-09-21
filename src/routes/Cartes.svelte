@@ -16,6 +16,8 @@
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
+  import Progression from "$lib/components/Progression.svelte";
+  import { TEINTES } from "$lib/familles.js";
   import { cartes, enregistrerFichierBase64 } from "$lib/api.js";
   import { lire, ecrire } from "$lib/memoire.svelte.js";
   import { notify } from "$lib/toasts.js";
@@ -249,12 +251,12 @@
   {/if}
 
   {#if chargement && !candidats.length}
-    <div class="card space-y-3 p-4">
-      <p class="text-sm text-stone-600 dark:text-stone-300">
-        Lecture du partage des photos — deux mille fichiers sur le réseau,
-        quelques secondes. C'est ce qui permet de voir qui n'a pas de visage
-        avant d'imprimer.
-      </p>
+    <div class="card space-y-4 p-5">
+      <Progression
+        libelle="Lecture du partage des photos"
+        detail="Deux mille fichiers sur le réseau — le programme ne sait pas combien il en reste, seulement qu'il travaille."
+        teinte={TEINTES.photos}
+      />
       <Squelette nb={6} />
     </div>
   {:else if !candidats.length}

@@ -10,6 +10,8 @@
   import EtatVide from "$lib/components/EtatVide.svelte";
   import { annees as anneesApi, photos } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+  import Progression from "$lib/components/Progression.svelte";
+  import { TEINTES } from "$lib/familles.js";
   import { lire, ecrire } from "$lib/memoire.svelte.js";
 
   /**
@@ -166,9 +168,21 @@
   </EnTetePage>
 
   {#if erreur}
-    <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+    <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">
       {erreur}
     </p>
+  {/if}
+
+  <!-- Le relevé lit deux mille fichiers sur un partage réseau : sans trace
+       visible, l'écran paraît figé et l'on reclique. -->
+  {#if occupe}
+    <div class="card p-4">
+      <Progression
+        libelle="Lecture du partage"
+        detail="Chaque fichier du dossier est comparé aux élèves de l'année — quelques secondes."
+        teinte={TEINTES.photos}
+      />
+    </div>
   {/if}
 
   {#if !inventaire}

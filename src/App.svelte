@@ -71,6 +71,7 @@
   import QuelquunBouge from "./routes/QuelquunBouge.svelte";
   import Sodexo from "./routes/Sodexo.svelte";
   import Cartes from "./routes/Cartes.svelte";
+  import SelecteurAnnee from "$lib/components/SelecteurAnnee.svelte";
   import Accessoires from "./routes/Accessoires.svelte";
   import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
@@ -79,6 +80,8 @@
   import ToasterContainer from "$lib/components/ToasterContainer.svelte";
   import { notify } from "$lib/toasts.js";
   import { theme, basculerTheme } from "$lib/theme.js";
+  import { TEINTES, teinte } from "$lib/familles.js";
+  import { charger as chargerAnnees } from "$lib/annee.svelte.js";
   import Sun from "@lucide/svelte/icons/sun";
   import Moon from "@lucide/svelte/icons/moon";
   import { attendreBackend } from "$lib/api.js";
@@ -246,10 +249,14 @@
       erreurDemarrage = e instanceof Error ? e.message : String(e);
     }
 
-    // 2. Vérification de mise à jour (en parallèle de l'app qui démarre)
+    // 2. L'année de travail, avant tout le reste : c'est elle qui donne
+    //    son sens à ce que les écrans afficheront.
+    chargerAnnees();
+
+    // 3. Vérification de mise à jour (en parallèle de l'app qui démarre)
     await verifierMiseAJour();
 
-    // 3. Compteur arbitrages en attente (badge sidebar)
+    // 4. Compteur arbitrages en attente (badge sidebar)
     rafraichirArbitrages();
   });
 
@@ -416,6 +423,63 @@
    */
   let ordreRaccourcis = $derived(ecransDeLaPartie.map((e) => e.id));
 
+  /**
+   * Le trait qui souligne l'onglet ouvert, mesuré sur le bouton réel.
+   *
+   * Un calcul en pourcentage casserait dès qu'un libellé change de
+   * longueur, et ils n'ont pas tous la même. On lit la géométrie du DOM,
+   * qui est la seule source exacte — et on la relit quand la fenêtre
+   * change de largeur, sinon le trait reste au dernier endroit mesuré.
+   */
+  let traitEcran = $state({ gauche: 0, largeur: 0, pret: false });
+
+  /**
+   * Mesure le bouton ouvert pour y poser le trait.
+   *
+   * Une **action** plutôt qu'un effet : `use:` reçoit le nœud déjà monté,
+   * et son `update` se déclenche après que Svelte a repeint la rangée. Un
+   * `$effect` lisant une référence `bind:this` peut tourner avant que
+   * cette référence existe, et rien ne le rappelle ensuite — c'est ce qui
+   * laissait le trait à zéro.
+   *
+   * La largeur est lue sur le bouton réel : un calcul en pourcentage
+   * casserait dès qu'un libellé change de longueur, et ils n'ont pas tous
+   * la même.
+   *
+   * @param {HTMLElement} rail
+   */
+  function suivreLOnglet(rail, ouvert) {
+    const mesurer = (id) => {
+      const actif = rail.querySelector(`[data-ecran="${id}"]`);
+      if (!(actif instanceof HTMLElement)) {
+        traitEcran = { gauche: 0, largeur: 0, pret: false };
+        return;
+      }
+      traitEcran = {
+        gauche: actif.offsetLeft + 6,
+        largeur: Math.max(0, actif.offsetWidth - 12),
+        pret: true,
+      };
+    };
+
+    let courant = ouvert;
+    // La rangée défile : une largeur de fenêtre qui change déplace les
+    // boutons sans qu'aucune page ne change.
+    const observateur = new ResizeObserver(() => mesurer(courant));
+    observateur.observe(rail);
+    mesurer(courant);
+
+    return {
+      update(suivant) {
+        courant = suivant;
+        mesurer(courant);
+      },
+      destroy() {
+        observateur.disconnect();
+      },
+    };
+  }
+
 </script>
 
 {#if backendOk === null}
@@ -510,12 +574,24 @@
   <!-- Barre du haut : les trois parties, puis les écrans de celle qu'on
        ouvre. Deux niveaux, et à chaque niveau le choix est évident — au
        lieu de vingt-cinq entrées présentées d'un bloc. -->
-  <header class="shrink-0 border-b border-stone-200 bg-white dark:border-stone-700 dark:bg-stone-800">
+  <header class="shrink-0 border-b border-stone-200 bg-white dark:border-stone-800 dark:bg-stone-900">
     <div class="flex items-center gap-6 px-5 py-2.5">
       <div class="flex items-center gap-2.5">
-        <GraduationCap class="h-6 w-6 shrink-0 text-emerald-700 dark:text-emerald-400" />
-        <div class="flex flex-col leading-tight">
-          <span class="text-sm font-semibold text-stone-900 dark:text-stone-100">Appli Rentrée</span>
+        <!-- Les quatre pastilles ne décorent pas : ce sont les couleurs des
+             familles, et donc la clé du code employé partout ailleurs. -->
+        <div
+          class="grid h-9 w-9 shrink-0 grid-cols-2 grid-rows-2 gap-1 rounded-xl bg-stone-900 p-1.5 dark:bg-stone-800"
+          aria-hidden="true"
+        >
+          <span class="rounded-full" style="background: {TEINTES.rentree}"></span>
+          <span class="rounded-full" style="background: {TEINTES.annee}"></span>
+          <span class="rounded-full" style="background: {TEINTES.materiel}"></span>
+          <span class="rounded-full" style="background: {TEINTES.repas}"></span>
+        </div>
+        <div class="flex flex-col leading-tight whitespace-nowrap">
+          <span class="titre-affiche text-[17px] text-stone-900 dark:text-stone-100">
+            Appli Rentrée
+          </span>
           <span class="text-[11px] text-stone-500 dark:text-stone-400">Ensemble Scolaire du Kreisker</span>
         </div>
       </div>
@@ -523,11 +599,15 @@
       <nav class="flex items-center gap-1" aria-label="Parties">
         {#each PARTIES as partie (partie.id)}
           {@const actif = partieActive === partie.id}
+          {@const teintePartie = TEINTES[partie.id] ?? TEINTES.annee}
           <button
-            class="flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm transition-colors duration-150
+            class="flex items-center gap-2 rounded-full px-4 py-2 text-sm transition-colors duration-150
                    {actif
-                     ? 'bg-emerald-50 font-semibold text-emerald-800 dark:bg-emerald-900/35 dark:text-emerald-300'
-                     : 'font-medium text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-700/60'}"
+                     ? 'font-semibold'
+                     : 'font-medium text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800'}"
+            style={actif
+              ? `color: ${teintePartie}; background: color-mix(in oklab, ${teintePartie} 12%, transparent);`
+              : ""}
             title={partie.resume}
             aria-label={partie.label}
             aria-current={actif ? "page" : undefined}
@@ -536,7 +616,7 @@
             <partie.icon class="h-4 w-4 shrink-0" />
             {partie.label}
             {#if partie.id === "rentree" && nbArbitragesEnAttente > 0}
-              <span class="rounded-full bg-amber-500 px-1.5 py-0 text-[10px] font-semibold text-white">
+              <span class="rounded-full bg-red-500 px-1.5 py-0 text-[10px] font-bold text-white">
                 {nbArbitragesEnAttente}
               </span>
             {/if}
@@ -546,15 +626,19 @@
 
       <div class="ml-auto flex items-center gap-2">
         <button
-          class="flex items-center gap-2 rounded-lg border border-stone-200 bg-stone-50 px-3 py-1.5 text-sm text-stone-600 transition hover:border-emerald-300 hover:bg-emerald-50 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-400 dark:hover:border-emerald-600 dark:hover:bg-stone-700"
+          class="flex items-center gap-2 rounded-full border border-stone-300 px-3.5 py-1.5 text-sm text-stone-600 transition hover:border-stone-400 hover:bg-stone-100 dark:border-stone-700 dark:text-stone-400 dark:hover:border-stone-600 dark:hover:bg-stone-800"
           onclick={() => (paletteOuverte = true)}
         >
           <Search class="h-4 w-4" />
           <span>Rechercher…</span>
-          <kbd class="rounded border border-stone-300 bg-white px-1 py-0 text-[10px] font-medium text-stone-500 dark:border-stone-600 dark:bg-stone-800">
+          <kbd class="rounded border border-stone-300 px-1 py-0 text-[10px] font-medium text-stone-500 dark:border-stone-700">
             Ctrl K
           </kbd>
         </button>
+
+        <!-- L'année de travail, visible en permanence : un écran de
+             concordance ne dit pas de lui-même quelle année il compare. -->
+        <SelecteurAnnee />
 
         {#each A_PART as ecran (ecran.id)}
           <button
@@ -604,36 +688,49 @@
          à la ligne : la hauteur de la barre doit rester constante, sinon le
          contenu saute d'une partie à l'autre. -->
     {#if ecransDeLaPartie.length > 1}
-      <nav class="flex gap-0.5 overflow-x-auto px-5" aria-label="Écrans">
+      <!-- Le trait glisse d'un onglet à l'autre plutôt que de s'éteindre
+           ici pour se rallumer là : on voit d'où l'on vient, et le
+           déplacement fait comprendre que c'est la même barre. -->
+      <nav
+        class="relative flex gap-0.5 overflow-x-auto px-5"
+        aria-label="Écrans"
+        use:suivreLOnglet={page}
+      >
         {#each ecransDeLaPartie as ecran (ecran.id)}
           {@const actif = page === ecran.id}
+          {@const teinteEcran = teinte(ecran.id, partieActive ?? "annee")}
           <button
             class="relative flex shrink-0 items-center gap-2 px-3 py-2 text-[13px] transition-colors duration-150
                    {actif
-                     ? 'font-semibold text-emerald-800 dark:text-emerald-300'
+                     ? 'font-semibold'
                      : 'font-medium text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200'}"
+            style={actif ? `color: ${teinteEcran};` : ""}
             aria-current={actif ? "page" : undefined}
+            data-ecran={ecran.id}
             onclick={() => (page = ecran.id)}
           >
             <ecran.icon class="h-3.5 w-3.5 shrink-0" />
             {ecran.label}
             {#if ecran.badge && ecran.badge() > 0}
-              <span class="rounded-full bg-amber-500 px-1.5 py-0 text-[10px] font-semibold text-white">
+              <span class="rounded-full bg-red-500 px-1.5 py-0 text-[10px] font-bold text-white">
                 {ecran.badge()}
               </span>
             {/if}
-            <span
-              class="absolute inset-x-1.5 bottom-0 h-0.5 rounded-t-full bg-emerald-600 transition-opacity duration-150 dark:bg-emerald-400
-                     {actif ? 'opacity-100' : 'opacity-0'}"
-            ></span>
           </button>
         {/each}
+        <span
+          class="pointer-events-none absolute bottom-0 h-0.5 rounded-t-full transition-[left,width,background-color] duration-300 ease-out"
+          style="left: {traitEcran.gauche}px; width: {traitEcran.largeur}px;
+                 background: {teinte(page, partieActive ?? 'annee')};
+                 opacity: {traitEcran.pret ? 1 : 0};"
+          aria-hidden="true"
+        ></span>
       </nav>
     {/if}
   </header>
 
   <!-- Zone principale -->
-  <main class="flex-1 overflow-auto bg-stone-50 dark:bg-stone-900">
+  <main class="flex-1 overflow-auto bg-stone-50 dark:bg-stone-950">
     <!-- La frise a disparu : le parcours porte désormais son propre rail,
          qui dit la même chose en mieux — l'étape ouverte y est en entier,
          pas seulement pointée. Deux rails empilés diraient deux fois la
@@ -653,7 +750,11 @@
            deviendraient interminables. -->
       <div class="anim-apparition-sans-transform mx-auto max-w-[1800px] p-6">
         {#if page === "accueil"}
-          <TableauDeBord onNaviguer={(p) => (page = p)} />
+          <TableauDeBord
+            onNaviguer={(p) => (page = p)}
+            parties={PARTIES}
+            onRechercher={() => (paletteOuverte = true)}
+          />
         {:else if page === "personnes"}
           <Personnes />
         {:else if page === "coffre"}
