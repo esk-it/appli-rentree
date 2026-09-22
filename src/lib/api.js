@@ -578,6 +578,21 @@ export const parc = {
       }),
     );
   },
+  /**
+   * Confie une machine, ou la reprend (`attribueA` à `null`).
+   *
+   * L'état suit l'affectation côté serveur : une machine confiée passe en
+   * service, reprise elle retourne au stock. Les tenir séparément ici
+   * autoriserait une machine « disponible » qui est chez un prof.
+   */
+  async affecter(serie, { attribueA, depuis = null, note = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/machines/${encodeURIComponent(serie)}/affecter`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ attribue_a: attribueA, depuis, note }),
+      }),
+    );
+  },
   async declarerPanne(serie, { organe, note = null, passerHs = true }) {
     return jsonOrThrow(
       await fetch(`${BASE}/parc/machines/${encodeURIComponent(serie)}/panne`, {

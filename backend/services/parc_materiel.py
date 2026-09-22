@@ -249,6 +249,57 @@ def changer_etat(
     return m
 
 
+def affecter(
+    session: Session,
+    serie: str,
+    *,
+    a: str | None,
+    depuis: date | None = None,
+    note: str | None = None,
+) -> SuiviChromebook:
+    """Confie une machine à quelqu'un, ou la reprend.
+
+    ## Pourquoi l'état suit l'affectation, et non l'inverse
+
+    « Confiée à quelqu'un » et « disponible » ne sont pas deux informations
+    à tenir séparément : l'une est la conséquence de l'autre. Les laisser
+    indépendantes, c'est permettre une machine `en_stock` attribuée à un
+    prof — état que rien ne contredit et que personne ne remarque, jusqu'au
+    jour où on la cherche dans l'armoire.
+
+    Une machine **hors service** fait exception : la reprendre ne la rend
+    pas disponible. On la récupère du prof, elle reste HS, et c'est
+    l'atelier qui décidera de la suite.
+
+    Args:
+        a: à qui — `None` pour reprendre la machine.
+        depuis: la date d'affectation, aujourd'hui par défaut. Une machine
+            confiée en septembre et saisie en novembre garde septembre.
+
+    Raises:
+        GesteImpossible: numéro de série vide.
+    """
+    if not (serie or "").strip():
+        raise GesteImpossible("Un numéro de série est requis.")
+
+    m = _machine(session, serie, creer=True)
+    porteur = (a or "").strip() or None
+
+    m.attribue_a = porteur
+    m.attribue_le = (depuis or date.today()) if porteur else None
+    if note is not None:
+        m.note = note
+
+    if m.etat not in ("hs", "reforme"):
+        nouvel_etat = "en_service" if porteur else "en_stock"
+        if m.etat != nouvel_etat:
+            m.etat = nouvel_etat
+            m.etat_depuis = date.today()
+
+    session.commit()
+    return m
+
+
 def declarer_panne(
     session: Session,
     serie: str,

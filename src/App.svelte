@@ -73,6 +73,7 @@
   import Cartes from "./routes/Cartes.svelte";
   import SelecteurAnnee from "$lib/components/SelecteurAnnee.svelte";
   import Accessoires from "./routes/Accessoires.svelte";
+  import Affectations from "./routes/Affectations.svelte";
   import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
   import Aide from "./routes/Aide.svelte";
@@ -340,6 +341,9 @@
       icon: Laptop,
       resume: "Le parc, le stock, les pannes, les prêts",
       ecrans: [
+        // « Qui a quoi » avant « où est quoi » : c'est la question qu'on
+        // pose en salle des profs, et elle demande la liste des gens.
+        { id: "affectations", label: "Affectations", icon: UserPlus },
         { id: "chromebooks", label: "Le parc", icon: Laptop },
         // L'atelier avant les accessoires : c'est lui qui répond à la
         // question qu'on se pose devant un carton de machines mortes.
@@ -831,6 +835,8 @@
           <Sodexo />
         {:else if page === "cartes"}
           <Cartes />
+        {:else if page === "affectations"}
+          <Affectations onNaviguer={(p) => (page = p)} />
         {:else if page === "journal"}
           <Journal />
         {:else if page === "photos"}

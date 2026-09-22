@@ -23,6 +23,7 @@ from backend.models.parc_materiel import (
 )
 from backend.services.parc_materiel import (
     GesteImpossible,
+    affecter,
     analyser_atelier,
     changer_etat,
     declarer_panne,
@@ -111,6 +112,35 @@ def poser_etat(
     serie: str, payload: EtatPayload, session: Session = Depends(db_session)
 ) -> MachineOut:
     _geste(lambda: changer_etat(session, serie, payload.etat, note=payload.note))
+    machines, _ = etat_du_parc(session)
+    return MachineOut(**asdict(next(m for m in machines if m.serie == serie)))
+
+
+class AffectationPayload(BaseModel):
+    attribue_a: str | None = None
+    """À qui la machine est confiée. `null` la reprend."""
+    depuis: date | None = None
+    note: str | None = None
+
+
+@router.post("/machines/{serie}/affecter", response_model=MachineOut)
+def affecter_machine(
+    serie: str, payload: AffectationPayload, session: Session = Depends(db_session)
+) -> MachineOut:
+    """Confie une machine à quelqu'un, ou la reprend.
+
+    L'état suit : confiée elle passe en service, reprise elle retourne au
+    stock — sauf si elle est HS, auquel cas la reprendre ne la répare pas.
+    """
+    _geste(
+        lambda: affecter(
+            session,
+            serie,
+            a=payload.attribue_a,
+            depuis=payload.depuis,
+            note=payload.note,
+        )
+    )
     machines, _ = etat_du_parc(session)
     return MachineOut(**asdict(next(m for m in machines if m.serie == serie)))
 
