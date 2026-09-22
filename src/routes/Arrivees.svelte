@@ -17,6 +17,10 @@
   import Laptop from "@lucide/svelte/icons/laptop";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
+  import Pastille from "$lib/components/Pastille.svelte";
+  import BarreAction from "$lib/components/BarreAction.svelte";
+  import Check from "@lucide/svelte/icons/check";
+  import ArrowRight from "@lucide/svelte/icons/arrow-right";
   import {
     annees as anneesApi,
     arrivees as arriveesApi,
@@ -25,6 +29,8 @@
     telechargerFichierBase64,
   } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+  import { lire, ecrire } from "$lib/memoire.svelte.js";
+  import { TEINTES } from "$lib/familles.js";
 
   let listeSites = $state(/** @type {any[]} */ ([]));
   let listeAnnees = $state(/** @type {any[]} */ ([]));
@@ -206,216 +212,385 @@
     prenom = "";
     idCharlemagne = "";
   }
+
+  /**
+   * Les six systèmes, et lequel le programme sait vraiment servir.
+   *
+   * La maquette coche six cases et annonce « Créer sur les 6 systèmes ».
+   * Le programme n'en touche que deux : le référentiel, qu'il écrit, et
+   * Google, dont il fabrique le compte et le groupe. KoXo, PMB, Sodexo et
+   * CardStudio se nourrissent de fichiers, produits ailleurs et déposés à
+   * la main.
+   *
+   * Les afficher pareil laisserait croire que le bouton les traite. Un
+   * écran qui fait un tiers du travail sans nommer les deux autres est
+   * plus dangereux qu'un écran inerte — c'est en confiance qu'on oublie.
+   *
+   * Les lignes automatisables portent donc une case qui **commande**, les
+   * autres une case qui **constate** : on la coche une fois le geste fait
+   * de son côté.
+   */
+  let systemes = $derived.by(() => {
+    if (!proposition) return [];
+    const eleve = typePersonne === "eleve";
+    const ou =
+      typePersonne === "adulte"
+        ? ouPersonnel
+        : ouChoisie === "pre"
+          ? proposition.ou_pre_rentree
+          : proposition.ou_definitive;
+    const sansKoxo = proposition.site_nom === "NDE";
+    return [
+      {
+        cle: "referentiel",
+        nom: "Référentiel",
+        teinte: TEINTES.annee,
+        quoi: "Créer la personne",
+        valeur: [
+          proposition.login_propose,
+          proposition.badge ? `badge ${proposition.badge}` : null,
+          proposition.classe ? `classe ${proposition.classe}` : null,
+          `site ${proposition.site_nom}`,
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        automatique: true,
+        force: true,
+        fait: Boolean(enregistree),
+      },
+      {
+        cle: "google",
+        nom: "Google",
+        teinte: TEINTES.google,
+        quoi: eleve ? "Compte, unité et groupe" : "Compte et unité",
+        valeur: [proposition.email_propose, ou].filter(Boolean).join(" · "),
+        automatique: true,
+        fait: compteFait,
+      },
+      {
+        cle: "koxo",
+        nom: "KoXo",
+        teinte: TEINTES.koxo,
+        quoi: sansKoxo ? "Aucun — NDE n'a pas de KoXo" : "Compte réseau",
+        valeur: sansKoxo
+          ? "—"
+          : `ID unique ${proposition.badge ?? "—"} · mot de passe à générer`,
+        automatique: false,
+        sansObjet: sansKoxo,
+      },
+      {
+        cle: "pmb",
+        nom: "PMB",
+        teinte: TEINTES.materiel,
+        quoi: "Lecteur du CDI",
+        valeur: proposition.classe ? `Classe ${proposition.classe}` : "Adulte",
+        automatique: false,
+      },
+      {
+        cle: "sodexo",
+        nom: "Sodexo",
+        teinte: TEINTES.repas,
+        quoi: eleve ? "Élève dans sa classe" : "Convive",
+        valeur: proposition.classe ? `Classe ${proposition.classe}` : "Adulte",
+        automatique: false,
+      },
+      {
+        cle: "cardstudio",
+        nom: "CardStudio",
+        teinte: TEINTES.photos,
+        quoi: "Carte à imprimer",
+        valeur: proposition.badge
+          ? `Badge ${proposition.badge}`
+          : "Sans identifiant Charlemagne, pas de badge",
+        automatique: false,
+        sansObjet: !proposition.badge,
+      },
+    ];
+  });
+
+  /**
+   * Ce qui a été fait à la main, coché par l'utilisateur.
+   *
+   * Le cochage survit à la navigation : une arrivée se traite sur
+   * plusieurs jours — le compte le lundi, la carte le jeudi.
+   */
+  let faits = $state(lire("arrivees.faits", /** @type {Record<string, boolean>} */ ({})));
+  $effect(() => ecrire("arrivees.faits", faits));
+
+  let nbAutomatiques = $derived(
+    systemes.filter((s) => s.automatique && !s.fait).length,
+  );
 </script>
 
-<section class="space-y-5">
+<section class="flex min-h-[calc(100vh-10rem)] flex-col space-y-5">
   <EnTetePage
     icon={UserPlus}
-    titre="Arrivée"
-    description="Faire entrer un élève ou un adulte en cours d'année : le référentiel, puis le compte Google, puis le groupe. Le référentiel d'abord — sans lui, la composition des groupes et la prochaine ingestion ignoreraient l'arrivant."
+    titre="Un élève arrive"
+    description="Créer la personne et tout ce qui en découle, système par système. Le référentiel d'abord — sans lui, la composition des groupes et la prochaine ingestion ignoreraient l'arrivant."
   />
 
   {#if chargement}
     <p class="text-sm text-stone-500 dark:text-stone-400">Chargement…</p>
   {:else}
-    <!-- 1. Qui arrive -->
-    <div class="card space-y-3 p-4">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
-        1 — Qui arrive
-      </h2>
-      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <label class="block">
-          <span class="libelle-champ">Population</span>
-          <select class="champ w-full" bind:value={typePersonne}
-                  onchange={() => { proposition = null; enregistree = null; }}>
-            <option value="eleve">Élève</option>
-            <option value="adulte">Adulte (AESH, personnel…)</option>
-          </select>
-        </label>
-        <label class="block">
-          <span class="libelle-champ">Site</span>
-          <select class="champ w-full" bind:value={siteId}
-                  onchange={() => (proposition = null)}>
-            <option value={null}>— Choisir —</option>
-            {#each listeSites as s (s.id)}<option value={s.id}>{s.nom}</option>{/each}
-          </select>
-        </label>
-        <label class="block">
-          <span class="libelle-champ">Année</span>
-          <select class="champ w-full" bind:value={anneeId}>
-            {#each listeAnnees as a (a.id)}<option value={a.id}>{a.libelle}</option>{/each}
-          </select>
-        </label>
-        <label class="block">
-          <span class="libelle-champ">Nom</span>
-          <input class="champ w-full" bind:value={nom} placeholder="MARTIN" />
-        </label>
-        <label class="block">
-          <span class="libelle-champ">Prénom</span>
-          <input class="champ w-full" bind:value={prenom} placeholder="Louise" />
-        </label>
-        {#if typePersonne === "eleve"}
-          <label class="block">
-            <span class="libelle-champ">Classe</span>
-            <select class="champ w-full" bind:value={classe}
-                    onchange={() => (proposition = null)}>
-              <option value="">— Choisir —</option>
-              {#each codesClasses as c (c)}<option value={c}>{c}</option>{/each}
-            </select>
-          </label>
-        {:else}
-          <label class="block">
-            <span class="libelle-champ">Fonction (pour les Chromebooks)</span>
-            <input class="champ w-full" bind:value={discipline} placeholder="AESH" />
-          </label>
-        {/if}
-        <label class="block">
-          <span class="libelle-champ">Identifiant Charlemagne</span>
-          <input class="champ w-full" bind:value={idCharlemagne}
-                 inputmode="numeric" placeholder="facultatif" />
-          <span class="mt-1 block text-xs text-stone-500 dark:text-stone-400">
-            Sans lui, pas d'ID unique : la synchronisation KoXo ne saura pas
-            reconnaître ce compte.
-          </span>
-        </label>
+    <!-- ----------------------------------------------------------------
+         Qui arrive. Une seule ligne : c'est une phrase, pas un dossier.
+         ---------------------------------------------------------------- -->
+    <div class="flex flex-wrap items-end gap-4 border-b border-stone-200 pb-5 dark:border-stone-800">
+      <div>
+        <label class="libelle-champ" for="a-pop">Population</label>
+        <select
+          id="a-pop"
+          class="champ mt-1 w-36"
+          bind:value={typePersonne}
+          onchange={() => { proposition = null; enregistree = null; }}
+        >
+          <option value="eleve">Élève</option>
+          <option value="adulte">Adulte</option>
+        </select>
       </div>
-      <Bouton icon={UserPlus} occupe={occupe} disabled={!peutProposer}
-              onclick={proposer}>
-        Proposer
-      </Bouton>
+      <div>
+        <label class="libelle-champ" for="a-nom">Nom</label>
+        <input id="a-nom" class="champ mt-1 w-44" bind:value={nom} placeholder="MARTIN" />
+      </div>
+      <div>
+        <label class="libelle-champ" for="a-prenom">Prénom</label>
+        <input id="a-prenom" class="champ mt-1 w-44" bind:value={prenom} placeholder="Louise" />
+      </div>
+      <div>
+        <label class="libelle-champ" for="a-site">Site</label>
+        <select
+          id="a-site"
+          class="champ mt-1 w-32"
+          bind:value={siteId}
+          onchange={() => (proposition = null)}
+        >
+          <option value={null}>—</option>
+          {#each listeSites as s (s.id)}<option value={s.id}>{s.nom}</option>{/each}
+        </select>
+      </div>
+      {#if typePersonne === "eleve"}
+        <div>
+          <label class="libelle-champ" for="a-classe">Classe</label>
+          <select
+            id="a-classe"
+            class="champ mt-1 w-36 !border-2 font-mono font-bold"
+            style="border-color: {TEINTES.google};"
+            bind:value={classe}
+            onchange={() => (proposition = null)}
+          >
+            <option value="">—</option>
+            {#each codesClasses as c (c)}<option value={c}>{c}</option>{/each}
+          </select>
+        </div>
+      {:else}
+        <div>
+          <label class="libelle-champ" for="a-fonction">Fonction</label>
+          <input id="a-fonction" class="champ mt-1 w-40" bind:value={discipline} placeholder="AESH" />
+        </div>
+      {/if}
+      <div>
+        <label class="libelle-champ" for="a-id">Identifiant Charlemagne</label>
+        <input
+          id="a-id"
+          class="champ mt-1 w-36"
+          bind:value={idCharlemagne}
+          inputmode="numeric"
+          placeholder="facultatif"
+        />
+      </div>
+      <div>
+        <label class="libelle-champ" for="a-annee">Année</label>
+        <select id="a-annee" class="champ mt-1 w-36" bind:value={anneeId}>
+          {#each listeAnnees as a (a.id)}<option value={a.id}>{a.libelle}</option>{/each}
+        </select>
+      </div>
+
+      {#if !proposition}
+        <Bouton
+          variante="primary"
+          icon={ArrowRight}
+          occupe={occupe}
+          disabled={!peutProposer}
+          onclick={proposer}
+        >
+          Calculer
+        </Bouton>
+      {:else}
+        <!-- Ce que le programme en déduit, et s'il connaît déjà quelqu'un. -->
+        <div class="flex items-center gap-3 pb-1.5 text-sm">
+          <span class="font-mono text-xs text-stone-600 dark:text-stone-400">
+            {proposition.email_propose}
+          </span>
+          {#if proposition.personne_existante_id}
+            <Pastille etat="ecart" texte="Existe déjà au référentiel" />
+          {:else}
+            <Pastille etat="pret" texte="Aucun homonyme" />
+          {/if}
+        </div>
+        <button
+          class="pb-2 text-sm text-stone-500 underline hover:text-stone-800 dark:hover:text-stone-200"
+          onclick={recommencer}
+        >
+          Recommencer
+        </button>
+      {/if}
     </div>
 
-    <!-- 2. Ce que ça donnerait -->
-    {#if proposition}
-      <div class="card space-y-3 p-4">
-        <h2 class="text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
-          2 — Ce que le programme propose
-        </h2>
-        <dl class="grid gap-2 text-sm sm:grid-cols-2">
-          <div><dt class="text-xs uppercase text-stone-500">Identifiant</dt>
-            <dd class="font-mono">{proposition.login_propose}</dd></div>
-          <div><dt class="text-xs uppercase text-stone-500">Adresse</dt>
-            <dd class="font-mono">{proposition.email_propose}</dd></div>
-          <div><dt class="text-xs uppercase text-stone-500">ID unique</dt>
-            <dd class="font-mono">{proposition.badge ?? "—"}</dd></div>
-          {#if proposition.groupe_google}
-            <div><dt class="text-xs uppercase text-stone-500">Groupe de classe</dt>
-              <dd class="font-mono">{proposition.groupe_google}</dd></div>
-          {/if}
-        </dl>
+    {#if !proposition}
+      <p class="py-10 text-center text-sm text-stone-500 dark:text-stone-400">
+        Remplis le nom, le prénom, le site{typePersonne === "eleve" ? " et la classe" : ""} :
+        le programme calculera le login, l'adresse, le badge et l'unité avant
+        d'écrire quoi que ce soit.
+      </p>
+    {:else}
+      <div class="min-h-0 flex-1 overflow-y-auto">
+        <div class="mb-2 flex flex-wrap items-baseline justify-between gap-4">
+          <h2 class="titre-affiche text-xl">Ce qui va être créé</h2>
+          <div class="flex items-center gap-4">
+            {#if typePersonne === "eleve"}
+              <!-- Avant la rentrée, la classe ne transparaît pas encore :
+                   l'élève attend dans l'unité de pré-rentrée. -->
+              <label class="flex items-center gap-2 text-sm">
+                <span class="libelle-champ">Unité visée</span>
+                <select class="champ !py-1 text-xs" bind:value={ouChoisie}>
+                  <option value="definitive">Celle de sa classe</option>
+                  <option value="pre">Pré-rentrée</option>
+                </select>
+              </label>
+            {:else}
+              <label class="flex items-center gap-2 text-sm">
+                <span class="libelle-champ">Unité</span>
+                <input class="champ !py-1 w-56 font-mono text-xs" bind:value={ouPersonnel} />
+              </label>
+            {/if}
+            <span class="text-[13px] text-stone-500 dark:text-stone-400">
+              6 systèmes
+            </span>
+          </div>
+        </div>
 
-        {#each proposition.avertissements as a}
-          <p class="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-            {a}
-          </p>
+        <div class="grid grid-cols-[36px_150px_minmax(0,1fr)_minmax(0,1.4fr)_120px] items-center gap-3 border-b border-stone-200 py-2 dark:border-stone-800">
+          <span></span>
+          <span class="libelle-champ">Système</span>
+          <span class="libelle-champ">Ce qui est créé</span>
+          <span class="libelle-champ">Valeur</span>
+          <span class="libelle-champ">État</span>
+        </div>
+
+        {#each systemes as s (s.cle)}
+          <div class="grid grid-cols-[36px_150px_minmax(0,1fr)_minmax(0,1.4fr)_120px] items-center gap-3 border-b border-stone-100 py-3 text-sm dark:border-stone-800/70">
+            <span>
+              {#if s.sansObjet}
+                <!-- Rien à faire ici : pas de case, pour qu'on ne la coche
+                     pas en croyant avoir fait quelque chose. -->
+              {:else if s.force}
+                <input
+                  type="checkbox"
+                  checked
+                  disabled
+                  class="h-4 w-4 accent-emerald-600"
+                  aria-label="Référentiel, toujours écrit"
+                />
+              {:else if s.automatique}
+                <input
+                  type="checkbox"
+                  checked
+                  disabled
+                  class="h-4 w-4 accent-emerald-600"
+                  aria-label="{s.nom}, le programme s'en charge"
+                />
+              {:else}
+                <input
+                  type="checkbox"
+                  class="h-4 w-4 accent-emerald-600"
+                  aria-label="Marquer « {s.nom} » comme fait"
+                  checked={faits[s.cle] ?? false}
+                  onchange={(e) => (faits = { ...faits, [s.cle]: e.currentTarget.checked })}
+                />
+              {/if}
+            </span>
+
+            <span class="flex items-center gap-2.5 font-semibold">
+              <span class="h-2.5 w-2.5 shrink-0 rounded-full" style="background: {s.teinte};"></span>
+              {s.nom}
+            </span>
+
+            <span class="min-w-0 truncate text-stone-600 dark:text-stone-400">{s.quoi}</span>
+
+            <span
+              class="min-w-0 truncate font-mono text-xs"
+              class:text-stone-400={s.sansObjet}
+              style={s.sansObjet ? "" : `color: ${s.teinte};`}
+            >
+              {s.valeur}
+            </span>
+
+            {#if s.sansObjet}
+              <Pastille etat="inconnu" texte="Sans objet" />
+            {:else if s.fait}
+              <Pastille etat="pret" texte="Fait" />
+            {:else if s.automatique}
+              <Pastille etat="pret" texte="Prêt" />
+            {:else}
+              <Pastille etat="attente" texte="À la main" />
+            {/if}
+          </div>
         {/each}
 
-        {#if !enregistree}
-          <Bouton variante="primary" occupe={occupe} onclick={enregistrer}>
-            Enregistrer au référentiel
-          </Bouton>
-        {:else}
-          <p class="text-sm text-emerald-700 dark:text-emerald-400">
-            Enregistré — {enregistree.login} · {enregistree.email}
-          </p>
+        {#if proposition.avertissements?.length}
+          <div class="mt-4 rounded-xl bg-amber-50 p-4 dark:bg-amber-400/10">
+            <p class="text-[11px] font-bold tracking-[0.08em] text-amber-800 uppercase dark:text-amber-300">
+              À savoir
+            </p>
+            <ul class="mt-1.5 space-y-1 text-sm text-amber-900 dark:text-amber-200">
+              {#each proposition.avertissements as a (a)}<li>{a}</li>{/each}
+            </ul>
+          </div>
         {/if}
-      </div>
-    {/if}
 
-    <!-- 3. Le compte Google -->
-    {#if enregistree}
-      <div class="card space-y-3 p-4">
-        <h2 class="text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
-          3 — Le compte Google
-        </h2>
-        <p class="text-xs text-stone-500 dark:text-stone-400">
-          La console crée les comptes depuis un CSV. Le fichier porte l'unité
-          d'organisation visée, pour que le compte y naisse plutôt que d'y
-          être déplacé ensuite. Le mot de passe est fabriqué et rangé au
-          coffre dans le même geste — <strong>le coffre doit être ouvert</strong>.
-        </p>
-
-        {#if typePersonne === "eleve"}
-          <fieldset class="space-y-1">
-            <legend class="libelle-champ">Où le ranger</legend>
-            <label class="flex items-center gap-2 text-sm">
-              <input type="radio" bind:group={ouChoisie} value="definitive" />
-              <span>Unité définitive — <span class="font-mono text-xs">{proposition.ou_definitive}</span></span>
-            </label>
-            <label class="flex items-center gap-2 text-sm">
-              <input type="radio" bind:group={ouChoisie} value="pre" />
-              <span>Pré-rentrée — <span class="font-mono text-xs">{proposition.ou_pre_rentree}</span></span>
-            </label>
-          </fieldset>
-        {:else}
-          <label class="block">
-            <span class="libelle-champ">Unité d'organisation</span>
-            <input class="champ w-full font-mono text-sm" bind:value={ouPersonnel} />
-            <span class="mt-1 block text-xs text-stone-500 dark:text-stone-400">
-              C'est elle qui dit à quel titre la personne est là, et l'écran
-              Chromebooks s'en sert.
+        {#if enregistree}
+          <!-- Les gestes qui suivent l'écriture au référentiel : ils ne
+               peuvent pas se faire avant qu'elle existe. -->
+          <div class="mt-5 flex flex-wrap items-center gap-3 rounded-xl bg-stone-100 p-4 dark:bg-stone-800/60">
+            <span class="text-sm">
+              <strong>{prenom} {nom}</strong> est au référentiel —
+              <span class="font-mono text-xs">{enregistree.login}</span>
             </span>
-          </label>
+            <div class="ml-auto flex flex-wrap gap-2">
+              <Bouton icon={Download} occupe={occupe} onclick={fabriquerCompte}>
+                Fabriquer le compte Google
+              </Bouton>
+              {#if typePersonne === "eleve" && proposition.groupe_google}
+                <Bouton icon={Users} occupe={occupe} onclick={rejoindreGroupe}>
+                  Ajouter à {proposition.groupe_google}
+                </Bouton>
+              {/if}
+              <Bouton icon={Laptop} occupe={occupe} onclick={ajouterAuxChromebooks}>
+                Au tableau Chromebooks
+              </Bouton>
+            </div>
+          </div>
         {/if}
+      </div>
 
-        <Bouton icon={Download} occupe={occupe} onclick={fabriquerCompte}>
-          Fabriquer le compte et télécharger le CSV
+      <BarreAction
+        message="Rien n'est modifié tant que tu n'as pas validé. Les systèmes sans API se cochent à la main, une fois le geste fait de leur côté — le fichier se produit depuis « Produire un fichier »."
+      >
+        <Bouton onclick={recommencer}>Annuler</Bouton>
+        <Bouton
+          variante="primary"
+          icon={Check}
+          occupe={occupe}
+          disabled={Boolean(enregistree)}
+          onclick={enregistrer}
+        >
+          {#if enregistree}
+            Créé sur le référentiel
+          {:else}
+            Créer sur {nbAutomatiques} système{nbAutomatiques > 1 ? "s" : ""}
+          {/if}
         </Bouton>
-      </div>
-    {/if}
-
-    <!-- 4. Le placer -->
-    {#if compteFait}
-      <div class="card space-y-3 p-4">
-        <h2 class="text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
-          4 — Une fois le CSV importé dans la console
-        </h2>
-        <p class="text-xs text-stone-500 dark:text-stone-400">
-          Ces gestes touchent un compte qui doit exister : fais-les après
-          l'import, pas avant.
-        </p>
-
-        {#if typePersonne === "eleve" && proposition.groupe_google}
-          <div>
-            <Bouton icon={Users} occupe={occupe} onclick={rejoindreGroupe}>
-              Ajouter à {proposition.groupe_google}
-            </Bouton>
-            <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
-              Un groupe de classe est une liste de diffusion : y entrer, c'est
-              apparaître aux yeux des autres. Rien ne le fait d'office.
-            </p>
-          </div>
-        {/if}
-
-        {#if typePersonne === "adulte"}
-          <div>
-            <Bouton icon={Laptop} occupe={occupe} onclick={ajouterAuxChromebooks}>
-              Inscrire au tableau des Chromebooks
-            </Bouton>
-            <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
-              L'écran Chromebooks lit le tableau des enseignants, importé une
-              fois l'an. Sans cette inscription, la personne n'y apparaît pas
-              et aucune machine ne peut lui être attribuée.
-            </p>
-          </div>
-        {/if}
-
-        {#if proposition.badge}
-          <p class="rounded-lg border border-stone-200 bg-stone-50 p-2 text-xs text-stone-600 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-400">
-            Reste KoXo, qui n'a pas d'API : crée le compte
-            <strong class="font-mono">{proposition.login_propose}</strong>
-            avec l'ID unique <strong class="font-mono">{proposition.badge}</strong
-            >{#if proposition.classe} dans le groupe secondaire
-              <strong class="font-mono">{proposition.classe}</strong>{/if}, et
-            donne-lui le mot de passe du coffre.
-          </p>
-        {/if}
-
-        <button class="text-xs text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
-                onclick={recommencer}>
-          Enregistrer une autre arrivée
-        </button>
-      </div>
+      </BarreAction>
     {/if}
   {/if}
 </section>

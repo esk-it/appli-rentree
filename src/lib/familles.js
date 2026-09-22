@@ -49,6 +49,7 @@ export const FAMILLE_PAR_ECRAN = {
   renommer_ou: "google",
   groupes_google: "google",
   entrants_sortants: "google",
+  conformite: "google",
   sortants: "google",
   vidange: "google",
   // KoXo a son vert.

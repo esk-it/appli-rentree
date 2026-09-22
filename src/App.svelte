@@ -49,6 +49,7 @@
   import RenommerOu from "./routes/RenommerOu.svelte";
   import GroupesGoogle from "./routes/GroupesGoogle.svelte";
   import EntrantsSortants from "./routes/EntrantsSortants.svelte";
+  import Conformite from "./routes/Conformite.svelte";
   import Concordance from "./routes/Concordance.svelte";
   import Mouvements from "./routes/Mouvements.svelte";
   import Personnes from "./routes/Personnes.svelte";
@@ -397,7 +398,10 @@
     // entrant, et les séparer en deux écrans faisait recréer son compte.
     { id: "entrants_sortants", label: "Entrants et sortants", icon: LogOut },
     { id: "bascule", label: "Bascule des OU", icon: FolderTree },
-    { id: "conformite_google", label: "Conformité Google", icon: ShieldCheck },
+    // La porte : quatre lignes qui disent où ça cloche. « Conformité
+    // Google » garde les outils qui règlent, et s'ouvre depuis elle.
+    { id: "conformite", label: "Conformité", icon: ShieldCheck },
+    { id: "conformite_google", label: "Outils de conformité", icon: ShieldCheck },
     { id: "controle_koxo", label: "Contrôle KoXo", icon: ShieldCheck },
     { id: "reconciliation", label: "Réconciliation", icon: GitCompareArrows },
     { id: "sortants", label: "Sortants", icon: LogOut },
@@ -851,6 +855,8 @@
           <Coffre />
         {:else if page === "arrivees"}
           <Arrivees />
+        {:else if page === "conformite"}
+          <Conformite onNaviguer={(p) => (page = p)} />
         {:else if page === "entrants_sortants"}
           <EntrantsSortants onNaviguer={(p) => (page = p)} />
         {:else if page === "groupes_google"}

@@ -739,6 +739,17 @@ export const googleApi = {
     );
   },
   // --- Mise en conformité de Google -------------------------------------
+  /**
+   * L'état de Google en quatre lignes : unités, groupes, comptes,
+   * suspendus. Plusieurs centaines d'appels — jamais au chargement.
+   */
+  async etat({ anneeSource = null, anneeCible = null } = {}) {
+    const q = new URLSearchParams();
+    if (anneeSource) q.set("annee_source", anneeSource);
+    if (anneeCible) q.set("annee_cible", anneeCible);
+    const qs = q.toString();
+    return jsonOrThrow(await fetch(`${BASE}/google/etat${qs ? `?${qs}` : ""}`));
+  },
   /** Écart entre l'arborescence réelle et ce que vise la Table. */
   async conformiteOu({ anneeSource = null, anneeCible = null, renommer = true }) {
     const q = new URLSearchParams();

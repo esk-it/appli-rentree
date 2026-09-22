@@ -2400,3 +2400,137 @@ def executer_deplacement(
         au_succes=_memoriser_dans_sa_propre_session,
     )
     return _job_vers_out(job)
+
+
+# ---------------------------------------------------------------------------
+# L'état de Google, en quatre lignes
+# ---------------------------------------------------------------------------
+
+
+class LigneEtatOut(BaseModel):
+    cle: str
+    element: str
+    attendu: int
+    constate: int
+    ecart: str
+    vers: str | None
+    """L'écran qui règle cette ligne, quand il y en a un."""
+
+
+class EtatGoogleOut(BaseModel):
+    releve_le: str
+    lignes: list[LigneEtatOut]
+    avertissements: list[str] = []
+
+
+@router.get("/etat", response_model=EtatGoogleOut)
+def etat_google(
+    annee_source: str | None = Query(None),
+    annee_cible: str | None = Query(None),
+    session: Session = Depends(db_session),
+) -> EtatGoogleOut:
+    """Ce que le référentiel attend de Google, et ce que Google en dit.
+
+    Quatre lignes plutôt qu'un écran par sujet : la question posée le
+    matin n'est pas « quelles unités manquent » mais « est-ce que tout
+    est en place ». Chaque ligne mène ensuite à l'écran qui la règle.
+
+    La relève est **explicite**. Elle parcourt l'arbre, les groupes et
+    tous les comptes du domaine : plusieurs centaines d'appels, une
+    bonne minute. La faire à l'ouverture d'un écran la ferait payer à
+    chaque passage, et personne ne la lancerait plus jamais exprès.
+    """
+    from datetime import datetime
+
+    from backend.models import Personne, TableCorrespondance
+    from backend.services.ou_google import analyser_conformite
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+    avertissements: list[str] = []
+    try:
+        ou_existantes = client.lister_ou()
+        groupes = client.lister_groupes()
+        comptes = client.lister_utilisateurs()
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+
+    rapport = analyser_conformite(
+        session, ou_existantes,
+        annee_source=annee_source, annee_cible=annee_cible,
+        autoriser_renommage=False,
+    )
+    avertissements.extend(rapport.avertissements)
+
+    adresses_groupes = {(g.get("adresse") or "").strip().lower() for g in groupes}
+    declares = {
+        (g or "").strip().lower()
+        for t in session.query(TableCorrespondance).all()
+        for g in (t.groupe_google, t.groupe_profs_google)
+        if (g or "").strip()
+    }
+    groupes_manquants = declares - adresses_groupes
+
+    nb_personnes = session.query(Personne).count()
+    nb_suspendus = sum(1 for c in comptes if c.get("suspendu"))
+    nb_actifs = len(comptes) - nb_suspendus
+
+    def dire(n: int, singulier: str, pluriel: str | None = None) -> str:
+        if n == 0:
+            return "Aucun écart"
+        return f"{n} {singulier if n == 1 else (pluriel or singulier + 's')}"
+
+    return EtatGoogleOut(
+        releve_le=datetime.utcnow().isoformat(),
+        lignes=[
+            LigneEtatOut(
+                cle="ou",
+                element="OU (unités)",
+                attendu=len(rapport.ou_attendues),
+                constate=len(rapport.deja_conformes),
+                ecart=dire(rapport.nb_a_creer, "manquante"),
+                vers="renommer_ou",
+            ),
+            LigneEtatOut(
+                cle="groupes",
+                element="Groupes",
+                attendu=len(declares),
+                constate=len(declares & adresses_groupes),
+                ecart=dire(len(groupes_manquants), "manquant"),
+                vers="groupes_google",
+            ),
+            LigneEtatOut(
+                cle="comptes",
+                element="Comptes actifs",
+                attendu=nb_personnes,
+                constate=nb_actifs,
+                # Un écart se lit dans les deux sens : des personnes sans
+                # compte, ou des comptes que le référentiel ne connaît pas.
+                # Le signe le dit, et l'écran de conformité le détaille.
+                ecart=(
+                    "Aucun écart"
+                    if nb_actifs == nb_personnes
+                    else f"{abs(nb_personnes - nb_actifs)} "
+                    + ("absent(s) de Google" if nb_actifs < nb_personnes
+                       else "hors référentiel")
+                ),
+                vers="conformite_google",
+            ),
+            LigneEtatOut(
+                cle="suspendus",
+                element="Comptes suspendus",
+                attendu=0,
+                constate=nb_suspendus,
+                # Le cycle des sortants déplace sans suspendre : un compte
+                # suspendu n'est pas un sortant en règle, c'est une
+                # exception à regarder une par une.
+                ecart=dire(nb_suspendus, "à examiner", "à examiner"),
+                vers="sortants",
+            ),
+        ],
+        avertissements=avertissements,
+    )
