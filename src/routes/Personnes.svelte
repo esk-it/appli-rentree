@@ -19,6 +19,7 @@
   import Modale from "$lib/components/Modale.svelte";
   import Nombre from "$lib/components/Nombre.svelte";
   import Segments from "$lib/components/Segments.svelte";
+  import Pastille from "$lib/components/Pastille.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
   import Info from "@lucide/svelte/icons/info";
   import { annees as anneesApi, personnes } from "$lib/api.js";
@@ -152,6 +153,8 @@
    * moment, aucune ne remplace l'autre.
    */
   let vue = $state(/** @type {"tableau"|"trombinoscope"} */ ("tableau"));
+  /** N'afficher que ce qui cloche — le geste le plus fréquent sur cet écran. */
+  let ecartsSeulement = $state(false);
 
   /**
    * La sélection, pour agir sur plusieurs personnes d'un coup.
@@ -268,6 +271,7 @@
     if (filtreType) r = r.filter((p) => p.type === filtreType);
     if (filtreSite) r = r.filter((p) => p.site === filtreSite);
     if (filtreClasse) r = r.filter((p) => p.classe === filtreClasse);
+    if (ecartsSeulement) r = r.filter(signale);
     const q = recherche.trim().toLowerCase();
     if (q) {
       r = r.filter((p) =>
@@ -278,6 +282,28 @@
     }
     return r;
   });
+
+  /**
+   * Ce qu'on peut dire d'une personne sans rien relancer.
+   *
+   * La maquette montre « Cohérent » sur la plupart des lignes. On ne
+   * l'écrit pas : la cohérence se constate en croisant Charlemagne, Google
+   * et KoXo, ce que la Concordance fait sur demande et jamais à
+   * l'ouverture d'une liste. Annoncer « cohérent » sans avoir comparé
+   * ferait passer pour vérifié ce que personne n'a regardé.
+   *
+   * Restent les deux signalements que le référentiel porte tout seul, et
+   * qui bloquent pour de bon : sans site, aucune cible n'est calculable ;
+   * sans adresse, aucun compte ne se crée.
+   */
+  function etatDe(p) {
+    if (!p.site) return { etat: "ecart", texte: "Sans site" };
+    if (!p.email) return { etat: "ecart", texte: "Sans adresse" };
+    return { etat: "inconnu", texte: "Pas vérifié" };
+  }
+
+  /** Vrai si la ligne porte un signalement, et non le simple silence. */
+  const signale = (p) => !p.site || !p.email;
 
   /** La source affichée : le référentiel entier, ou une année. */
   let source = $derived(anneeId === null ? liste : lignesAnnee);
@@ -738,10 +764,17 @@
   }}
 >
   <EnTetePage
-    icon={Users2}
-    titre="Référentiel des personnes"
+    titre="Référentiel"
     description="Identité persistante des élèves et adultes. Créée à la première apparition, jamais supprimée — le login reste figé, y compris après un départ."
-  />
+  >
+    {#snippet actions()}
+      <span class="text-sm text-stone-600 tabular-nums dark:text-stone-400">
+        <b class="text-stone-900 dark:text-stone-100">{source.length}</b> personnes
+        · {source.filter((p) => p.type === "eleve").length} élèves
+        · {source.filter((p) => p.type === "adulte").length} adultes
+      </span>
+    {/snippet}
+  </EnTetePage>
 
   {#if erreur}
     <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
@@ -749,7 +782,7 @@
     </p>
   {/if}
 
-  <div class="card p-3">
+  <div class="border-b border-stone-200 pb-4 dark:border-stone-800">
     <div class="flex flex-wrap items-center gap-3">
       <div class="relative">
         <Search class="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
@@ -757,7 +790,7 @@
           type="search"
           placeholder="Nom, prénom, login, clé pivot, badge…"
           bind:value={recherche}
-          class="w-80 rounded-lg border border-stone-300 py-1.5 pl-8 pr-3 text-sm dark:border-stone-600 dark:bg-stone-800 dark:text-stone-200"
+          class="w-80 rounded-full border border-stone-300 py-1.5 pr-3 pl-8 text-sm dark:border-stone-700 dark:bg-transparent dark:text-stone-200"
         />
       </div>
       <!-- L'année d'abord : c'est elle qui décide si l'écran montre un état
@@ -801,7 +834,16 @@
         </select>
       {/if}
 
-      {#if filtreType || filtreSite || filtreClasse || recherche || anneeId !== null}
+      <label class="flex cursor-pointer items-center gap-2 text-sm">
+        <input
+          type="checkbox"
+          class="h-4 w-4 accent-emerald-600"
+          bind:checked={ecartsSeulement}
+        />
+        Écarts seulement
+      </label>
+
+      {#if filtreType || filtreSite || filtreClasse || recherche || anneeId !== null || ecartsSeulement}
         <button
           class="rounded-md px-2 py-1 text-xs text-stone-500 transition hover:bg-stone-100
                  hover:text-stone-800 dark:hover:bg-stone-700 dark:hover:text-stone-200"
@@ -812,6 +854,7 @@
             recherche = "";
             anneeId = null;
             filtreMouvement = "";
+            ecartsSeulement = false;
           }}
         >
           Tout afficher
@@ -947,9 +990,9 @@
     {:else}
       <div class="max-h-[max(24rem,calc(100vh-21rem))] overflow-auto">
         <table class="w-full text-sm">
-          <thead class="sticky top-0 z-10 bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
+          <thead class="sticky top-0 z-10 bg-stone-50 text-[11px] font-bold tracking-[0.08em] text-stone-600 uppercase dark:bg-stone-950 dark:text-stone-400">
             <tr>
-              <th class="border-b border-stone-200 py-2 pl-3 pr-1 dark:border-stone-700">
+              <th class="border-b border-stone-200 py-2 pr-1 pl-3 dark:border-stone-800">
                 <input
                   type="checkbox"
                   class="h-4 w-4 cursor-pointer accent-emerald-600"
@@ -960,29 +1003,32 @@
                   onchange={(e) => cocherVisibles(e.currentTarget.checked)}
                 />
               </th>
-              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700"></th>
+              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800"></th>
               {#if anneeId !== null}
-                <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Mouvement</th>
+                <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">Mouvement</th>
               {/if}
-              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Clé pivot</th>
-              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Type</th>
-              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Nom</th>
-              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Prénom</th>
-              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Login</th>
-              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Email</th>
-              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Site</th>
-              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-700">Classe</th>
-              <th class="border-b border-stone-200 px-3 py-2 text-right font-semibold dark:border-stone-700">Badge</th>
+              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">Clé pivot</th>
+              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">Type</th>
+              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">Nom</th>
+              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">Prénom</th>
+              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">Login</th>
+              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">Email</th>
+              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">Site</th>
+              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">Classe</th>
+              <th class="border-b border-stone-200 px-3 py-2 text-right font-semibold dark:border-stone-800">Badge</th>
+              <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">État</th>
             </tr>
           </thead>
           <tbody>
             {#each listeFiltree as p (p.id)}
               <tr
-                class="border-b border-stone-100 transition-colors dark:border-stone-800
+                class="border-b border-stone-100 transition-colors dark:border-stone-800/70
                        {p.sans_compte ? 'cursor-default' : 'cursor-pointer'}
                        {ouverte === p.id
-                  ? 'bg-emerald-50/70 dark:bg-emerald-900/25'
-                  : 'hover:bg-emerald-50/40 dark:hover:bg-emerald-900/20'}"
+                  ? 'bg-emerald-50/70 dark:bg-emerald-400/10'
+                  : signale(p)
+                    ? 'bg-red-50/60 hover:bg-red-50 dark:bg-red-400/5 dark:hover:bg-red-400/10'
+                    : 'hover:bg-emerald-50/40 dark:hover:bg-emerald-400/5'}"
                 onclick={() => basculer(p)}
               >
                 <td class="py-1 pl-3 pr-1">
@@ -1104,14 +1150,17 @@
                 <td class="px-3 py-1.5 text-stone-600 dark:text-stone-400">{p.site ?? "—"}</td>
                 <td class="whitespace-nowrap px-3 py-1.5 text-stone-600 dark:text-stone-400">{p.classe ?? "—"}</td>
                 <td class="px-3 py-1.5 text-right tabular-nums text-stone-600 dark:text-stone-400">{p.badge}</td>
+                <td class="px-3 py-1.5">
+                  <Pastille etat={etatDe(p).etat} texte={etatDe(p).texte} />
+                </td>
               </tr>
 
               {#if ouverte === p.id}
                 <tr class="border-b border-stone-200 bg-stone-50/80 dark:border-stone-700 dark:bg-stone-800/50">
-                  <!-- Onze colonnes, douze quand le mouvement s'affiche :
+                  <!-- Douze colonnes, treize quand le mouvement s'affiche :
                        un colspan court laisserait la fiche se replier dans
                        une largeur de cellule. -->
-                  <td colspan={anneeId !== null ? 12 : 11} class="p-0">
+                  <td colspan={anneeId !== null ? 13 : 12} class="p-0">
                     <div class="anim-apparition-douce px-5 py-4">
                       {@render fichePersonne(p)}
                     </div>
