@@ -75,6 +75,7 @@
   import Accessoires from "./routes/Accessoires.svelte";
   import Affectations from "./routes/Affectations.svelte";
   import Departager from "./routes/Departager.svelte";
+  import FichePersonne from "./routes/FichePersonne.svelte";
   import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
   import Aide from "./routes/Aide.svelte";
@@ -421,7 +422,22 @@
    */
   const RATTACHEMENTS = {
     departager: { partie: "annee", depuis: "ou_ca_coince" },
+    fiche: { partie: "annee", depuis: "personnes" },
   };
+
+  /**
+   * La personne dont la page est ouverte.
+   *
+   * Elle vit ici plutôt que dans l'écran : on y arrive depuis le
+   * Référentiel, depuis une liste de photos, depuis un constat — et
+   * l'écran de destination ne doit pas dépendre de celui d'où l'on vient.
+   */
+  let personneOuverte = $state(/** @type {number|null} */ (null));
+
+  function ouvrirFiche(id) {
+    personneOuverte = id;
+    page = "fiche";
+  }
 
   let partieActive = $derived(
     PARTIES.find((p) => p.ecrans.some((e) => e.id === page))?.id ??
@@ -811,7 +827,7 @@
             onRechercher={() => (paletteOuverte = true)}
           />
         {:else if page === "personnes"}
-          <Personnes />
+          <Personnes onOuvrirFiche={ouvrirFiche} />
         {:else if page === "coffre"}
           <Coffre />
         {:else if page === "arrivees"}
@@ -873,6 +889,12 @@
           <Affectations onNaviguer={(p) => (page = p)} />
         {:else if page === "departager"}
           <Departager onNaviguer={(p) => (page = p)} />
+        {:else if page === "fiche" && personneOuverte !== null}
+          <FichePersonne
+            personneId={personneOuverte}
+            onNaviguer={(p) => (page = p)}
+            onRetour={() => (page = "personnes")}
+          />
         {:else if page === "journal"}
           <Journal />
         {:else if page === "photos"}

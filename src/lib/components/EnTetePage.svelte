@@ -1,7 +1,7 @@
 <script>
   import { getContext } from "svelte";
-  import ChevronRight from "@lucide/svelte/icons/chevron-right";
-  import { ecran, teinteCourante } from "$lib/ecran.svelte.js";
+  import FilAriane from "$lib/components/FilAriane.svelte";
+  import { teinteCourante } from "$lib/ecran.svelte.js";
 
   /**
    * En-tête de page — fil d'Ariane, titre, description, actions.
@@ -67,10 +67,6 @@
 
   let couleur = $derived(ton ? (TONS[ton] ?? TONS.emerald) : teinteCourante());
 
-  /** Les maillons intermédiaires : la partie, puis l'écran s'il diffère. */
-  let maillons = $derived(
-    [ecran.partieLabel, ecran.label, ...chemin].filter(Boolean),
-  );
 </script>
 
 {#if embarque}
@@ -82,27 +78,7 @@
   {/if}
 {:else}
   <div class="space-y-3">
-    <!-- D'où l'on vient. L'accueil n'est dans aucune barre : c'est ici
-         qu'on y revient. -->
-    <nav class="flex flex-wrap items-center gap-1 text-sm" aria-label="Fil d'Ariane">
-      <button
-        type="button"
-        class="text-stone-500 transition-colors hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
-        onclick={() => ecran.aller("accueil")}
-      >
-        Accueil
-      </button>
-      {#each maillons as m, i (m + i)}
-        <ChevronRight class="h-3.5 w-3.5 shrink-0 text-stone-400" />
-        <span
-          class={i === maillons.length - 1
-            ? "font-semibold text-stone-900 dark:text-stone-100"
-            : "text-stone-500 dark:text-stone-400"}
-        >
-          {m}
-        </span>
-      {/each}
-    </nav>
+    <FilAriane {chemin} />
 
     <!-- La forme des maquettes : titre à gauche, actions alignées sur sa
          ligne de base, rien autour. -->

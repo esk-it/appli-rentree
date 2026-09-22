@@ -25,6 +25,13 @@
   import { annees as anneesApi, personnes } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
+  /**
+   * @typedef {Object} Props
+   * @property {(id: number) => void} [onOuvrirFiche]
+   */
+  /** @type {Props} */
+  let { onOuvrirFiche } = $props();
+
   let liste = $state(/** @type {any[]} */ ([]));
   let chargement = $state(true);
   let erreur = $state("");
@@ -1018,6 +1025,7 @@
               <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">Classe</th>
               <th class="border-b border-stone-200 px-3 py-2 text-right font-semibold dark:border-stone-800">Badge</th>
               <th class="border-b border-stone-200 px-3 py-2 text-left font-semibold dark:border-stone-800">État</th>
+              <th class="border-b border-stone-200 px-2 py-2 dark:border-stone-800"></th>
             </tr>
           </thead>
           <tbody>
@@ -1154,6 +1162,25 @@
                 <td class="px-3 py-1.5">
                   <Pastille etat={etatDe(p).etat} texte={etatDe(p).texte} />
                 </td>
+                <td class="px-2 py-1.5">
+                  <!-- La ligne se déplie pour un coup d'œil ; le chevron
+                       ouvre la page, où l'on travaille. Deux gestes, deux
+                       usages — un écart se corrige en plusieurs étapes, et
+                       chacune refermerait la ligne dépliée. -->
+                  {#if !p.sans_compte}
+                    <button
+                      class="rounded-lg p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-800 dark:hover:bg-stone-800 dark:hover:text-stone-100"
+                      title="Ouvrir la fiche de {p.prenom} {p.nom}"
+                      aria-label="Ouvrir la fiche de {p.prenom} {p.nom}"
+                      onclick={(e) => {
+                        e.stopPropagation();
+                        onOuvrirFiche?.(p.id);
+                      }}
+                    >
+                      <ChevronRight class="h-4 w-4" />
+                    </button>
+                  {/if}
+                </td>
               </tr>
 
               {#if ouverte === p.id}
@@ -1161,7 +1188,7 @@
                   <!-- Douze colonnes, treize quand le mouvement s'affiche :
                        un colspan court laisserait la fiche se replier dans
                        une largeur de cellule. -->
-                  <td colspan={anneeId !== null ? 13 : 12} class="p-0">
+                  <td colspan={anneeId !== null ? 14 : 13} class="p-0">
                     <div class="anim-apparition-douce px-5 py-4">
                       {@render fichePersonne(p)}
                     </div>
