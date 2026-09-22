@@ -1,6 +1,5 @@
 <script>
   import { getContext } from "svelte";
-  import { teinteCourante } from "$lib/ecran.svelte.js";
 
   /**
    * En-tête de page — titre, description, actions.
@@ -9,13 +8,16 @@
    * marges légèrement différentes. Les écarts ne se voient pas isolément
    * mais donnent une impression de flottement quand on navigue.
    *
-   * ## La couleur vient de la navigation, pas de l'écran
+   * ## Ni icône ni carte
    *
-   * L'icône est posée sur un voile de la teinte de la famille — orange la
-   * rentrée, violet l'année, rose les photos. Aucun des trente écrans n'a
-   * eu à la déclarer : la navigation dépose l'écran ouvert dans un module,
-   * et l'en-tête l'y lit. Le `ton` explicite reste possible et l'emporte,
-   * pour les rares cas où un écran veut se signaler autrement.
+   * Les maquettes du tour 5 posent un grand titre, sa description, et les
+   * actions sur la même ligne de base. La couleur de la famille se lit
+   * ailleurs — l'onglet ouvert, les chiffres du bandeau, les pastilles
+   * d'état — et une icône de plus ne la dirait pas mieux.
+   *
+   * `icon` et `ton` restent acceptés sans effet : trente écrans les
+   * passent, et les retirer partout pour un en-tête qui les ignore serait
+   * trente diffs pour rien.
    *
    * ## Le filet plutôt que la boîte
    *
@@ -43,15 +45,6 @@
   /** Vrai quand le parcours affiche cet écran dans une de ses étapes. */
   const embarque = getContext("parcours.embarque") === true;
 
-  const TONS = {
-    emerald: "var(--color-emerald-600)",
-    sky: "var(--color-sky-600)",
-    amber: "var(--color-amber-600)",
-    stone: "var(--color-stone-500)",
-    red: "var(--color-red-600)",
-  };
-
-  let couleur = $derived(ton ? (TONS[ton] ?? TONS.emerald) : teinteCourante());
 </script>
 
 {#if embarque}
@@ -62,34 +55,25 @@
     </div>
   {/if}
 {:else}
-  <header class="border-b border-stone-200 pb-4 dark:border-stone-800">
-    <div class="flex items-start justify-between gap-4">
-      <div class="flex min-w-0 items-center gap-3.5">
-        {#if Icon}
-          <span
-            class="plaque-icone h-12 w-12"
-            style="--teinte: {couleur};"
-            aria-hidden="true"
-          >
-            <Icon class="h-6 w-6" style="stroke-width: 1.8;" />
-          </span>
-        {/if}
-        <div class="min-w-0">
-          <h1 class="titre-affiche text-[28px] leading-tight text-stone-900 dark:text-stone-50">
-            {titre}
-          </h1>
-          {#if description}
-            <p class="mt-1 max-w-3xl text-sm leading-relaxed text-stone-600 dark:text-stone-400">
-              {description}
-            </p>
-          {/if}
-        </div>
-      </div>
-      {#if actions}
-        <div class="flex shrink-0 items-center gap-2">
-          {@render actions()}
-        </div>
+  <!-- La forme des maquettes du tour 5 : titre et description à gauche,
+       actions alignées sur la ligne de base du titre, rien autour. Pas de
+       carte, pas d'icône — c'est le grand titre qui situe la page, et les
+       chiffres en dessous qui portent la couleur. -->
+  <header class="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+    <div class="min-w-0">
+      <h1 class="titre-affiche text-[32px] leading-tight text-stone-900 dark:text-stone-50">
+        {titre}
+      </h1>
+      {#if description}
+        <p class="mt-1 max-w-4xl text-sm leading-relaxed text-stone-600 dark:text-stone-400">
+          {description}
+        </p>
       {/if}
     </div>
+    {#if actions}
+      <div class="flex shrink-0 flex-wrap items-center gap-3">
+        {@render actions()}
+      </div>
+    {/if}
   </header>
 {/if}

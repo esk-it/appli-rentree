@@ -8,6 +8,9 @@
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
+  import Segments from "$lib/components/Segments.svelte";
+  import Onglets from "$lib/components/Onglets.svelte";
+  import Pastille from "$lib/components/Pastille.svelte";
   import { annees as anneesApi, photos } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
   import Progression from "$lib/components/Progression.svelte";
@@ -51,6 +54,15 @@
   let releveLe = $derived(relevesLe[population] ?? null);
   let occupe = $state(false);
   let erreur = $state("");
+  /**
+   * Deux vues, et non un seul tas.
+   *
+   * « Manquante » et « à trancher » ne se règlent pas pareil : la
+   * première demande une photo au professeur principal, la seconde
+   * demande de renommer un fichier qui existe déjà. Mêlées, on relance
+   * une famille pour une photo qui est sur le partage.
+   */
+  let vue = $state("absentes");
   let recherche = $state("");
   let classeRetenue = $state("");
   let siteRetenu = $state("");
@@ -127,6 +139,19 @@
     return r;
   });
 
+  let nbAbsentes = $derived(
+    (inventaire?.manquantes ?? []).filter((e) => !e.pistes?.length).length,
+  );
+  let nbATrancher = $derived(
+    (inventaire?.manquantes ?? []).filter((e) => e.pistes?.length).length,
+  );
+
+  let affichees = $derived(
+    manquantes.filter((e) =>
+      vue === "trancher" ? e.pistes?.length : !e.pistes?.length,
+    ),
+  );
+
   /** Les classes incomplètes, les pires d'abord — c'est l'ordre des relances. */
   let classes = $derived(
     (inventaire?.classes_incompletes ?? []).map((c) => ({
@@ -137,38 +162,33 @@
   );
 </script>
 
-<section class="space-y-5">
+<section class="space-y-6">
   <EnTetePage
-    icon={Camera}
-    titre="Les photos"
-    description="Qui a sa photo sur le partage, et surtout qui ne l'a pas — nommément, par classe, pour relancer les professeurs principaux."
+    titre="Photos"
+    description="Un accès disque par élève sur le partage réseau. Qui a sa photo, et surtout qui ne l'a pas — nommément, par classe, pour relancer les professeurs principaux."
   >
     {#snippet actions()}
-      <div class="flex overflow-hidden rounded-lg border border-stone-300 dark:border-stone-600">
-        {#each [["eleve", "Élèves"], ["adulte", "Adultes"]] as [id, label] (id)}
-          <button
-            class="px-3 py-1.5 text-sm transition {population === id
-              ? 'bg-emerald-600 font-medium text-white'
-              : 'text-stone-600 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-700'}"
-            onclick={() => (population = id)}
-          >
-            {label}
-          </button>
-        {/each}
-      </div>
+      <Segments
+        bind:valeur={population}
+        taille="sm"
+        options={[
+          { id: "eleve", label: "Élèves" },
+          { id: "adulte", label: "Adultes" },
+        ]}
+      />
       {#if inventaire && anneeId}
-        <a class="btn-secondary" href={photos.urlClasseur(anneeId, population)}>
-          <Download class="h-4 w-4" /> La liste en classeur
+        <a class="btn-secondary !py-1.5 text-xs" href={photos.urlClasseur(anneeId, population)}>
+          <Download class="h-3.5 w-3.5" /> La liste en classeur
         </a>
       {/if}
-      <Bouton variante="primary" icon={RefreshCw} occupe={occupe} onclick={relever}>
-        {inventaire ? "Relever à nouveau" : "Relever le partage"}
+      <Bouton taille="sm" icon={RefreshCw} occupe={occupe} onclick={relever}>
+        {inventaire ? "Relancer la vérification" : "Relever le partage"}
       </Bouton>
     {/snippet}
   </EnTetePage>
 
   {#if erreur}
-    <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">
+    <p class="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300">
       {erreur}
     </p>
   {/if}
@@ -176,13 +196,11 @@
   <!-- Le relevé lit deux mille fichiers sur un partage réseau : sans trace
        visible, l'écran paraît figé et l'on reclique. -->
   {#if occupe}
-    <div class="card p-4">
-      <Progression
-        libelle="Lecture du partage"
-        detail="Chaque fichier du dossier est comparé aux élèves de l'année — quelques secondes."
-        teinte={TEINTES.photos}
-      />
-    </div>
+    <Progression
+      libelle="Lecture du partage"
+      detail="Chaque fichier du dossier est comparé aux élèves de l'année — quelques secondes."
+      teinte={TEINTES.photos}
+    />
   {/if}
 
   {#if !inventaire}
@@ -192,178 +210,164 @@
       message="Un accès disque par personne, sur le réseau : c'est trop cher pour partir tout seul à chaque ouverture. Lance le relevé quand le partage est monté."
     />
   {:else}
-    {#if age && age !== "à l'instant"}
-      <p class="text-xs text-stone-500 dark:text-stone-400">
-        Relevé retrouvé — il date de <strong>{age}</strong>. Relance-le si des
-        photos ont été déposées depuis.
-      </p>
-    {/if}
+    <!-- La date du relevé, en bandeau : un constat sans date laisse croire
+         qu'il est de maintenant. -->
+    <div class="flex items-center gap-3.5 rounded-xl bg-amber-50 px-4.5 py-3 text-sm dark:bg-amber-400/10">
+      <span class="h-2.5 w-2.5 shrink-0 rounded-full bg-amber-500"></span>
+      <span class="text-stone-800 dark:text-stone-200">
+        Dernière vérification : <strong>{age || "à l'instant"}</strong>.
+        À relancer quand des photos ont été déposées depuis.
+      </span>
+      <span class="ml-auto truncate font-mono text-xs text-stone-500 dark:text-stone-400">
+        {inventaire.dossier}
+      </span>
+    </div>
 
-    <div class="grid gap-px overflow-hidden rounded-xl border border-stone-200 bg-stone-200 dark:border-stone-700 dark:bg-stone-700 sm:grid-cols-2 lg:grid-cols-4">
-      <div class="bg-white p-4 dark:bg-stone-800">
-        <p class="libelle-champ">Photos en place</p>
-        <p class="mt-1 text-2xl font-semibold tabular-nums">
+    <!-- Les trois constats, en grands chiffres colorés. -->
+    <div class="flex flex-wrap gap-14 border-b border-stone-200 pb-5 dark:border-stone-800">
+      <div>
+        <p class="titre-affiche text-[32px] leading-none tabular-nums" style="color: {TEINTES.koxo};">
           {inventaire.nb_avec}
-          <span class="text-sm font-normal text-stone-500">/ {inventaire.nb_eleves}</span>
         </p>
-        <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-stone-200 dark:bg-stone-700">
-          <div
-            class="h-full bg-emerald-500 transition-all duration-500"
-            style="width: {Math.round(inventaire.taux * 100)}%"
-          ></div>
-        </div>
-      </div>
-      <div class="bg-white p-4 dark:bg-stone-800">
-        <p class="libelle-champ">Manquantes</p>
-        <p class="mt-1 text-2xl font-semibold tabular-nums {inventaire.nb_sans ? 'text-amber-700 dark:text-amber-400' : ''}">
-          {inventaire.nb_sans}
-        </p>
-        <p class="text-xs text-stone-500 dark:text-stone-400">
-          dans {classes.length}
-          {population === "adulte" ? "site" : "classe"}{classes.length > 1 ? "s" : ""}
+        <p class="mt-1 text-[13px] text-stone-600 dark:text-stone-400">
+          photos trouvées sur {inventaire.nb_eleves}
         </p>
       </div>
-      <div class="bg-white p-4 dark:bg-stone-800 sm:col-span-2">
-        <p class="libelle-champ">Partage lu</p>
-        <p class="mt-1 truncate font-mono text-xs text-stone-600 dark:text-stone-300">
-          {inventaire.dossier}
+      <div>
+        <p
+          class="titre-affiche text-[32px] leading-none tabular-nums"
+          style="color: {nbAbsentes ? 'var(--color-red-700)' : 'var(--color-stone-400)'};"
+        >
+          {nbAbsentes}
         </p>
-        <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
-          Le fichier est cherché sous « NOM Prénom », « NOM_Prénom »,
-          « Prénom NOM » et le numéro de badge — une photo présente sous une
-          autre forme n'est pas déclarée manquante.
+        <p class="mt-1 text-[13px] text-stone-600 dark:text-stone-400">manquantes</p>
+      </div>
+      <div>
+        <p
+          class="titre-affiche text-[32px] leading-none tabular-nums"
+          style="color: {nbATrancher ? 'var(--color-amber-700)' : 'var(--color-stone-400)'};"
+        >
+          {nbATrancher}
         </p>
+        <p class="mt-1 text-[13px] text-stone-600 dark:text-stone-400">à trancher</p>
       </div>
     </div>
 
-    {#if inventaire.nb_a_verifier > 0}
-      <div class="rounded-lg border-l-4 border-l-amber-500 bg-amber-50 p-3 dark:bg-amber-900/25">
-        <p class="text-sm font-medium text-amber-900 dark:text-amber-200">
-          {inventaire.nb_a_verifier} cas à trancher — un fichier existe, mais
-          rien ne dit à qui il est.
-        </p>
-        <p class="mt-0.5 text-xs text-amber-800 dark:text-amber-300">
-          Des homonymes. La vie scolaire ajoute la classe entre parenthèses
-          pour les départager ; quand l'abréviation ne correspond à aucune
-          classe connue, le programme refuse de choisir — mettre le visage
-          d'une élève sur la carte de son homonyme serait pire que rien.
-          Les fichiers candidats sont nommés dans la liste.
-        </p>
-      </div>
-    {/if}
-
     {#if inventaire.nb_sans === 0}
-      <div class="card flex items-center gap-3 p-5">
-        <CheckCircle2 class="h-6 w-6 shrink-0 text-emerald-600 dark:text-emerald-400" />
+      <div class="flex items-center gap-3.5 py-6">
+        <CheckCircle2 class="h-7 w-7 shrink-0" style="color: {TEINTES.koxo};" />
         <div>
-          <p class="font-medium">Tout le monde a sa photo.</p>
-          <p class="text-sm text-stone-500 dark:text-stone-400">
-            {inventaire.nb_eleves} élèves, aucun fichier introuvable sur le partage.
+          <p class="titre-affiche text-lg">Tout le monde a sa photo.</p>
+          <p class="text-sm text-stone-600 dark:text-stone-400">
+            {inventaire.nb_eleves} personnes, aucun fichier introuvable sur le partage.
           </p>
         </div>
       </div>
     {:else}
-      <!-- Par classe : c'est à cette maille qu'on relance. -->
-      {#if sites.length > 1}
-        <div class="card p-4">
-          <h2 class="titre-section mb-2">Par site</h2>
-          <div class="flex flex-wrap gap-1.5">
-            <button
-              class="rounded-full border px-2.5 py-1 text-xs transition {siteRetenu === ''
-                ? 'border-emerald-500 bg-emerald-50 font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-                : 'border-stone-300 text-stone-600 hover:border-stone-400 dark:border-stone-600 dark:text-stone-300'}"
-              onclick={() => (siteRetenu = "")}
-            >
-              Tous <span class="tabular-nums">{inventaire.nb_sans}</span>
-            </button>
-            {#each sites as [nom, nb] (nom)}
+      <Onglets
+        bind:valeur={vue}
+        onglets={[
+          { id: "absentes", label: "Manquantes", compte: nbAbsentes },
+          { id: "trancher", label: "À trancher", compte: nbATrancher },
+        ]}
+      />
+
+      <!-- Les filtres : c'est par classe qu'on relance, et par site qu'on
+           répartit les relances entre collègues. -->
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div class="relative min-w-56 flex-1 sm:max-w-xs">
+          <Search class="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-stone-400" />
+          <input class="champ !py-1.5 pl-9 text-sm" placeholder="Nom ou prénom…" bind:value={recherche} />
+        </div>
+        {#if sites.length > 1}
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="libelle-champ">Site</span>
+            {#each [["", "Tous"], ...sites.map(([n]) => [n, n])] as [id, label] (id)}
               <button
-                class="rounded-full border px-2.5 py-1 text-xs transition {siteRetenu === nom
-                  ? 'border-emerald-500 bg-emerald-50 font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-                  : 'border-stone-300 text-stone-600 hover:border-stone-400 dark:border-stone-600 dark:text-stone-300'}"
-                onclick={() => {
-                  siteRetenu = nom;
-                  classeRetenue = "";
-                }}
+                class="rounded-full border px-2.5 py-1 text-xs font-semibold transition-colors {siteRetenu === id
+                  ? 'border-transparent text-white'
+                  : 'border-stone-300 text-stone-600 hover:border-stone-400 dark:border-stone-700 dark:text-stone-300'}"
+                style={siteRetenu === id ? `background: ${TEINTES.photos};` : ""}
+                onclick={() => { siteRetenu = id; classeRetenue = ""; }}
               >
-                {nom} <span class="tabular-nums font-semibold">{nb}</span>
+                {label}
               </button>
             {/each}
           </div>
-        </div>
-      {/if}
-
-      <div class="card p-4">
-        <h2 class="titre-section mb-2">
-          {population === "adulte" ? "Par site" : "Par classe, les plus incomplètes d'abord"}
-        </h2>
-        <div class="flex flex-wrap gap-1.5">
-          <button
-            class="rounded-full border px-2.5 py-1 text-xs transition {classeRetenue === ''
-              ? 'border-emerald-500 bg-emerald-50 font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-              : 'border-stone-300 text-stone-600 hover:border-stone-400 dark:border-stone-600 dark:text-stone-300'}"
-            onclick={() => (classeRetenue = "")}
-          >
-            Toutes <span class="tabular-nums">{inventaire.nb_sans}</span>
-          </button>
-          {#each classes as c (c.code)}
-            <button
-              class="rounded-full border px-2.5 py-1 text-xs transition {classeRetenue === c.code
-                ? 'border-emerald-500 bg-emerald-50 font-medium text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300'
-                : 'border-stone-300 text-stone-600 hover:border-stone-400 dark:border-stone-600 dark:text-stone-300'}"
-              title="{c.avec} photo(s) en place sur {c.avec + c.sans}"
-              onclick={() => (classeRetenue = c.code)}
-            >
-              {c.code} <span class="tabular-nums font-semibold">{c.sans}</span>
-            </button>
-          {/each}
-        </div>
+        {/if}
+        {#if classes.length}
+          <div class="flex flex-wrap items-center gap-1.5">
+            <span class="libelle-champ">{population === "adulte" ? "Site" : "Classe"}</span>
+            {#each [["", "Toutes"], ...classes.map((c) => [c.code, `${c.code} ${c.sans}`])] as [id, label] (id)}
+              <button
+                class="rounded-full border px-2.5 py-1 font-mono text-xs font-semibold transition-colors {classeRetenue === id
+                  ? 'border-transparent text-white'
+                  : 'border-stone-300 text-stone-600 hover:border-stone-400 dark:border-stone-700 dark:text-stone-300'}"
+                style={classeRetenue === id ? `background: ${TEINTES.photos};` : ""}
+                onclick={() => (classeRetenue = id)}
+              >
+                {label}
+              </button>
+            {/each}
+          </div>
+        {/if}
       </div>
 
-      <div class="card overflow-hidden">
-        <div class="border-b border-stone-200 p-3 dark:border-stone-700">
-          <div class="relative max-w-md">
-            <Search class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-400" />
-            <input class="champ pl-9" placeholder="Nom ou prénom…" bind:value={recherche} />
+      <!-- Le tableau du tour 5 : des filets, pas de cadre. -->
+      <div class="overflow-x-auto">
+        <div class="min-w-[56rem]">
+          <div class="grid grid-cols-[minmax(0,1fr)_110px_150px_minmax(0,1.4fr)_90px] items-center gap-3 border-b border-stone-200 py-2 dark:border-stone-800">
+            <span class="libelle-champ">{population === "adulte" ? "Personne" : "Élève"}</span>
+            <span class="libelle-champ">{population === "adulte" ? "Site" : "Classe"}</span>
+            <span class="libelle-champ">Problème</span>
+            <span class="libelle-champ">Détail</span>
+            <span class="libelle-champ text-right">Badge</span>
+          </div>
+
+          <div class="max-h-[calc(100vh-30rem)] min-h-40 overflow-y-auto">
+            {#each affichees as e (e.personne_id)}
+              <div class="grid grid-cols-[minmax(0,1fr)_110px_150px_minmax(0,1.4fr)_90px] items-center gap-3 border-b border-stone-100 py-2.5 text-sm dark:border-stone-800/70">
+                <span class="truncate">
+                  <strong class="font-semibold">{e.nom}</strong>
+                  <span class="text-stone-600 dark:text-stone-300">{e.prenom}</span>
+                </span>
+                <span class="truncate font-mono text-xs text-stone-600 dark:text-stone-400">
+                  {e.classe}
+                </span>
+                <span>
+                  {#if e.pistes?.length}
+                    <Pastille etat="attente" texte="À trancher" />
+                  {:else}
+                    <Pastille etat="ecart" texte="Photo absente" />
+                  {/if}
+                </span>
+                <span class="truncate font-mono text-[11px] text-stone-500 dark:text-stone-400">
+                  {#if e.pistes?.length}
+                    {e.pistes.join(" · ")}
+                  {:else}
+                    Aucun fichier dans le dossier
+                  {/if}
+                </span>
+                <span class="text-right font-mono text-xs text-stone-500 tabular-nums dark:text-stone-400">
+                  {e.badge ?? "—"}
+                </span>
+              </div>
+            {/each}
+            {#if !affichees.length}
+              <p class="py-8 text-center text-sm text-stone-500 dark:text-stone-400">
+                Aucune ligne pour ces filtres.
+              </p>
+            {/if}
           </div>
         </div>
-        <div class="max-h-[max(24rem,calc(100vh-30rem))] overflow-auto">
-          <table class="tableau">
-            <thead class="entete-tableau">
-              <tr>
-                <th class="px-3 py-2 text-left">{population === "adulte" ? "Site" : "Classe"}</th>
-                <th class="px-3 py-2 text-left">Nom</th>
-                <th class="px-3 py-2 text-left">Prénom</th>
-                <th class="px-3 py-2 text-left">Site</th>
-                <th class="px-3 py-2 text-right">Badge</th>
-                <th class="px-3 py-2 text-left">Fichier attendu</th>
-              </tr>
-            </thead>
-            <tbody class="corps-tableau">
-              {#each manquantes as e (e.personne_id)}
-                <tr>
-                  <td class="whitespace-nowrap px-3 py-1.5 text-xs font-medium">{e.classe}</td>
-                  <td class="px-3 py-1.5 font-medium">{e.nom}</td>
-                  <td class="px-3 py-1.5">{e.prenom}</td>
-                  <td class="px-3 py-1.5 text-xs text-stone-500">{e.site ?? "—"}</td>
-                  <td class="px-3 py-1.5 text-right font-mono text-xs tabular-nums text-stone-500">
-                    {e.badge ?? "—"}
-                  </td>
-                  <td class="px-3 py-1.5 font-mono text-[11px]">
-                    {#if e.pistes?.length}
-                      <span class="text-amber-700 dark:text-amber-400">
-                        à trancher : {e.pistes.join(" · ")}
-                      </span>
-                    {:else}
-                      <span class="truncate text-stone-400">{e.chemin_attendu ?? ""}</span>
-                    {/if}
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
       </div>
+
+      <p class="text-[13px] text-stone-500 dark:text-stone-400">
+        Le fichier est cherché sous « NOM Prénom », « NOM_Prénom », « Prénom NOM »
+        et le numéro de badge. Une photo présente sous une autre forme n'est pas
+        déclarée manquante — et un fichier revendiqué par deux homonymes n'est
+        donné à personne, il passe « à trancher ».
+      </p>
     {/if}
   {/if}
 </section>
