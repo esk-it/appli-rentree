@@ -187,3 +187,58 @@ def test_annee_visee_coherente_ne_declenche_rien(session, site_factory):
     assert [x.utile for x in r.renommages] == [True]
     assert r.a_creer == [], "le renommage suffit à couvrir les deux OU attendues"
     assert not r.est_conforme, "un renommage reste une action à mener"
+
+
+# ---------------------------------------------------------------------------
+# Ne traiter qu'une partie des opérations
+# ---------------------------------------------------------------------------
+
+
+def test_retenir_sans_filtre_garde_tout():
+    """`None` est le comportement d'avant que l'écran sache cocher."""
+    from backend.services.ou_google import RapportConformiteOU, RenommageOU, retenir
+
+    r = RapportConformiteOU(
+        renommages=[RenommageOU("/3. NDK/NDK2025", "/3. NDK/NDK2026", 80)],
+        a_creer=["/3. NDK/NDK2026/1_NEUF"],
+    )
+    renommages, a_creer = retenir(r, None)
+    assert len(renommages) == 1
+    assert a_creer == ["/3. NDK/NDK2026/1_NEUF"]
+
+
+def test_retenir_un_seul_site_laisse_les_autres_tranquilles():
+    """NDE n'a pas de KoXo : sa rentrée ne part pas le même jour."""
+    from backend.services.ou_google import RapportConformiteOU, RenommageOU, retenir
+
+    r = RapportConformiteOU(
+        renommages=[
+            RenommageOU("/3. NDK/NDK2025", "/3. NDK/NDK2026", 80),
+            RenommageOU("/4. SU/SU2025", "/4. SU/SU2026", 40),
+            RenommageOU("/5. NDE/NDE2025", "/5. NDE/NDE2026", 12),
+        ],
+    )
+    renommages, _ = retenir(r, ["/3. NDK/NDK2025", "/4. SU/SU2025"])
+    assert [x.ancien for x in renommages] == ["/3. NDK/NDK2025", "/4. SU/SU2025"]
+
+
+def test_retenir_preserve_l_ordre_des_creations():
+    """Google exige le parent avant l'enfant : filtrer ne doit pas trier."""
+    from backend.services.ou_google import RapportConformiteOU, retenir
+
+    r = RapportConformiteOU(
+        a_creer=["/3. NDK/NDK2026", "/3. NDK/NDK2026/6A", "/3. NDK/NDK2026/6B"],
+    )
+    _, a_creer = retenir(r, ["/3. NDK/NDK2026/6B", "/3. NDK/NDK2026"])
+    assert a_creer == ["/3. NDK/NDK2026", "/3. NDK/NDK2026/6B"]
+
+
+def test_retenir_une_liste_vide_ne_garde_rien():
+    """Tout décocher n'est pas tout appliquer — la route le refuse ensuite."""
+    from backend.services.ou_google import RapportConformiteOU, RenommageOU, retenir
+
+    r = RapportConformiteOU(
+        renommages=[RenommageOU("/3. NDK/NDK2025", "/3. NDK/NDK2026", 80)],
+        a_creer=["/3. NDK/NDK2026/1_NEUF"],
+    )
+    assert retenir(r, []) == ([], [])

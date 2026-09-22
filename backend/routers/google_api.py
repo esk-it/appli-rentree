@@ -1413,6 +1413,18 @@ class AppliquerOUPayload(BaseModel):
     annee_cible: str | None = None
     renommer: bool = True
     confirmation: bool = False
+    seulement: list[str] | None = None
+    """Les chemins à traiter, quand on n'en veut qu'une partie.
+
+    Un arbre d'année porte quatre-vingts classes : le renommer est un
+    geste, pas quatre-vingts. Mais les trois sites ne se renomment pas
+    forcément le même jour — NDE n'a pas de KoXo et sa rentrée décale.
+    Sans ce filtre, décocher une ligne à l'écran ne pouvait rien changer
+    au geste, et la case aurait menti.
+
+    Un chemin est reconnu à son `ancien` pour un renommage, à sa valeur
+    pour une création. `None` traite tout, comme avant.
+    """
 
 
 @router.post("/ou/appliquer", response_model=JobOut)
@@ -1437,6 +1449,12 @@ def appliquer_conformite_ou(
     if r.est_conforme:
         raise HTTPException(400, "L'arborescence est déjà conforme à la Table.")
 
+    from backend.services.ou_google import retenir
+
+    renommages, a_creer = retenir(r, payload.seulement)
+    if not renommages and not a_creer:
+        raise HTTPException(400, "Aucune des lignes retenues n'est à traiter.")
+
     from backend.services.jobs_google import creer_job, lancer_en_tache_de_fond
 
     class _Etape:
@@ -1452,14 +1470,14 @@ def appliquer_conformite_ou(
         _Etape("renommer", x.ancien,
                f"Renommer {x.ancien} en {x.nouveau} ({x.nb_sous_ou} classes)",
                x.nouveau.rsplit("/", 1)[-1])
-        for x in r.renommages
+        for x in renommages
     ] + [
-        _Etape("creer_ou", chemin, f"Créer {chemin}") for chemin in r.a_creer
+        _Etape("creer_ou", chemin, f"Créer {chemin}") for chemin in a_creer
     ]
 
     job = creer_job(
         phase="arborescence",
-        libelle=f"Arborescence : {len(r.renommages)} renommage(s), {r.nb_a_creer} création(s)",
+        libelle=f"Arborescence : {len(renommages)} renommage(s), {len(a_creer)} création(s)",
         operations=etapes,
     )
 

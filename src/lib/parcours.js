@@ -129,11 +129,11 @@ export const ETAPES = [
   {
     id: "arborescence",
     phase: "bascule",
-    page: "conformite_google",
+    page: "renommer_ou",
     titre: "Renommer et créer les unités d'organisation",
     role: "Google refuse un déplacement vers une unité absente, et le refuse élève par élève sans nommer la cause. On recycle l'arbre vidé, on crée ce qui manque.",
     reperer: "Aucun avertissement sur l'année visée.",
-    ecran: "onglet Arborescence",
+    ecran: "Renommer les OU",
     pieges: [
       "Google refuse un déplacement vers une unité absente, et le refuse élève par élève sans nommer la cause. Créer avant de basculer, jamais l'inverse.",
     ]
@@ -200,11 +200,11 @@ export const ETAPES = [
   {
     id: "groupes",
     phase: "bascule",
-    page: "conformite_google",
+    page: "groupes_google",
     titre: "Créer et synchroniser les groupes",
     role: "L'export ajoute des membres sans jamais en retirer : un groupe garde ses promotions passées. La composition se calcule ici dans les deux sens.",
     reperer: "Aucun groupe déclaré ne manque à Google.",
-    ecran: "onglet Groupes",
+    ecran: "Groupes Google",
     pieges: [
       "L'export CSV ajoute des membres sans jamais en retirer : un groupe garde ses promotions passées. Seule la synchronisation par l'API fait les deux sens.",
       "Un membre inconnu du référentiel n'est jamais retiré d'office — le programme ignore pourquoi il est là.",

@@ -46,6 +46,9 @@ export const FAMILLE_PAR_ECRAN = {
   // Ce qui touche aux comptes Google porte le bleu, où qu'il soit rangé.
   conformite: "google",
   bascule: "google",
+  renommer_ou: "google",
+  groupes_google: "google",
+  entrants_sortants: "google",
   sortants: "google",
   vidange: "google",
   // KoXo a son vert.

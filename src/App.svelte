@@ -23,6 +23,7 @@
   import ClipboardCheck from "@lucide/svelte/icons/clipboard-check";
   import GitCompare from "@lucide/svelte/icons/git-compare";
   import Network from "@lucide/svelte/icons/network";
+  import UsersRound from "@lucide/svelte/icons/users-round";
   import Laptop from "@lucide/svelte/icons/laptop";
   import Scale from "@lucide/svelte/icons/scale";
   import Rocket from "@lucide/svelte/icons/rocket";
@@ -45,6 +46,9 @@
   import Arrivees from "./routes/Arrivees.svelte";
   import Bilan from "./routes/Bilan.svelte";
   import Coherence from "./routes/Coherence.svelte";
+  import RenommerOu from "./routes/RenommerOu.svelte";
+  import GroupesGoogle from "./routes/GroupesGoogle.svelte";
+  import EntrantsSortants from "./routes/EntrantsSortants.svelte";
   import Concordance from "./routes/Concordance.svelte";
   import Mouvements from "./routes/Mouvements.svelte";
   import Personnes from "./routes/Personnes.svelte";
@@ -385,6 +389,13 @@
     { id: "snapshots", label: "Snapshots d'années", icon: Database },
     { id: "arbitrage", label: "Arbitrage", icon: Scale },
     { id: "simulation", label: "Simulation", icon: Zap },
+    // Renommer d'abord, basculer ensuite : Google refuse un
+    // déplacement vers une unité absente.
+    { id: "renommer_ou", label: "Renommer les OU", icon: FolderTree },
+    { id: "groupes_google", label: "Groupes Google", icon: UsersRound },
+    // Les trois listes ensemble : un élève de nos collèges n'est pas un
+    // entrant, et les séparer en deux écrans faisait recréer son compte.
+    { id: "entrants_sortants", label: "Entrants et sortants", icon: LogOut },
     { id: "bascule", label: "Bascule des OU", icon: FolderTree },
     { id: "conformite_google", label: "Conformité Google", icon: ShieldCheck },
     { id: "controle_koxo", label: "Contrôle KoXo", icon: ShieldCheck },
@@ -840,6 +851,12 @@
           <Coffre />
         {:else if page === "arrivees"}
           <Arrivees />
+        {:else if page === "entrants_sortants"}
+          <EntrantsSortants onNaviguer={(p) => (page = p)} />
+        {:else if page === "groupes_google"}
+          <GroupesGoogle />
+        {:else if page === "renommer_ou"}
+          <RenommerOu onNaviguer={(p) => (page = p)} />
         {:else if page === "coherence"}
           <Coherence onNaviguer={(p) => (page = p)} />
         {:else if page === "concordance"}

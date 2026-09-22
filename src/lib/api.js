@@ -747,14 +747,23 @@ export const googleApi = {
     if (!renommer) q.set("renommer", "false");
     return jsonOrThrow(await fetch(`${BASE}/google/ou/conformite?${q}`));
   },
-  async appliquerOu({ anneeSource = null, anneeCible = null, renommer = true }) {
+  /**
+   * @param seulement Les chemins à traiter, ou `null` pour tout. Un
+   *   renommage se nomme par son `ancien`, une création par son chemin.
+   */
+  async appliquerOu({
+    anneeSource = null,
+    anneeCible = null,
+    renommer = true,
+    seulement = null,
+  }) {
     return jsonOrThrow(
       await fetch(`${BASE}/google/ou/appliquer`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           annee_source: anneeSource, annee_cible: anneeCible,
-          renommer, confirmation: true,
+          renommer, confirmation: true, seulement,
         }),
       }),
     );

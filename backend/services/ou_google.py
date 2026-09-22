@@ -186,3 +186,28 @@ def _avec_parents(manquantes: set[str], disponibles: set[str]) -> set[str]:
             if parent not in disponibles:
                 complet.add(parent)
     return complet
+
+
+def retenir(
+    rapport: RapportConformiteOU, seulement: list[str] | None
+) -> tuple[list[RenommageOU], list[str]]:
+    """Les opérations que l'on garde, quand on n'en veut qu'une partie.
+
+    Un arbre d'année porte quatre-vingts classes : le renommer est un
+    geste, pas quatre-vingts. Mais les trois sites ne partent pas
+    forcément le même jour — NDE n'a pas de KoXo et sa rentrée décale.
+
+    Un renommage se nomme par son `ancien`, une création par son chemin.
+    L'ordre des créations est **préservé** : Google exige le parent avant
+    l'enfant, et trier autrement remettrait un enfant en tête.
+
+    `None` garde tout, ce qui était le comportement avant que l'écran
+    sache cocher.
+    """
+    if seulement is None:
+        return list(rapport.renommages), list(rapport.a_creer)
+    retenus = set(seulement)
+    return (
+        [x for x in rapport.renommages if x.ancien in retenus],
+        [c for c in rapport.a_creer if c in retenus],
+    )
