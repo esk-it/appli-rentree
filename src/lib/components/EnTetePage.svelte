@@ -1,28 +1,32 @@
 <script>
   import { getContext } from "svelte";
+  import ChevronRight from "@lucide/svelte/icons/chevron-right";
+  import { ecran, teinteCourante } from "$lib/ecran.svelte.js";
 
   /**
-   * En-tête de page — titre, description, actions.
+   * En-tête de page — fil d'Ariane, titre, description, actions.
    *
    * Chaque écran écrivait son propre en-tête, avec des tailles et des
    * marges légèrement différentes. Les écarts ne se voient pas isolément
    * mais donnent une impression de flottement quand on navigue.
    *
-   * ## Ni icône ni carte
+   * ## Le fil d'Ariane, alors que la barre d'onglets existe
    *
-   * Les maquettes du tour 5 posent un grand titre, sa description, et les
-   * actions sur la même ligne de base. La couleur de la famille se lit
-   * ailleurs — l'onglet ouvert, les chiffres du bandeau, les pastilles
-   * d'état — et une icône de plus ne la dirait pas mieux.
+   * Les deux ne disent pas la même chose. La barre dit *ce qu'il y a à
+   * côté* ; le fil dit *d'où l'on vient* — et il ramène en un clic à
+   * l'accueil, qui n'est dans aucune barre. Il vient des maquettes, où il
+   * tient ce rôle seul.
    *
-   * `icon` et `ton` restent acceptés sans effet : trente écrans les
-   * passent, et les retirer partout pour un en-tête qui les ignore serait
-   * trente diffs pour rien.
+   * Ni l'un ni l'autre n'est déclaré par l'écran : la navigation dépose
+   * dans un module ce qu'elle sait, l'en-tête l'y lit. Trente fichiers
+   * restent intacts.
    *
-   * ## Le filet plutôt que la boîte
+   * ## L'icône porte la couleur de la famille
    *
-   * L'en-tête ne s'enferme pas dans une carte : un trait sous le titre
-   * sépare autant, et laisse l'écran respirer.
+   * Orange la rentrée, violet l'année, rose les photos. C'est le repère
+   * qu'on attrape avant d'avoir lu le titre, et il coûte une plaque de
+   * quarante-huit pixels. Le `ton` explicite l'emporte, pour les rares
+   * écrans qui veulent se signaler autrement.
    *
    * ## Embarqué dans une étape du parcours
    *
@@ -37,14 +41,36 @@
    * @property {string} [description]
    * @property {any} [icon]
    * @property {"emerald"|"sky"|"amber"|"stone"|"red"} [ton] - force une couleur
+   * @property {string[]} [chemin] - étapes ajoutées après la partie
    * @property {import('svelte').Snippet} [actions] - boutons alignés à droite
    */
   /** @type {Props} */
-  let { titre, description = "", icon: Icon, ton = null, actions } = $props();
+  let {
+    titre,
+    description = "",
+    icon: Icon,
+    ton = null,
+    chemin = [],
+    actions,
+  } = $props();
 
   /** Vrai quand le parcours affiche cet écran dans une de ses étapes. */
   const embarque = getContext("parcours.embarque") === true;
 
+  const TONS = {
+    emerald: "var(--color-emerald-600)",
+    sky: "var(--color-sky-600)",
+    amber: "var(--color-amber-600)",
+    stone: "var(--color-stone-500)",
+    red: "var(--color-red-600)",
+  };
+
+  let couleur = $derived(ton ? (TONS[ton] ?? TONS.emerald) : teinteCourante());
+
+  /** Les maillons intermédiaires : la partie, puis l'écran s'il diffère. */
+  let maillons = $derived(
+    [ecran.partieLabel, ecran.label, ...chemin].filter(Boolean),
+  );
 </script>
 
 {#if embarque}
@@ -55,25 +81,58 @@
     </div>
   {/if}
 {:else}
-  <!-- La forme des maquettes du tour 5 : titre et description à gauche,
-       actions alignées sur la ligne de base du titre, rien autour. Pas de
-       carte, pas d'icône — c'est le grand titre qui situe la page, et les
-       chiffres en dessous qui portent la couleur. -->
-  <header class="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-    <div class="min-w-0">
-      <h1 class="titre-affiche text-[32px] leading-tight text-stone-900 dark:text-stone-50">
-        {titre}
-      </h1>
-      {#if description}
-        <p class="mt-1 max-w-4xl text-sm leading-relaxed text-stone-600 dark:text-stone-400">
-          {description}
-        </p>
-      {/if}
-    </div>
-    {#if actions}
-      <div class="flex shrink-0 flex-wrap items-center gap-3">
-        {@render actions()}
+  <div class="space-y-3">
+    <!-- D'où l'on vient. L'accueil n'est dans aucune barre : c'est ici
+         qu'on y revient. -->
+    <nav class="flex flex-wrap items-center gap-1 text-sm" aria-label="Fil d'Ariane">
+      <button
+        type="button"
+        class="text-stone-500 transition-colors hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
+        onclick={() => ecran.aller("accueil")}
+      >
+        Accueil
+      </button>
+      {#each maillons as m, i (m + i)}
+        <ChevronRight class="h-3.5 w-3.5 shrink-0 text-stone-400" />
+        <span
+          class={i === maillons.length - 1
+            ? "font-semibold text-stone-900 dark:text-stone-100"
+            : "text-stone-500 dark:text-stone-400"}
+        >
+          {m}
+        </span>
+      {/each}
+    </nav>
+
+    <!-- La forme des maquettes : titre à gauche, actions alignées sur sa
+         ligne de base, rien autour. -->
+    <header class="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
+      <div class="flex min-w-0 items-center gap-4">
+        {#if Icon}
+          <span
+            class="plaque-icone h-12 w-12"
+            style="--teinte: {couleur};"
+            aria-hidden="true"
+          >
+            <Icon class="h-6 w-6" style="stroke-width: 1.8;" />
+          </span>
+        {/if}
+        <div class="min-w-0">
+          <h1 class="titre-affiche text-[32px] leading-tight text-stone-900 dark:text-stone-50">
+            {titre}
+          </h1>
+          {#if description}
+            <p class="mt-1 max-w-4xl text-sm leading-relaxed text-stone-600 dark:text-stone-400">
+              {description}
+            </p>
+          {/if}
+        </div>
       </div>
-    {/if}
-  </header>
+      {#if actions}
+        <div class="flex shrink-0 flex-wrap items-center gap-3">
+          {@render actions()}
+        </div>
+      {/if}
+    </header>
+  </div>
 {/if}

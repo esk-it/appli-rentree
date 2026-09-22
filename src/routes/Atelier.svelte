@@ -1,5 +1,6 @@
 <script>
   import { onMount } from "svelte";
+  import Wrench from "@lucide/svelte/icons/wrench";
   import Plus from "@lucide/svelte/icons/plus";
   import Download from "@lucide/svelte/icons/download";
   import ArrowLeftRight from "@lucide/svelte/icons/arrow-left-right";
@@ -221,6 +222,7 @@
 
 <section class="space-y-5">
   <EnTetePage
+    icon={Wrench}
     titre="Parc et pannes"
     description="Les Chromebooks HS, la cause de la panne et ce qui peut servir ailleurs. Une machine morte n'est pas un déchet, c'est une réserve de pièces."
   >

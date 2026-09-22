@@ -175,7 +175,7 @@
             {/each}
             <button
               class="ml-auto font-bold text-red-700 hover:underline dark:text-red-400"
-              onclick={() => aller("ou_ca_coince")}
+              onclick={() => aller("departager")}
             >
               Départager →
             </button>

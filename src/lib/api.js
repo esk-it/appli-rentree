@@ -139,6 +139,15 @@ export const personnes = {
       }),
     );
   },
+  /**
+   * Les adresses visées par plusieurs personnes, nominativement.
+   *
+   * Le compteur de l'accueil ne suffit pas : départager demande de voir
+   * qui vise quoi, et laquelle des deux détient déjà le compte.
+   */
+  async collisions() {
+    return jsonOrThrow(await fetch(`${BASE}/personnes/collisions`));
+  },
   async definirEmail(id, email) {
     return jsonOrThrow(
       await fetch(`${BASE}/personnes/${id}/email`, {

@@ -764,6 +764,7 @@
   }}
 >
   <EnTetePage
+    icon={Users2}
     titre="Référentiel"
     description="Identité persistante des élèves et adultes. Créée à la première apparition, jamais supprimée — le login reste figé, y compris après un départ."
   >

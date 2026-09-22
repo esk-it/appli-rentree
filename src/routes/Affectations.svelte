@@ -161,6 +161,7 @@
 
 <section class="space-y-6">
   <EnTetePage
+    icon={Laptop}
     titre="Affectations"
     description="Quel prof a quel Chromebook. La liste part des adultes du référentiel : c'est la seule façon de voir qui n'a rien."
   >

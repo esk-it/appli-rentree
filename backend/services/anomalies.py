@@ -217,21 +217,21 @@ def _personnes_sans_email(session: Session, annee_id: int | None) -> Anomalie | 
     )
 
 
-def _collisions_email(session: Session, annee_id: int | None) -> Anomalie | None:
-    """Deux personnes qui viseraient la même adresse mail.
+def collisions_email(session: Session) -> dict[str, list[Personne]]:
+    """Les adresses que plusieurs personnes viseraient, et qui les vise.
 
-    Cas typique : deux homonymes, l'un déjà titulaire du compte
-    `prenom.nom@`, l'autre nouvel arrivant pour qui la même adresse serait
-    calculée. Le login, lui, reçoit bien un suffixe d'homonymie — pas
-    l'adresse, qui ne se déduit pas du login.
+    Une seule source pour deux usages : le compteur de la page d'accueil et
+    l'écran qui départage. Deux implémentations finiraient par diverger, et
+    c'est le genre d'écart qui fait douter du chiffre au pire moment.
 
-    Non résolu automatiquement : les adresses existantes montrent tantôt
-    un suffixe `1`, tantôt `2`, sans règle déductible. Le choix revient à
-    un humain (§ « un cas ambigu n'est jamais résolu par une heuristique »).
+    Une personne vise l'adresse qu'elle **détient** si elle en détient une,
+    sinon celle que la convention lui **calcule**. Sans site, aucune adresse
+    ne se calcule : ces personnes sortent du comptage, et c'est une autre
+    anomalie qui les signale.
     """
-    sites = {s.id: s for s in session.query(Site).all()}
     from backend.services.regles_metier import calculer_email
 
+    sites = {s.id: s for s in session.query(Site).all()}
     par_adresse: dict[str, list[Personne]] = {}
     for p in session.query(Personne).all():
         if p.email_constate:
@@ -244,7 +244,22 @@ def _collisions_email(session: Session, annee_id: int | None) -> Anomalie | None
         if adresse:
             par_adresse.setdefault(adresse.strip().lower(), []).append(p)
 
-    conflits = {a: ps for a, ps in par_adresse.items() if len(ps) > 1}
+    return {a: ps for a, ps in par_adresse.items() if len(ps) > 1}
+
+
+def _collisions_email(session: Session, annee_id: int | None) -> Anomalie | None:
+    """Deux personnes qui viseraient la même adresse mail.
+
+    Cas typique : deux homonymes, l'un déjà titulaire du compte
+    `prenom.nom@`, l'autre nouvel arrivant pour qui la même adresse serait
+    calculée. Le login, lui, reçoit bien un suffixe d'homonymie — pas
+    l'adresse, qui ne se déduit pas du login.
+
+    Non résolu automatiquement : les adresses existantes montrent tantôt
+    un suffixe `1`, tantôt `2`, sans règle déductible. Le choix revient à
+    un humain (§ « un cas ambigu n'est jamais résolu par une heuristique »).
+    """
+    conflits = collisions_email(session)
     if not conflits:
         return None
 

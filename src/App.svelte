@@ -74,6 +74,7 @@
   import SelecteurAnnee from "$lib/components/SelecteurAnnee.svelte";
   import Accessoires from "./routes/Accessoires.svelte";
   import Affectations from "./routes/Affectations.svelte";
+  import Departager from "./routes/Departager.svelte";
   import { annees as anneesApi, arbitrages, parcoursApi } from "$lib/api.js";
   import Parametres from "./routes/Parametres.svelte";
   import Aide from "./routes/Aide.svelte";
@@ -409,8 +410,23 @@
    * l'écran courant garantit que l'onglet souligné est toujours celui où
    * l'on se trouve — au lieu d'un état parallèle qui se désynchronise.
    */
+  /**
+   * Les écrans qu'on atteint depuis un autre, et qui ne sont dans aucune
+   * barre.
+   *
+   * « Départager » se rejoint depuis « Où ça coince » ou l'accueil ; lui
+   * donner un onglet permanent mettrait au même rang qu'un module un écran
+   * qu'on ouvre trois fois l'an. Mais il doit garder sa partie : sinon la
+   * barre se vide en y entrant, et l'on ne sait plus d'où l'on vient.
+   */
+  const RATTACHEMENTS = {
+    departager: { partie: "annee", depuis: "ou_ca_coince" },
+  };
+
   let partieActive = $derived(
-    PARTIES.find((p) => p.ecrans.some((e) => e.id === page))?.id ?? null,
+    PARTIES.find((p) => p.ecrans.some((e) => e.id === page))?.id ??
+      RATTACHEMENTS[page]?.partie ??
+      null,
   );
   let ecransDeLaPartie = $derived(
     PARTIES.find((p) => p.id === partieActive)?.ecrans ?? [],
@@ -434,7 +450,21 @@
 
   // La couleur d'un écran est celle de sa famille, et c'est la
   // navigation qui la connaît : elle la dépose, l'en-tête la lit.
-  $effect(() => declarerEcran(page, partieActive ?? "annee"));
+  $effect(() => {
+    const partie = PARTIES.find((p) => p.id === partieActive);
+    const rattache = RATTACHEMENTS[page];
+    const ecranCourant =
+      partie?.ecrans.find((e) => e.id === page) ??
+      [...OUTILS, ...A_PART].find((e) => e.id === page) ??
+      (rattache
+        ? partie?.ecrans.find((e) => e.id === rattache.depuis)
+        : undefined);
+    declarerEcran(page, partieActive ?? "annee", {
+      label: ecranCourant?.label ?? "",
+      partieLabel: partie?.label ?? "",
+      aller: (p) => (page = p),
+    });
+  });
 
   /**
    * Le trait qui souligne l'onglet ouvert, mesuré sur le bouton réel.
@@ -841,6 +871,8 @@
           <Cartes />
         {:else if page === "affectations"}
           <Affectations onNaviguer={(p) => (page = p)} />
+        {:else if page === "departager"}
+          <Departager onNaviguer={(p) => (page = p)} />
         {:else if page === "journal"}
           <Journal />
         {:else if page === "photos"}

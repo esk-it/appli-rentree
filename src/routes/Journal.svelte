@@ -182,6 +182,7 @@
 
 <section class="flex min-h-[calc(100vh-10rem)] flex-col space-y-6">
   <EnTetePage
+    icon={History}
     titre="Ce qui a été fait"
     description="Le journal des actions réalisées, de la plus récente à la plus ancienne. C'est ici qu'on répond à « pourquoi ce compte est-il là ? », des mois plus tard."
   >

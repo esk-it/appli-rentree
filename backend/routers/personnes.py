@@ -202,6 +202,95 @@ def lister_mouvements(
     )
 
 
+class VisantOut(BaseModel):
+    personne_id: int
+    cle_pivot: str
+    nom: str
+    prenom: str
+    type: str
+    site: str | None
+    classe: str | None
+    a_un_compte: bool
+    """Vrai si l'adresse est **constatée** — le compte existe déjà."""
+    a_trancher: bool
+    """Vrai si c'est à cette personne de prendre une adresse distincte."""
+    adresse_proposee: str
+    """Une suggestion à suffixe, jamais appliquée seule."""
+
+
+class CollisionOut(BaseModel):
+    adresse: str
+    visants: list[VisantOut]
+    plusieurs_comptes: bool
+    """Vrai quand **plusieurs** détiennent déjà l'adresse.
+
+    Cas rencontré sur la base réelle — trois groupes sur vingt-neuf : deux
+    fiches portent le même `email_constate`, venues d'un amorçage. Personne
+    ne peut alors être présumé la garder, et l'écran ouvre la saisie sur
+    toutes plutôt que de désigner un titulaire au hasard."""
+
+
+@router.get("/collisions", response_model=list[CollisionOut])
+def lister_collisions(session: Session = Depends(db_session)) -> list[CollisionOut]:
+    """Les adresses visées par plusieurs personnes, et qui les vise.
+
+    Google refuse la création d'un doublon : tant qu'une de ces adresses
+    reste disputée, l'export s'arrête sur elle. L'écran qui départage a
+    besoin de la liste nominative, pas d'un compteur.
+
+    La suggestion à suffixe est **proposée, jamais appliquée** : les
+    adresses existantes portent tantôt un `1`, tantôt un `2`, sans règle
+    déductible. Choisir à la place de quelqu'un reviendrait à créer un
+    compte sous une adresse que personne n'a validée.
+    """
+    from backend.services.anomalies import collisions_email
+
+    sites_par_id = {s.id: s for s in session.query(Site).all()}
+    sorties: list[CollisionOut] = []
+
+    for adresse, personnes_en_conflit in sorted(collisions_email(session).items()):
+        locale, _, domaine = adresse.partition("@")
+        titulaires = [p for p in personnes_en_conflit if p.email_constate]
+        # Un seul titulaire garde l'adresse nue : la lui retirer casserait
+        # une adresse en service. Plusieurs, ou aucun, et personne ne peut
+        # être présumé : tout le monde doit trancher.
+        plusieurs_comptes = len(titulaires) > 1
+        garde = titulaires[0].id if len(titulaires) == 1 else None
+
+        visants: list[VisantOut] = []
+        rang = 1
+        for p in personnes_en_conflit:
+            a_trancher = p.id != garde
+            if a_trancher:
+                rang += 1
+                proposee = f"{locale}{rang}@{domaine}"
+            else:
+                proposee = p.email_constate or adresse
+            visants.append(
+                VisantOut(
+                    personne_id=p.id,
+                    cle_pivot=p.cle_pivot,
+                    nom=p.nom,
+                    prenom=p.prenom,
+                    type=p.type,
+                    site=sites_par_id[p.site_id].nom if p.site_id in sites_par_id else None,
+                    classe=p.classe,
+                    a_un_compte=bool(p.email_constate),
+                    a_trancher=a_trancher,
+                    adresse_proposee=proposee,
+                )
+            )
+        sorties.append(
+            CollisionOut(
+                adresse=adresse,
+                visants=visants,
+                plusieurs_comptes=plusieurs_comptes,
+            )
+        )
+
+    return sorties
+
+
 @router.get("/{personne_id}", response_model=PersonneOut)
 def obtenir_personne(
     personne_id: int, session: Session = Depends(db_session)

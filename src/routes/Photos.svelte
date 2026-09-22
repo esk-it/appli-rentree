@@ -164,6 +164,7 @@
 
 <section class="space-y-6">
   <EnTetePage
+    icon={Camera}
     titre="Photos"
     description="Un accès disque par élève sur le partage réseau. Qui a sa photo, et surtout qui ne l'a pas — nommément, par classe, pour relancer les professeurs principaux."
   >

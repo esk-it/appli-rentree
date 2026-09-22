@@ -22,6 +22,19 @@ export const ecran = $state({
   id: "accueil",
   /** Identifiant de la partie qui le contient — `rentree`, `annee`… */
   partie: "annee",
+  /** Son libellé — « L'année » — pour le fil d'Ariane. */
+  partieLabel: "",
+  /** Le libellé de l'écran, tel que la barre l'écrit. */
+  label: "",
+  /**
+   * Comment revenir en arrière.
+   *
+   * Le fil d'Ariane doit être cliquable, sinon il décore. La navigation
+   * vit dans `App.svelte` ; elle se dépose ici avec le reste plutôt que
+   * de traverser trente composants en propriété.
+   */
+  /** @type {(page: string) => void} */
+  aller: () => {},
 });
 
 /** La couleur de l'écran ouvert. */
@@ -30,7 +43,10 @@ export function teinteCourante() {
 }
 
 /** Déclare l'écran ouvert. Appelé par la navigation, et par elle seule. */
-export function declarer(id, partie) {
+export function declarer(id, partie, { label = "", partieLabel = "", aller } = {}) {
   ecran.id = id;
   ecran.partie = partie ?? "annee";
+  ecran.label = label;
+  ecran.partieLabel = partieLabel;
+  if (aller) ecran.aller = aller;
 }

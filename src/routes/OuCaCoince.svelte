@@ -73,7 +73,7 @@
     arbitrage_en_attente: { page: "arbitrage", geste: "Trancher" },
     personne_sans_site: { page: "personnes", geste: "Voir les fiches" },
     personne_sans_email: { page: "personnes", geste: "Voir les fiches" },
-    collision_email: { page: "personnes", geste: "Départager" },
+    collision_email: { page: "departager", geste: "Départager" },
     compte_purge_echue: { page: "sortants", geste: "Décider" },
     photo_orpheline: { page: "exports", geste: "Voir les photos" },
   };
@@ -190,6 +190,7 @@
 
 <section class="space-y-6">
   <EnTetePage
+    icon={Compass}
     titre="Où ça coince"
     description="Ce que le programme constate dans le référentiel, maintenant. Chaque ligne porte le geste qui la règle."
   >
