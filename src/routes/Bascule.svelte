@@ -10,14 +10,27 @@
   import EtatVide from "$lib/components/EtatVide.svelte";
   import Modale from "$lib/components/Modale.svelte";
   import Segments from "$lib/components/Segments.svelte";
+  import Etapes from "$lib/components/Etapes.svelte";
+  import Pastille from "$lib/components/Pastille.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
   import Cloud from "@lucide/svelte/icons/cloud";
   import Check2 from "@lucide/svelte/icons/check";
   import X from "@lucide/svelte/icons/x";
   import Loader from "@lucide/svelte/icons/loader-2";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
-  import { annees, bascule, enregistrerFichierBase64, googleApi, sites, tableCorrespondance } from "$lib/api.js";
+  import {
+    annees,
+    bascule,
+    enregistrerFichierBase64,
+    googleApi,
+    sites,
+    statistiques,
+    tableCorrespondance,
+  } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+  import { TEINTES } from "$lib/familles.js";
+
+  let { onNaviguer } = $props();
 
   let listeAnnees = $state(/** @type {any[]} */ ([]));
   let listeSites = $state(/** @type {any[]} */ ([]));
@@ -82,6 +95,56 @@
     { id: "pre_rentree", label: "1. Placement pré-rentrée" },
     { id: "definitive", label: "2. Bascule de rentrée" },
   ];
+
+  /**
+   * Ce que la phase fait, site par site.
+   *
+   * Mille sept cents lignes ne disent pas « combien, d'où, vers où » —
+   * elles le noient. Trois lignes le disent, et c'est la question qu'on
+   * se pose avant de lancer : est-ce que les trois sites sont bien là, et
+   * est-ce que les nombres ressemblent à une école.
+   *
+   * La destination est lue dans les mouvements eux-mêmes plutôt que
+   * recalculée : elle vient déjà du programme, et deux calculs qui
+   * divergeraient feraient croire à une cible qui n'est pas celle du
+   * bouton.
+   */
+  let parSite = $derived.by(() => {
+    const m = new Map();
+    for (const x of rapport?.mouvements ?? []) {
+      const e = m.get(x.site) ?? {
+        site: x.site,
+        nb: 0,
+        nb_a_deplacer: 0,
+        nb_bloques: 0,
+        destinations: new Set(),
+      };
+      e.nb += 1;
+      if (x.statut === "a_deplacer") e.nb_a_deplacer += 1;
+      if (x.statut === "bloque") e.nb_bloques += 1;
+      if (x.ou_visee) e.destinations.add(x.ou_visee);
+      m.set(x.site, e);
+    }
+    return [...m.values()].sort((a, b) => a.site.localeCompare(b.site));
+  });
+
+  /**
+   * Les personnes qu'aucun site ne réclame.
+   *
+   * Elles ne sont dans aucun mouvement — sans site, aucune cible n'est
+   * calculable — donc aucune ligne ne les mentionnerait. Ne rien dire
+   * ferait passer la bascule pour complète alors qu'elle laisse ces
+   * comptes-là où ils étaient.
+   */
+  let sansSite = $state(0);
+
+  /**
+   * Vrai quand le placement en pré-OU ne laisse plus personne à déplacer.
+   *
+   * C'est la seule preuve qu'on ait que l'étape 1 est faite : le
+   * programme ne journalise pas une phase, il constate des positions.
+   */
+  let preOuFaite = $state(false);
 
   // --- Canal d'application ------------------------------------------------
   // Le CSV reste le mode nominal et le secours : si Google refuse un compte,
@@ -241,11 +304,21 @@
     erreur = "";
     try {
       rapport = await bascule.planifier({ anneeId, phase, siteId: filtreSite || null, classes: classesRetenues });
+      if (phase === "pre_rentree") preOuFaite = rapport.nb_a_deplacer === 0;
     } catch (e) {
       erreur = String(e).replace(/^Error:\s*/, "");
       rapport = null;
     } finally {
       chargement = false;
+    }
+    // Les sans-site n'apparaissent dans aucun mouvement : c'est le
+    // constat général qui les compte, et il coûte une requête.
+    try {
+      const a = await statistiques.anomalies({ anneeId });
+      const l = (a.anomalies ?? []).find((x) => x.type === "personne_sans_site");
+      sansSite = l?.nb_concernes ?? 0;
+    } catch {
+      sansSite = 0;
     }
   }
 
@@ -299,7 +372,17 @@
   {/if}
 
   <div class="card p-3">
-    <Segments bind:valeur={phase} options={optionsPhase} onChange={rafraichir} />
+    <!-- Un ruban, pas des onglets : la bascule définitive échoue si le
+         placement en pré-OU n'a pas eu lieu. L'ordre fait partie de
+         l'information. -->
+    <Etapes
+      bind:valeur={phase}
+      etapes={[
+        { id: "pre_rentree", label: "Envoyer en pré-OU", faite: preOuFaite },
+        { id: "definitive", label: "Basculer vers les OU finales" },
+      ]}
+      onChange={rafraichir}
+    />
 
     <div class="mt-3 flex flex-wrap items-end gap-3 border-t border-stone-100 pt-3 dark:border-stone-800">
       <div>
@@ -439,6 +522,73 @@
       {/if}
     </p>
   </div>
+
+  {#if parSite.length}
+    <!-- ------------------------------------------------------------------
+         Combien, d'où, vers où — avant de regarder mille sept cents lignes.
+         ------------------------------------------------------------------ -->
+    <div class="card p-4">
+      <h2 class="titre-section mb-2">Ce que cette étape fait, site par site</h2>
+
+      <div class="grid grid-cols-[minmax(0,1fr)_150px_minmax(0,2fr)_120px] items-center gap-3 border-b border-stone-200 py-2 dark:border-stone-800">
+        <span class="libelle-champ">Site</span>
+        <span class="libelle-champ">Au référentiel</span>
+        <span class="libelle-champ">Destination</span>
+        <span class="libelle-champ">État</span>
+      </div>
+
+      {#each parSite as g (g.site)}
+        <div class="grid grid-cols-[minmax(0,1fr)_150px_minmax(0,2fr)_120px] items-center gap-3 border-b border-stone-100 py-3 text-sm dark:border-stone-800/70">
+          <span class="flex items-center gap-2.5 font-semibold">
+            <span class="h-2.5 w-2.5 shrink-0 rounded-full" style="background: {TEINTES.rentree};"></span>
+            {g.site}
+          </span>
+          <span class="tabular-nums text-stone-600 dark:text-stone-400">
+            {g.nb.toLocaleString("fr-FR")} personne{g.nb > 1 ? "s" : ""}
+          </span>
+          <span class="min-w-0 truncate font-mono text-xs text-stone-700 dark:text-stone-300">
+            {#if g.destinations.size === 1}
+              {[...g.destinations][0]}
+            {:else}
+              {g.destinations.size} unités de classe
+            {/if}
+          </span>
+          {#if g.nb_bloques}
+            <Pastille etat="ecart" texte="{g.nb_bloques} bloqué(s)" />
+          {:else if g.nb_a_deplacer === 0}
+            <Pastille etat="pret" texte="Déjà en place" />
+          {:else}
+            <Pastille etat="pret" texte="Prêt" />
+          {/if}
+        </div>
+      {/each}
+
+      {#if sansSite}
+        <!-- Ces personnes ne sont dans aucun mouvement : sans site, aucune
+             cible n'est calculable. Ne pas les montrer ferait passer la
+             bascule pour complète alors qu'elle les laisse où elles sont. -->
+        <div class="mt-1 grid grid-cols-[minmax(0,1fr)_150px_minmax(0,2fr)_120px] items-center gap-3 rounded-xl bg-red-50 px-4 py-3 text-sm dark:bg-red-500/10">
+          <span class="flex items-center gap-2.5 font-semibold">
+            <span class="h-2.5 w-2.5 shrink-0 rounded-full bg-red-500"></span>
+            Sans site
+          </span>
+          <span class="font-bold tabular-nums text-red-700 dark:text-red-400">
+            {sansSite} personne{sansSite > 1 ? "s" : ""}
+          </span>
+          <span class="text-stone-600 dark:text-stone-400">
+            Aucune cible calculable ·
+            <button
+              class="font-semibold text-red-700 hover:underline dark:text-red-400"
+              onclick={() => onNaviguer?.("personnes")}
+            >
+              Voir les fiches
+            </button>
+          </span>
+          <Pastille etat="ecart" texte="Non traité" />
+        </div>
+      {/if}
+    </div>
+  {/if}
 
   {#if job}
     <div class="card overflow-hidden">

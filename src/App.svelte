@@ -880,7 +880,7 @@
         {:else if page === "nouveaux"}
           <Nouveaux />
         {:else if page === "bascule"}
-          <Bascule />
+          <Bascule onNaviguer={(p) => (page = p)} />
         {:else if page === "sortants"}
           <Sortants />
         {:else if page === "chromebooks"}
