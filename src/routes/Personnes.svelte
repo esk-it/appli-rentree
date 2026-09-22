@@ -22,7 +22,11 @@
   import Pastille from "$lib/components/Pastille.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
   import Info from "@lucide/svelte/icons/info";
-  import { annees as anneesApi, personnes } from "$lib/api.js";
+  import {
+    annees as anneesApi,
+    concordance as concordanceApi,
+    personnes,
+  } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
   /**
@@ -293,24 +297,72 @@
   /**
    * Ce qu'on peut dire d'une personne sans rien relancer.
    *
-   * La maquette montre « Cohérent » sur la plupart des lignes. On ne
-   * l'écrit pas : la cohérence se constate en croisant Charlemagne, Google
-   * et KoXo, ce que la Concordance fait sur demande et jamais à
-   * l'ouverture d'une liste. Annoncer « cohérent » sans avoir comparé
-   * ferait passer pour vérifié ce que personne n'a regardé.
+   * La maquette montre « Cohérent » sur la plupart des lignes, et la
+   * colonne n'avait longtemps le droit d'écrire que « Pas vérifié » : la
+   * cohérence se constate en croisant Charlemagne, Google et KoXo, ce que
+   * la Concordance fait sur demande, jamais à l'ouverture d'une liste.
    *
-   * Restent les deux signalements que le référentiel porte tout seul, et
-   * qui bloquent pour de bon : sans site, aucune cible n'est calculable ;
-   * sans adresse, aucun compte ne se crée.
+   * Le croisement **range maintenant son constat** — un verdict par
+   * personne et par système. La colonne le relit, avec sa date. Elle
+   * n'affirme donc rien qui n'ait été regardé, et ce qui l'a été ne se
+   * perd plus en quittant l'écran.
+   *
+   * Passent d'abord les deux signalements que le référentiel porte tout
+   * seul, et qui bloquent pour de bon : sans site, aucune cible n'est
+   * calculable ; sans adresse, aucun compte ne se crée. Ceux-là ne
+   * demandent aucun croisement — et un croisement qui les déclarerait
+   * cohérents mentirait, puisqu'il ne compare que la classe.
    */
   function etatDe(p) {
     if (!p.site) return { etat: "ecart", texte: "Sans site" };
     if (!p.email) return { etat: "ecart", texte: "Sans adresse" };
-    return { etat: "inconnu", texte: "Pas vérifié" };
+    const v = verdicts[p.id];
+    if (!v) return { etat: "inconnu", texte: "Pas vérifié" };
+    if (v.etat === "coherent") return { etat: "pret", texte: "Cohérent" };
+    return { etat: "ecart", texte: motDuVerdict(v) };
   }
 
+  /**
+   * Ce qui diverge, nommé — pas « écart », qui n'apprend rien.
+   *
+   * Un seul système en défaut le nomme ; plusieurs se comptent, parce que
+   * la colonne est étroite et que le détail est sur la fiche.
+   */
+  function motDuVerdict(v) {
+    const casses = v.systemes.filter((s) => s.etat !== "accord");
+    if (casses.length === 1) {
+      return NOM_SYSTEME[casses[0].systeme] ?? "Écart";
+    }
+    return `${casses.length} écarts`;
+  }
+
+  const NOM_SYSTEME = {
+    charlemagne: "≠ Charlemagne",
+    google: "≠ Google",
+    koxo: "≠ KoXo",
+  };
+
+  /**
+   * Depuis quand le dernier croisement date, en clair.
+   *
+   * Sans elle, une colonne verte passerait pour l'état du moment alors
+   * qu'elle peut dater d'avant-hier — et c'est exactement l'erreur que
+   * cette colonne existe pour éviter.
+   */
+  let dateVerdicts = $derived.by(() => {
+    const dates = Object.values(verdicts).map((v) => v.verifie_le);
+    if (!dates.length) return "";
+    const quand = new Date(dates.sort().at(-1) + "Z");
+    const h = Math.round((Date.now() - quand.getTime()) / 3600000);
+    if (h < 1) return "il y a moins d'une heure";
+    if (h < 24) return `il y a ${h} h`;
+    const j = Math.round(h / 24);
+    return j === 1 ? "hier" : `il y a ${j} jours`;
+  });
+
   /** Vrai si la ligne porte un signalement, et non le simple silence. */
-  const signale = (p) => !p.site || !p.email;
+  const signale = (p) =>
+    !p.site || !p.email || verdicts[p.id]?.etat === "ecarts";
 
   /** La source affichée : le référentiel entier, ou une année. */
   let source = $derived(anneeId === null ? liste : lignesAnnee);
@@ -371,6 +423,15 @@
     await rafraichir();
   });
 
+  /**
+   * Ce que le dernier croisement a constaté, par personne.
+   *
+   * Lu à part de la liste, et sans jamais la bloquer : une base qu'aucun
+   * croisement n'a encore visitée rend un objet vide, et la colonne écrit
+   * « Pas vérifié » — ce qui est exactement vrai.
+   */
+  let verdicts = $state(/** @type {Record<number, any>} */ ({}));
+
   async function rafraichir() {
     chargement = true;
     erreur = "";
@@ -380,6 +441,11 @@
       erreur = String(e);
     } finally {
       chargement = false;
+    }
+    try {
+      verdicts = await concordanceApi.verdicts();
+    } catch {
+      verdicts = {};
     }
   }
 
@@ -850,6 +916,14 @@
         />
         Écarts seulement
       </label>
+
+      {#if dateVerdicts}
+        <!-- D'où sort la colonne « Cohérent ». Sans cette mention, un vert
+             d'avant-hier passerait pour l'état du moment. -->
+        <span class="text-xs text-stone-500 dark:text-stone-400">
+          Croisement {dateVerdicts}
+        </span>
+      {/if}
 
       {#if filtreType || filtreSite || filtreClasse || recherche || anneeId !== null || ecartsSeulement}
         <button

@@ -20,7 +20,9 @@
   let { etat = "inconnu", texte } = $props();
 
   const STYLES = {
-    pret: "bg-emerald-100 text-emerald-800 dark:bg-emerald-400/15 dark:text-emerald-300",
+    // Vert, et non l'accent : « prêt » et « c'est l'année en cours » ne
+    // sont pas le même message, et l'échelle `emerald` est violette ici.
+    pret: "bg-vert-100 text-vert-700 dark:bg-vert-500/15 dark:text-vert-300",
     ecart: "bg-red-100 text-red-700 dark:bg-red-400/15 dark:text-red-300",
     attente: "bg-amber-50 text-amber-800 dark:bg-amber-400/15 dark:text-amber-300",
     reference: "bg-sky-100 text-sky-700 dark:bg-sky-400/15 dark:text-sky-300",

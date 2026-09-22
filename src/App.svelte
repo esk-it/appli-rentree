@@ -22,6 +22,7 @@
   import ShieldCheck from "@lucide/svelte/icons/shield-check";
   import ClipboardCheck from "@lucide/svelte/icons/clipboard-check";
   import GitCompare from "@lucide/svelte/icons/git-compare";
+  import Network from "@lucide/svelte/icons/network";
   import Laptop from "@lucide/svelte/icons/laptop";
   import Scale from "@lucide/svelte/icons/scale";
   import Rocket from "@lucide/svelte/icons/rocket";
@@ -43,6 +44,7 @@
   import Coffre from "./routes/Coffre.svelte";
   import Arrivees from "./routes/Arrivees.svelte";
   import Bilan from "./routes/Bilan.svelte";
+  import Coherence from "./routes/Coherence.svelte";
   import Concordance from "./routes/Concordance.svelte";
   import Mouvements from "./routes/Mouvements.svelte";
   import Personnes from "./routes/Personnes.svelte";
@@ -324,7 +326,11 @@
         // *et* les applique ; la liste des conséquences reste accessible
         // depuis lui, pour les arrivées et les départs.
         { id: "mouvements", label: "Mouvements", icon: Shuffle },
-        { id: "concordance", label: "Concordance", icon: GitCompare },
+        // On entre par le schéma — « qu'est-ce que je n'ai pas
+        // vérifié » — et la Concordance, qui croise pour de bon, s'ouvre
+        // depuis lui. Deux portes côte à côte feraient hésiter sur
+        // laquelle pousser.
+        { id: "coherence", label: "Cohérence", icon: Network },
         // « Qui n'a pas de photo » est demandé toutes les semaines : la
         // réponse mérite une porte, pas une case à cocher dans un contrôle.
         { id: "photos", label: "Les photos", icon: Camera },
@@ -834,6 +840,8 @@
           <Coffre />
         {:else if page === "arrivees"}
           <Arrivees />
+        {:else if page === "coherence"}
+          <Coherence onNaviguer={(p) => (page = p)} />
         {:else if page === "concordance"}
           <Concordance />
         {:else if page === "bilan"}

@@ -19,6 +19,12 @@ from sqlalchemy.orm import Session
 
 from backend.database import db_session
 from backend.models import TableCorrespondance
+from backend.services.coherence import (
+    compter,
+    enregistrer,
+    etat_des_liens,
+    verdicts_par_personne,
+)
 from backend.services.concordance import ConcordanceImpossible, croiser
 from backend.services.google_api import ClientGoogle, charger_config
 
@@ -248,6 +254,16 @@ def croiser_les_sources(
     except ConcordanceImpossible as e:
         raise HTTPException(400, str(e)) from None
 
+    # Le constat est rangé avant d'être rendu : sans ça, il mourait avec
+    # l'écran, et la colonne « Cohérent » du référentiel n'avait jamais le
+    # droit d'écrire autre chose que « Pas vérifié ».
+    try:
+        enregistrer(session, r)
+    except Exception as e:  # pragma: no cover - le croisement prime
+        # Ranger est un service rendu, pas la raison de l'appel : un échec
+        # d'écriture ne doit pas emporter une minute de lecture Google.
+        avertissements.append(f"Constat non enregistré : {type(e).__name__}: {e}")
+
     return ConcordanceReponse(
         annee_libelle=r.annee_libelle,
         google_consulte=r.google_consulte,
@@ -261,3 +277,87 @@ def croiser_les_sources(
         lignes=[LigneOut(**vars(l)) for l in r.lignes],
         avertissements=avertissements,
     )
+
+
+# ---------------------------------------------------------------------------
+# Ce que les croisements ont laissé derrière eux
+# ---------------------------------------------------------------------------
+
+
+class DetailOut(BaseModel):
+    genre: str
+    nb: int
+
+
+class LienOut(BaseModel):
+    systeme: str
+    libelle: str
+    etat: str
+    nb_ecarts: int
+    nb_absents: int
+    nb_verifies: int
+    verifie_le: str | None
+    pourquoi: str | None
+    details: list[DetailOut]
+
+
+class LiensReponse(BaseModel):
+    """Le schéma de la Cohérence : le centre, et les six liens."""
+
+    nb_personnes: int
+    nb_eleves: int
+    nb_adultes: int
+    nb_verifiees: int
+    liens: list[LienOut]
+
+
+@router.get("/liens", response_model=LiensReponse)
+def liens(session: Session = Depends(db_session)) -> LiensReponse:
+    """L'état de chaque lien, sans rien relancer.
+
+    L'écran s'ouvre sur ce qu'on sait déjà. Croiser demande un export et
+    une minute : le faire au chargement rendrait l'écran inutilisable
+    pour le seul geste qu'on y fait le plus souvent — regarder.
+    """
+    chiffres = compter(session)
+    return LiensReponse(
+        **chiffres,
+        liens=[
+            LienOut(
+                systeme=l.systeme,
+                libelle=l.libelle,
+                etat=l.etat,
+                nb_ecarts=l.nb_ecarts,
+                nb_absents=l.nb_absents,
+                nb_verifies=l.nb_verifies,
+                verifie_le=l.verifie_le.isoformat() if l.verifie_le else None,
+                pourquoi=l.pourquoi,
+                details=[DetailOut(**d) for d in l.details],
+            )
+            for l in etat_des_liens(session)
+        ],
+    )
+
+
+class VerdictPersonneOut(BaseModel):
+    etat: str
+    verifie_le: str
+    systemes: list[dict]
+
+
+@router.get("/verdicts", response_model=dict[int, VerdictPersonneOut])
+def verdicts(session: Session = Depends(db_session)):
+    """Par personne, ce que le dernier croisement a constaté d'elle.
+
+    Le référentiel s'en sert pour sa colonne « Cohérent ». Une personne
+    absente de la réponse n'a jamais été croisée : la liste écrira « Pas
+    vérifié » plutôt que de la déclarer cohérente sans l'avoir regardée.
+    """
+    return {
+        pid: VerdictPersonneOut(
+            etat=v["etat"],
+            verifie_le=v["verifie_le"].isoformat(),
+            systemes=v["systemes"],
+        )
+        for pid, v in verdicts_par_personne(session).items()
+    }

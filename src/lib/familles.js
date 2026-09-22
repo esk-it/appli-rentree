@@ -58,6 +58,7 @@ export const FAMILLE_PAR_ECRAN = {
   journal: "fichiers",
   ts1000: "materiel",
   concordance: "koxo",
+  coherence: "koxo",
 };
 
 /**

@@ -23,6 +23,7 @@ from backend.models.site import Site
 from backend.models.snapshot import Snapshot
 from backend.models.suivi_chromebook import SuiviChromebook
 from backend.models.table_correspondance import TableCorrespondance
+from backend.models.verdict_coherence import VerdictCoherence
 
 __all__ = [
     "AnneeScolaire",
@@ -42,4 +43,5 @@ __all__ = [
     "Snapshot",
     "SuiviChromebook",
     "TableCorrespondance",
+    "VerdictCoherence",
 ]

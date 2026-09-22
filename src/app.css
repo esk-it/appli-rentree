@@ -67,6 +67,25 @@
   --color-sky-900: #1a3c80;
   --color-sky-950: #13274f;
 
+  /* Le vert : ce qui concorde.
+
+     L'accent du programme est violet, et toute l'échelle `emerald` a été
+     reteintée avec : il ne restait plus un vert dans la palette. Or « c'est
+     d'accord » se montre en vert — c'est ce que font les maquettes, et la
+     seule convention que personne n'a à apprendre. Le violet dit
+     « l'année », l'ambre « ça attend », le rouge « ça bloque » ; sans
+     vert, le quatrième message empruntait la couleur d'un des trois. */
+  --color-vert-50: #e9f8f1;
+  --color-vert-100: #d2f0e2;
+  --color-vert-200: #a6e2c6;
+  --color-vert-300: #6fd2a5;
+  --color-vert-400: #3cbc86;
+  --color-vert-500: #16995f;
+  --color-vert-600: #0f7d4c;
+  --color-vert-700: #0c6540;
+  --color-vert-800: #0a5034;
+  --color-vert-900: #073a26;
+
   /* L'ambre : ce qui attend, ce qui n'est pas vérifié. */
   --color-amber-50: #fff6e0;
   --color-amber-100: #ffedc2;

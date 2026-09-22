@@ -251,6 +251,16 @@ export const concordance = {
       }),
     );
   },
+
+  /** L'état de chaque lien, sans relancer le croisement. */
+  async liens() {
+    return jsonOrThrow(await fetch(`${BASE}/concordance/liens`));
+  },
+
+  /** Par personne, ce que le dernier croisement a constaté d'elle. */
+  async verdicts() {
+    return jsonOrThrow(await fetch(`${BASE}/concordance/verdicts`));
+  },
 };
 
 /**
