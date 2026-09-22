@@ -344,10 +344,14 @@
         // « Qui a quoi » avant « où est quoi » : c'est la question qu'on
         // pose en salle des profs, et elle demande la liste des gens.
         { id: "affectations", label: "Affectations", icon: UserPlus },
-        { id: "chromebooks", label: "Le parc", icon: Laptop },
-        // L'atelier avant les accessoires : c'est lui qui répond à la
-        // question qu'on se pose devant un carton de machines mortes.
-        { id: "atelier", label: "L'atelier", icon: Wrench },
+        // Le suivi local d'abord : c'est lui qui répond à la question
+        // qu'on se pose devant un carton de machines mortes, et c'est sur
+        // lui qu'on agit.
+        { id: "atelier", label: "Parc et pannes", icon: Wrench },
+        // « La flotte » et non « le parc » : cet écran lit l'inventaire
+        // Google, là où « Parc et pannes » tient le suivi local. Deux
+        // écrans nommés « parc » se confondaient.
+        { id: "chromebooks", label: "La flotte Google", icon: Laptop },
         { id: "accessoires", label: "Les accessoires", icon: Cable },
         // Les badges tiennent au matériel autant qu'aux comptes : la
         // carte est un objet qu'on encode, qu'on perd et qu'on refait.

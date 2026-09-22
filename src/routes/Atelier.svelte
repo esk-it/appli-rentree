@@ -1,7 +1,7 @@
 <script>
   import { onMount } from "svelte";
-  import Wrench from "@lucide/svelte/icons/wrench";
   import Plus from "@lucide/svelte/icons/plus";
+  import Download from "@lucide/svelte/icons/download";
   import ArrowLeftRight from "@lucide/svelte/icons/arrow-left-right";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
@@ -10,7 +10,11 @@
   import EtatVide from "$lib/components/EtatVide.svelte";
   import Modale from "$lib/components/Modale.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
-  import { parc } from "$lib/api.js";
+  import Onglets from "$lib/components/Onglets.svelte";
+  import Pastille from "$lib/components/Pastille.svelte";
+  import BarreAction from "$lib/components/BarreAction.svelte";
+  import { TEINTES } from "$lib/familles.js";
+  import { enregistrerFichierBase64, parc } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
   import { lire, ecrire } from "$lib/memoire.svelte.js";
 
@@ -33,12 +37,17 @@
    */
 
   let atelier = $state(lire("atelier.rapport", /** @type {any} */ (null)));
+  /** L'état du parc entier : les compteurs de tête en viennent. */
+  let parcComplet = $state(lire("atelier.parc", /** @type {any} */ (null)));
+  let vue = $state(lire("atelier.vue", "hs"));
   let vocabulaire = $state(/** @type {any} */ (null));
   let chargement = $state(true);
   let erreur = $state("");
   let enCours = $state("");
 
   $effect(() => ecrire("atelier.rapport", atelier));
+  $effect(() => ecrire("atelier.parc", parcComplet));
+  $effect(() => ecrire("atelier.vue", vue));
 
   /** La déclaration d'une panne, quand on ouvre le capot. */
   let saisie = $state(/** @type {null | {serie: string, organe: string, note: string, passerHs: boolean}} */ (null));
@@ -66,9 +75,14 @@
     chargement = true;
     erreur = "";
     try {
-      const [a, v] = await Promise.all([parc.atelier(), parc.vocabulaire()]);
+      const [a, v, m] = await Promise.all([
+        parc.atelier(),
+        parc.vocabulaire(),
+        parc.machines(),
+      ]);
       atelier = a;
       vocabulaire = v;
+      parcComplet = m;
     } catch (e) {
       erreur = String(e).replace(/^Error:\s*/, "");
     } finally {
@@ -116,13 +130,99 @@
     Object.entries(atelier?.organes_disponibles ?? {}).sort((a, b) => b[1] - a[1]),
   );
   let bloquees = $derived(atelier?.bloquees ?? []);
+
+  let machines = $derived(parcComplet?.machines ?? []);
+  let hs = $derived(machines.filter((m) => m.etat === "hs"));
+
+  /** Les séries que la réserve permet de remonter. */
+  let remontables = $derived(
+    new Set((atelier?.remontages ?? []).map((r) => r.serie)),
+  );
+
+  /**
+   * Ce qui reste bon sur une machine morte.
+   *
+   * Un organe n'est en panne que s'il est déclaré tel : tout le reste est
+   * réputé sain. C'est une convention, et il faut la connaître — une
+   * machine dont on n'a ouvert qu'une panne affiche dix organes « OK »
+   * qu'on n'a pas regardés. Elle reste plus utile que le silence : on
+   * cherche une pièce, on va voir, on tranche devant la machine.
+   */
+  function intacts(m) {
+    const morts = new Set(m.pannes_ouvertes ?? []);
+    return (vocabulaire?.organes ?? []).filter(
+      (o) => !morts.has(o) && o !== "autre",
+    );
+  }
+
+  /**
+   * S'ouvrir sur une vue vide n'apprend rien.
+   *
+   * Tant qu'aucune panne n'est déclarée — le cas au début de l'inventaire —
+   * l'onglet « HS » montre un tableau vide sous cinq compteurs à zéro.
+   * On bascule alors une fois sur le parc entier, qui a quelque chose à
+   * dire. Un clic ultérieur reste souverain : le basculement ne se rejoue
+   * pas.
+   */
+  let basculeFaite = $state(false);
+  $effect(() => {
+    if (basculeFaite || !parcComplet) return;
+    basculeFaite = true;
+    if (vue === "hs" && hs.length === 0 && machines.length > 0) vue = "tout";
+  });
+
+  let listees = $derived(
+    vue === "hs"
+      ? hs
+      : vue === "remontables"
+        ? hs.filter((m) => remontables.has(m.serie))
+        : machines,
+  );
+
+  /** Depuis quand, en clair. */
+  function depuis(jour) {
+    if (!jour) return "—";
+    const j = Math.round((Date.now() - new Date(jour).getTime()) / 86400000);
+    if (j <= 0) return "aujourd'hui";
+    if (j === 1) return "hier";
+    if (j < 14) return `il y a ${j} jours`;
+    if (j < 60) return `il y a ${Math.round(j / 7)} semaines`;
+    return `il y a ${Math.round(j / 30)} mois`;
+  }
+
+  /** La liste sur papier : c'est ce qu'on emporte devant l'armoire. */
+  function exporter() {
+    const lignes = [
+      ["Serie", "Etat", "Pannes ouvertes", "Organes sains", "Depuis", "Attribue a"],
+      ...listees.map((m) => [
+        m.serie,
+        m.etat,
+        (m.pannes_ouvertes ?? []).map(nomOrgane).join(" / "),
+        intacts(m).map(nomOrgane).join(" / "),
+        m.etat_depuis ?? "",
+        m.attribue_a ?? "",
+      ]),
+    ];
+    const csv = lignes
+      .map((l) => l.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(";"))
+      .join("\r\n");
+    // Le BOM : sans lui Excel lit les accents de travers, et la liste
+    // imprimée devient illisible là où elle sert.
+    const octets = new TextEncoder().encode("﻿" + csv);
+    let binaire = "";
+    for (const o of octets) binaire += String.fromCharCode(o);
+    enregistrerFichierBase64(
+      `Parc_chromebooks_${vue}.csv`,
+      btoa(binaire),
+      "text/csv",
+    );
+  }
 </script>
 
 <section class="space-y-5">
   <EnTetePage
-    icon={Wrench}
-    titre="L'atelier"
-    description="Les machines hors service et ce que leurs organes sains permettent de remonter. Une machine morte n'est pas un déchet, c'est une réserve de pièces."
+    titre="Parc et pannes"
+    description="Les Chromebooks HS, la cause de la panne et ce qui peut servir ailleurs. Une machine morte n'est pas un déchet, c'est une réserve de pièces."
   >
     {#snippet actions()}
       <Bouton
@@ -141,9 +241,120 @@
     </p>
   {/if}
 
+  <!-- Les compteurs du parc, en grands chiffres. -->
+  {#if parcComplet}
+    <div class="flex flex-wrap gap-14 border-b border-stone-200 pb-5 dark:border-stone-800">
+      <div>
+        <p class="titre-affiche text-[32px] leading-none tabular-nums">
+          {machines.length}
+        </p>
+        <p class="mt-1 text-[13px] text-stone-600 dark:text-stone-400">Chromebooks suivis</p>
+      </div>
+      <div>
+        <p class="titre-affiche text-[32px] leading-none tabular-nums" style="color: {TEINTES.koxo};">
+          {parcComplet.en_stock}
+        </p>
+        <p class="mt-1 text-[13px] text-stone-600 dark:text-stone-400">disponibles</p>
+      </div>
+      <div>
+        <p class="titre-affiche text-[32px] leading-none tabular-nums" style="color: {TEINTES.materiel};">
+          {parcComplet.en_service}
+        </p>
+        <p class="mt-1 text-[13px] text-stone-600 dark:text-stone-400">chez quelqu'un</p>
+      </div>
+      <div>
+        <p
+          class="titre-affiche text-[32px] leading-none tabular-nums"
+          style="color: {parcComplet.hs ? 'var(--color-red-700)' : 'var(--color-stone-400)'};"
+        >
+          {parcComplet.hs}
+        </p>
+        <p class="mt-1 text-[13px] text-stone-600 dark:text-stone-400">hors service</p>
+      </div>
+      <div>
+        <p
+          class="titre-affiche text-[32px] leading-none tabular-nums"
+          style="color: {atelier?.nb_remontables ? 'var(--color-amber-700)' : 'var(--color-stone-400)'};"
+        >
+          {atelier?.nb_remontables ?? 0}
+        </p>
+        <p class="mt-1 text-[13px] text-stone-600 dark:text-stone-400">
+          remontables avec la réserve
+        </p>
+      </div>
+    </div>
+  {/if}
+
   {#if chargement && !atelier}
     <Squelette variante="ligne-tableau" nb={4} colonnes={3} />
   {:else if atelier}
+    <!-- Le tableau des machines, vue par vue. -->
+    <Onglets
+      bind:valeur={vue}
+      onglets={[
+        { id: "hs", label: "HS", compte: hs.length },
+        { id: "remontables", label: "Remontables", compte: atelier.nb_remontables },
+        { id: "tout", label: "Tout le parc", compte: machines.length },
+      ]}
+    />
+
+    <div class="overflow-x-auto">
+      <div class="min-w-[52rem]">
+        <div class="grid grid-cols-[minmax(0,1.1fr)_200px_minmax(0,1.4fr)_150px] items-center gap-3 border-b border-stone-200 py-2 dark:border-stone-800">
+          <span class="libelle-champ">Chromebook</span>
+          <span class="libelle-champ">Cause</span>
+          <span class="libelle-champ">Réutilisable</span>
+          <span class="libelle-champ">Signalé</span>
+        </div>
+        {#each listees as m (m.serie)}
+          <div class="grid grid-cols-[minmax(0,1.1fr)_200px_minmax(0,1.4fr)_150px] items-center gap-3 border-b border-stone-100 py-2.5 text-sm dark:border-stone-800/70">
+            <span class="truncate font-mono text-[13px] font-semibold">{m.serie}</span>
+
+            <span class="flex flex-wrap gap-1">
+              {#if m.pannes_ouvertes?.length}
+                {#each m.pannes_ouvertes as o (o)}
+                  <Pastille etat="ecart" texte={nomOrgane(o)} />
+                {/each}
+              {:else if m.etat === "en_service"}
+                <Pastille etat="pret" texte="En service" />
+              {:else if m.etat === "en_stock"}
+                <Pastille etat="reference" texte="Au stock" />
+              {:else}
+                <Pastille etat="inconnu" texte={m.etat} />
+              {/if}
+            </span>
+
+            <span class="flex flex-wrap gap-1">
+              {#if m.etat === "hs"}
+                {#each intacts(m).slice(0, 4) as o (o)}
+                  <Pastille etat="attente" texte="{nomOrgane(o)} OK" />
+                {/each}
+                {#if intacts(m).length > 4}
+                  <span class="text-xs text-stone-500">+{intacts(m).length - 4}</span>
+                {/if}
+                {#if !intacts(m).length}
+                  <span class="text-[13px] text-stone-500">Rien de récupérable</span>
+                {/if}
+              {:else if m.attribue_a}
+                <span class="truncate text-[13px] text-stone-600 dark:text-stone-400">
+                  {m.attribue_a}
+                </span>
+              {/if}
+            </span>
+
+            <span class="text-[13px] text-stone-600 dark:text-stone-400">
+              {depuis(m.etat_depuis)}
+            </span>
+          </div>
+        {/each}
+        {#if !listees.length && machines.length}
+          <p class="py-8 text-center text-sm text-stone-500 dark:text-stone-400">
+            Aucune machine dans cette vue.
+          </p>
+        {/if}
+      </div>
+    </div>
+
     {#if atelier.machines_hs.length === 0}
       <EtatVide
         icon={CheckCircle2}
@@ -295,6 +506,16 @@
       </div>
     {/if}
   {/if}
+  <BarreAction message="Une panne déclarée sort le Chromebook de la liste des disponibles — et le garde comme réserve de pièces.">
+    <Bouton icon={Download} onclick={exporter}>Exporter la liste</Bouton>
+    <Bouton
+      variante="primary"
+      icon={Plus}
+      onclick={() => (saisie = { serie: "", organe: "", note: "", passerHs: true })}
+    >
+      Déclarer un Chromebook HS
+    </Bouton>
+  </BarreAction>
 </section>
 
 {#if saisie}
