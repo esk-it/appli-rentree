@@ -320,8 +320,10 @@
         { id: "ou_ca_coince", label: "Où ça coince", icon: Compass },
         { id: "personnes", label: "Référentiel", icon: Users2 },
         // Un mouvement en cours d'année déclenche sept ou huit gestes
-        // dans autant de systèmes. Personne ne les retient tous.
-        { id: "bouge", label: "Quelqu'un bouge", icon: Shuffle },
+        // dans autant de systèmes. L'onglet mène à l'écran qui les montre
+        // *et* les applique ; la liste des conséquences reste accessible
+        // depuis lui, pour les arrivées et les départs.
+        { id: "mouvements", label: "Mouvements", icon: Shuffle },
         { id: "concordance", label: "Concordance", icon: GitCompare },
         // « Qui n'a pas de photo » est demandé toutes les semaines : la
         // réponse mérite une porte, pas une case à cocher dans un contrôle.
@@ -384,7 +386,6 @@
     { id: "sortants", label: "Sortants", icon: LogOut },
     { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
     { id: "arrivees", label: "Arrivée", icon: UserPlus },
-    { id: "mouvements", label: "Mouvements", icon: ArrowRightLeft },
     { id: "bilan", label: "Bilan de rentrée", icon: ClipboardCheck },
     { id: "coffre", label: "Coffre", icon: KeyRound },
     { id: "statistiques", label: "Statistiques", icon: BarChart3 },
@@ -423,6 +424,7 @@
   const RATTACHEMENTS = {
     departager: { partie: "annee", depuis: "ou_ca_coince" },
     fiche: { partie: "annee", depuis: "personnes" },
+    bouge: { partie: "annee", depuis: "mouvements" },
   };
 
   /**
@@ -837,7 +839,7 @@
         {:else if page === "bilan"}
           <Bilan />
         {:else if page === "mouvements"}
-          <Mouvements />
+          <Mouvements onNaviguer={(p) => (page = p)} />
         {:else if page === "sites"}
           <Sites />
         {:else if page === "table_correspondance"}

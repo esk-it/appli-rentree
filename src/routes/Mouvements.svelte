@@ -17,7 +17,14 @@
   import TriangleAlert from "@lucide/svelte/icons/triangle-alert";
   import Check from "@lucide/svelte/icons/check";
   import X from "@lucide/svelte/icons/x";
+  import ArrowRight from "@lucide/svelte/icons/arrow-right";
   import Bouton from "$lib/components/Bouton.svelte";
+  import EtatVide from "$lib/components/EtatVide.svelte";
+  import Pastille from "$lib/components/Pastille.svelte";
+  import Squelette from "$lib/components/Squelette.svelte";
+  import BarreAction from "$lib/components/BarreAction.svelte";
+  import { TEINTES } from "$lib/familles.js";
+  import { lire, ecrire } from "$lib/memoire.svelte.js";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import {
     annees as anneesApi,
@@ -26,6 +33,13 @@
     tableCorrespondance,
   } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+
+  /**
+   * @typedef {Object} Props
+   * @property {(page: string) => void} [onNaviguer]
+   */
+  /** @type {Props} */
+  let { onNaviguer } = $props();
 
   let listeAnnees = $state(/** @type {any[]} */ ([]));
   let anneeId = $state(/** @type {number | null} */ (null));
@@ -48,6 +62,103 @@
    * et lui révélerait sa classe avant l'heure.
    */
   let appliquerGoogle = $state(false);
+
+  /**
+   * Ce qui a été fait à la main, et qui survit à la navigation.
+   *
+   * Un mouvement se traite sur plusieurs jours : KoXo le lundi, la carte le
+   * jeudi. Les cases cochées doivent tenir entre-temps, sinon on recoche au
+   * jugé — ou on refait deux fois le même geste.
+   */
+  let faits = $state(lire("mouvement.faits", /** @type {Record<string, boolean>} */ ({})));
+  $effect(() => ecrire("mouvement.faits", faits));
+
+  /**
+   * Les lignes du tableau, dans l'ordre où les systèmes se servent.
+   *
+   * Le référentiel d'abord — il conditionne tout le reste. Google ensuite,
+   * la seule cible que le programme sait toucher. Puis ce qui reste à faire
+   * ailleurs : KoXo n'a pas d'API, PMB et Sodexo se nourrissent de fichiers.
+   *
+   * Ces derniers ne sont pas « prêts » : ils sont **à faire**. Les afficher
+   * comme les autres laisserait croire que le bouton les traite, et un écran
+   * qui fait soixante pour cent du travail sans nommer les quarante restants
+   * est plus dangereux qu'un écran inerte.
+   */
+  const TEINTE_SYSTEME = {
+    Google: TEINTES.google,
+    KoXo: TEINTES.koxo,
+    PMB: TEINTES.materiel,
+    Sodexo: TEINTES.repas,
+    CardStudio: TEINTES.photos,
+  };
+
+  let rangs = $derived.by(() => {
+    if (!plan) return [];
+    const r = [
+      {
+        cle: "referentiel",
+        systeme: "Référentiel",
+        champ: "Classe",
+        avant: plan.classe_avant,
+        apres: plan.classe_apres,
+        teinte: TEINTES.annee,
+        force: true,
+        automatisable: true,
+        etat: "pret",
+        texte: "Toujours",
+      },
+    ];
+
+    if (plan.ou_avant !== plan.ou_apres) {
+      r.push({
+        cle: "google-ou",
+        systeme: "Google",
+        champ: "Unité",
+        avant: plan.ou_avant,
+        apres: plan.ou_apres,
+        teinte: TEINTES.google,
+        automatisable: true,
+        etat: plan.deplacement_utile ? "pret" : "attente",
+        texte: plan.deplacement_utile ? "Prêt" : "Sans effet",
+      });
+    }
+    if (plan.groupe_quitte || plan.groupe_rejoint) {
+      r.push({
+        cle: "google-groupe",
+        systeme: "Google",
+        champ: "Groupe",
+        avant: plan.groupe_quitte,
+        apres: plan.groupe_rejoint,
+        teinte: TEINTES.google,
+        automatisable: true,
+        etat: "pret",
+        texte: "Prêt",
+      });
+    }
+
+    for (const reste of plan.reste_a_faire ?? []) {
+      r.push({
+        cle: `main-${reste.systeme}`,
+        systeme: reste.systeme,
+        champ: "Classe",
+        avant: plan.classe_avant,
+        apres: plan.classe_apres,
+        teinte: TEINTE_SYSTEME[reste.systeme] ?? TEINTES.fichiers,
+        automatisable: false,
+        etat: "attente",
+        texte: "À la main",
+      });
+    }
+    return r;
+  });
+
+  let nbSystemes = $derived(
+    new Set(rangs.map((r) => r.systeme)).size,
+  );
+  let nbAutomatiques = $derived(
+    new Set(rangs.filter((r) => r.automatisable).map((r) => r.systeme)).size,
+  );
 
   onMount(async () => {
     try {
@@ -145,200 +256,212 @@
   }
 </script>
 
-<section class="space-y-5">
+<section class="flex min-h-[calc(100vh-10rem)] flex-col space-y-6">
   <EnTetePage
     icon={ArrowRightLeft}
-    titre="Mouvements"
-    description="Changer un élève de classe en cours d'année. Le référentiel bouge d'abord — sans lui, la bascule du jour J et la composition des groupes ramèneraient l'élève dans son ancienne classe."
+    titre="Un élève change de classe"
+    description="Le référentiel bouge d'abord — sans lui, la bascule du jour J et la composition des groupes ramèneraient l'élève dans son ancienne classe."
   />
 
   {#if chargement}
-    <p class="text-sm text-stone-500 dark:text-stone-400">Chargement…</p>
+    <Squelette variante="ligne-tableau" nb={4} colonnes={4} />
   {:else}
-    <div class="card space-y-3 p-4">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
-        L'élève
-      </h2>
-
-      {#if choisi}
-        <div class="flex flex-wrap items-center gap-3">
-          <p class="text-sm">
-            <strong>{choisi.nom} {choisi.prenom}</strong>
-            <span class="ml-2 font-mono text-xs text-stone-500 dark:text-stone-400">
-              {choisi.login} · {choisi.badge}
+    <!-- ----------------------------------------------------------------
+         Qui, et vers quoi. Tout sur une ligne : c'est une phrase.
+         ---------------------------------------------------------------- -->
+    <div class="flex flex-wrap items-end gap-6 border-b border-stone-200 pb-5 dark:border-stone-800">
+      <div class="min-w-64 flex-1">
+        <span class="libelle-champ">Élève</span>
+        {#if choisi}
+          <div class="mt-1.5 flex items-center gap-2">
+            <span class="font-semibold">{choisi.nom} {choisi.prenom}</span>
+            <span class="font-mono text-xs text-stone-500 dark:text-stone-400">
+              {choisi.cle_pivot ?? choisi.badge}
             </span>
-            <span class="ml-2 rounded bg-stone-100 px-1.5 py-0.5 text-xs dark:bg-stone-700">
-              {choisi.classe ?? "sans classe"}
-            </span>
-          </p>
-          <button class="text-xs text-stone-500 hover:text-red-600"
-                  onclick={() => { choisi = null; plan = null; }}>
-            × changer d'élève
-          </button>
-        </div>
-      {:else}
-        <label class="block">
-          <span class="libelle-champ">Nom, prénom, identifiant ou ID unique</span>
-          <input class="champ w-full max-w-lg" bind:value={requete}
-                 placeholder="Deux caractères au moins" />
-        </label>
-        {#if resultats.length}
-          <ul class="divide-y divide-stone-200 rounded-lg border border-stone-200 dark:divide-stone-700 dark:border-stone-700">
-            {#each resultats as p (p.id)}
-              <li>
-                <button class="flex w-full items-center gap-3 px-3 py-2 text-left text-sm hover:bg-stone-50 dark:hover:bg-stone-700/50"
-                        onclick={() => choisir(p)}>
-                  <span class="flex-1">{p.nom} {p.prenom}</span>
-                  <span class="font-mono text-xs text-stone-500 dark:text-stone-400">{p.login}</span>
-                  <span class="rounded bg-stone-100 px-1.5 py-0.5 text-xs dark:bg-stone-700">
-                    {p.classe ?? "—"}
-                  </span>
-                </button>
-              </li>
-            {/each}
-          </ul>
-        {:else if requete.trim().length >= 2}
-          <p class="text-sm text-stone-500 dark:text-stone-400">Aucun élève.</p>
+            <button
+              class="text-stone-400 transition hover:text-red-600"
+              aria-label="Changer d'élève"
+              onclick={() => { choisi = null; plan = null; nouvelleClasse = ""; }}
+            >
+              <X class="h-4 w-4" />
+            </button>
+          </div>
+        {:else}
+          <div class="relative mt-1.5">
+            <Search class="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-stone-400" />
+            <input
+              class="champ !py-2 pl-9"
+              placeholder="Nom, prénom, login ou badge…"
+              bind:value={requete}
+            />
+            {#if resultats.length}
+              <div class="card card-relief absolute z-20 mt-1 max-h-64 w-full overflow-y-auto p-1">
+                {#each resultats as p (p.id)}
+                  <button
+                    class="flex w-full items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors hover:bg-stone-100 dark:hover:bg-stone-800"
+                    onclick={() => choisir(p)}
+                  >
+                    <span class="truncate">
+                      <strong>{p.nom}</strong> {p.prenom}
+                    </span>
+                    <span class="shrink-0 font-mono text-xs text-stone-500">
+                      {p.classe ?? "—"}
+                    </span>
+                  </button>
+                {/each}
+              </div>
+            {/if}
+          </div>
         {/if}
+      </div>
+
+      <div>
+        <span class="libelle-champ">Classe actuelle</span>
+        <p
+          class="titre-affiche mt-1 text-xl leading-none"
+          style="color: {TEINTES.rentree};"
+        >
+          {choisi?.classe ?? "—"}
+        </p>
+      </div>
+
+      <ArrowRight class="mb-1 h-5 w-5 shrink-0 text-stone-400" />
+
+      <div>
+        <label class="libelle-champ" for="nouvelle-classe">Nouvelle classe</label>
+        <select
+          id="nouvelle-classe"
+          class="champ mt-1 !border-2 !py-1.5 font-mono font-bold"
+          style="border-color: {TEINTES.annee};"
+          bind:value={nouvelleClasse}
+          disabled={!choisi}
+          onchange={calculer}
+        >
+          <option value="">Choisir…</option>
+          {#each codesClasses.filter((c) => c !== choisi?.classe) as c (c)}
+            <option value={c}>{c}</option>
+          {/each}
+        </select>
+      </div>
+
+      {#if plan}
+        <div class="ml-auto text-right">
+          <p class="titre-affiche text-3xl leading-none" style="color: {TEINTES.annee};">
+            {nbSystemes}
+          </p>
+          <p class="text-xs text-stone-600 dark:text-stone-400">
+            système{nbSystemes > 1 ? "s" : ""} touché{nbSystemes > 1 ? "s" : ""}
+          </p>
+        </div>
       {/if}
     </div>
 
-    {#if choisi}
-      <div class="card space-y-3 p-4">
-        <h2 class="text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
-          La nouvelle classe
-        </h2>
-        <div class="flex flex-wrap items-end gap-3">
-          <label class="block">
-            <span class="libelle-champ">Classe</span>
-            <select class="champ w-48" bind:value={nouvelleClasse}
-                    onchange={() => (plan = null)}>
-              <option value="">Choisir…</option>
-              {#each codesClasses as c (c)}<option value={c}>{c}</option>{/each}
-            </select>
-          </label>
-          <label class="block">
-            <span class="libelle-champ">Année</span>
-            <select class="champ w-40" bind:value={anneeId}
-                    onchange={() => (plan = null)}>
-              {#each listeAnnees as a (a.id)}<option value={a.id}>{a.libelle}</option>{/each}
-            </select>
-          </label>
-          <Bouton variante="primary" icon={Search} {occupe}
-                  disabled={!nouvelleClasse} onclick={calculer}>
-            Calculer
-          </Bouton>
+    {#if !choisi}
+      <EtatVide
+        icon={ArrowRightLeft}
+        titre="Choisis d'abord un élève"
+        message="Un changement de classe touche sept systèmes. L'écran les montre tous avant d'en modifier un seul."
+      >
+        <Bouton onclick={() => onNaviguer?.("bouge")}>
+          Une arrivée ou un départ ?
+        </Bouton>
+      </EtatVide>
+    {:else if !plan}
+      <p class="py-10 text-center text-sm text-stone-500 dark:text-stone-400">
+        Choisis la nouvelle classe : le plan s'affichera avant toute modification.
+      </p>
+    {:else}
+      <!-- ----------------------------------------------------------------
+           Ce qui va changer, ligne par ligne.
+           ---------------------------------------------------------------- -->
+      <div class="min-h-0 flex-1 overflow-y-auto">
+        <h2 class="titre-affiche mb-2 text-xl">Ce qui va changer</h2>
+
+        <div class="grid grid-cols-[36px_190px_110px_minmax(0,1fr)_24px_minmax(0,1fr)_130px] items-center gap-3 border-b border-stone-200 py-2 dark:border-stone-800">
+          <span></span>
+          <span class="libelle-champ">Système</span>
+          <span class="libelle-champ">Champ</span>
+          <span class="libelle-champ">Avant</span>
+          <span></span>
+          <span class="libelle-champ">Après</span>
+          <span class="libelle-champ">État</span>
         </div>
 
-        <label class="flex items-start gap-2 text-xs text-stone-700 dark:text-stone-300">
-          <input type="checkbox" bind:checked={appliquerGoogle}
-                 onchange={() => (plan = null)}
-                 class="mt-0.5 h-4 w-4 rounded border-stone-300" />
-          <span>
-            <strong>Appliquer aussi dans Google</strong> — déplacement d'unité
-            et échange des groupes. À laisser décoché avant la rentrée : les
-            élèves attendent tous dans la même unité, et les ajouter à leur
-            nouvelle liste de classe leur révélerait leur classe avant
-            l'heure.
-          </span>
-        </label>
-      </div>
-    {/if}
+        {#each rangs as r (r.cle)}
+          <div class="grid grid-cols-[36px_190px_110px_minmax(0,1fr)_24px_minmax(0,1fr)_130px] items-center gap-3 border-b border-stone-100 py-3 text-sm dark:border-stone-800/70">
+            <span>
+              {#if r.force}
+                <!-- Le référentiel bouge toujours : sans lui, la bascule
+                     ramènerait l'élève dans son ancienne classe. -->
+                <input
+                  type="checkbox"
+                  checked
+                  disabled
+                  class="h-4 w-4 accent-emerald-600"
+                  aria-label="Référentiel, toujours appliqué"
+                />
+              {:else if r.automatisable}
+                <input
+                  type="checkbox"
+                  class="h-4 w-4 accent-emerald-600"
+                  aria-label="Appliquer sur {r.systeme}"
+                  bind:checked={appliquerGoogle}
+                />
+              {:else}
+                <input
+                  type="checkbox"
+                  class="h-4 w-4 accent-emerald-600"
+                  aria-label="Marquer « {r.systeme} » comme fait"
+                  checked={faits[r.cle] ?? false}
+                  onchange={(e) => (faits = { ...faits, [r.cle]: e.currentTarget.checked })}
+                />
+              {/if}
+            </span>
 
-    {#if plan}
-      <div class="card space-y-3 p-4">
-        <div class="flex flex-wrap items-baseline justify-between gap-2">
-          <h2 class="text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
-            {plan.applique ? "Ce qui a été fait" : "Ce qui serait fait"}
-          </h2>
-          {#if !plan.applique}
-            <Bouton variante="primary" {occupe} onclick={appliquer}>
-              Appliquer
-            </Bouton>
-          {/if}
-        </div>
+            <span class="flex items-center gap-2.5 font-semibold">
+              <span class="h-2.5 w-2.5 shrink-0 rounded-full" style="background: {r.teinte};"></span>
+              {r.systeme}
+            </span>
 
-        <p class="text-sm">
-          <strong>{plan.prenom} {plan.nom}</strong>
-          <span class="mx-2 font-mono">{plan.classe_avant ?? "—"} → {plan.classe_apres}</span>
-        </p>
+            <span class="text-stone-600 dark:text-stone-400">{r.champ}</span>
 
-        <div class="overflow-x-auto">
-          <table class="w-full text-left text-sm">
-            <tbody>
-              <tr class="border-t border-stone-200 dark:border-stone-700">
-                <td class="py-1.5 pr-4 text-stone-500 dark:text-stone-400">Référentiel</td>
-                <td class="py-1.5">nouvelle photographie, portant la classe d'origine</td>
-              </tr>
-              <tr class="border-t border-stone-200 dark:border-stone-700">
-                <td class="py-1.5 pr-4 text-stone-500 dark:text-stone-400">Unité d'organisation</td>
-                <td class="py-1.5 font-mono text-xs">
-                  {#if plan.deplacement_utile}
-                    {plan.ou_avant ?? "—"} → {plan.ou_apres}
-                  {:else}
-                    <span class="font-sans text-stone-500 dark:text-stone-400">
-                      inchangée — l'élève attend en OU de pré-rentrée
-                    </span>
-                  {/if}
-                </td>
-              </tr>
-              <tr class="border-t border-stone-200 dark:border-stone-700">
-                <td class="py-1.5 pr-4 text-stone-500 dark:text-stone-400">Groupes</td>
-                <td class="py-1.5 font-mono text-xs">
-                  {plan.groupe_quitte ?? "—"} → {plan.groupe_rejoint ?? "—"}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+            <span class="min-w-0 truncate text-stone-500 line-through dark:text-stone-400">
+              {r.avant ?? "—"}
+            </span>
+            <ArrowRight class="h-4 w-4 shrink-0 text-stone-400" />
+            <span class="min-w-0 truncate font-bold" style="color: {r.teinte};">
+              {r.apres ?? "—"}
+            </span>
 
-        {#each plan.avertissements as a}
-          <p class="rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-            {a}
-          </p>
+            <Pastille etat={r.etat} texte={r.texte} />
+          </div>
         {/each}
 
-        {#if plan.operations?.length}
-          <div>
-            <p class="libelle-champ">Opérations Google</p>
-            <ul class="mt-1 space-y-1 text-sm">
-              {#each plan.operations as o}
-                <li class="flex items-start gap-2">
-                  {#if o.reussie}
-                    <Check class="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
-                  {:else}
-                    <X class="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-600 dark:text-red-400" />
-                  {/if}
-                  <span>
-                    {o.libelle}
-                    {#if o.message}
-                      <span class="text-xs text-red-700 dark:text-red-400"> — {o.message}</span>
-                    {/if}
-                  </span>
-                </li>
-              {/each}
+        <p class="mt-3 text-[13px] text-stone-500 dark:text-stone-400">
+          Ne change pas : site <b>{choisi.site ?? "—"}</b> · adresse mail ·
+          année <b>{listeAnnees.find((a) => a.id === anneeId)?.libelle ?? "—"}</b>
+        </p>
+
+        {#if plan.avertissements?.length}
+          <div class="mt-4 rounded-xl bg-amber-50 p-4 dark:bg-amber-400/10">
+            <p class="flex items-center gap-1.5 text-[11px] font-bold tracking-[0.08em] text-amber-800 uppercase dark:text-amber-300">
+              <TriangleAlert class="h-3.5 w-3.5" /> À savoir
+            </p>
+            <ul class="mt-1.5 space-y-1 text-sm text-amber-900 dark:text-amber-200">
+              {#each plan.avertissements as a (a)}<li>{a}</li>{/each}
             </ul>
           </div>
         {/if}
-
-        <!-- Ce que le programme ne sait pas faire, il le nomme. Un écran qui
-             ferait 60 % du travail en silence serait pire qu'un écran inerte. -->
-        <div class="rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
-          <p class="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
-            <TriangleAlert class="h-3.5 w-3.5" />
-            Ce qui reste à faire ailleurs
-          </p>
-          <ul class="mt-1.5 space-y-1 text-sm text-stone-700 dark:text-stone-300">
-            {#each plan.reste_a_faire as r}
-              <li><strong>{r.systeme}</strong> — {r.geste}</li>
-            {/each}
-          </ul>
-          <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">
-            Pour KoXo, le plus simple est de réexporter depuis l'onglet
-            <strong>Exports</strong> : le fichier porte déjà la nouvelle classe.
-          </p>
-        </div>
       </div>
+
+      <BarreAction
+        message="Rien n'est modifié tant que tu n'as pas validé. Les systèmes sans API se cochent à la main, une fois le geste fait de leur côté."
+      >
+        <Bouton onclick={() => { plan = null; nouvelleClasse = ""; }}>Annuler</Bouton>
+        <Bouton variante="primary" icon={Check} occupe={occupe} onclick={appliquer}>
+          Appliquer sur {nbAutomatiques} système{nbAutomatiques > 1 ? "s" : ""}
+        </Bouton>
+      </BarreAction>
     {/if}
   {/if}
 </section>
