@@ -447,81 +447,104 @@ def _controler_sans_inscription(
     inscription, on ne sait ni quelle classe viser, ni quel groupe.
 
     Mais un élève dont la fiche porte encore une classe, dont le compte
-    Google est toujours dans l'arbre actif, et qui n'a aucune inscription
-    pour l'année, n'est ni un inscrit ni un sortant. Aucun contrôle ne le
-    voyait, et le bilan concluait « tout est en place » sans l'avoir
-    regardé.
+    Google est toujours actif, et qui n'a aucune inscription pour l'année,
+    n'est ni un inscrit ni un sortant. Aucun contrôle ne le voyait, et le
+    bilan concluait « tout est en place » sans l'avoir regardé.
 
-    ## Ce que ça révèle, et qui n'est pas une faute
+    ## Ce qui départage les deux causes
 
-    Deux causes, et l'écran ne peut pas trancher entre elles :
+    Deux histoires mènent ici, et elles ne se traitent pas pareil : un
+    **départ**, ou un **export incomplet**. Le nombre par site ne tranche
+    pas — un site entier peut avoir été ingéré et rester troué.
 
-    - l'élève est **parti** après l'an dernier, et sa fiche garde la
-      classe qu'il avait — son compte devrait rejoindre l'arbre de
-      sortie ;
-    - l'export de son site **n'a pas été ingéré** pour cette année. C'est
-      le cas quand tout un établissement apparaît ici d'un coup : ce sont
-      ses classes qui manquent, pas ses élèves.
+    Ce qui tranche est l'état de sa classe cette année :
 
-    D'où un *reste* et non un écart : ce n'est pas une erreur du
-    programme, c'est une question à poser à Charlemagne. Le nombre par
-    site est ce qui départage les deux causes, et il est dans le libellé.
+    - **plus personne n'y est inscrit** : la classe s'est vidée, la
+      promotion est partie. Le compte doit rejoindre l'arbre de sortie ;
+    - **d'autres y sont inscrits** : la classe vit, et lui seul en est
+      absent. Quinze absents d'une classe qui en compte dix-sept ne sont
+      pas quinze départs — c'est l'export qui est troué.
 
-    ## Pourquoi ils comptent double, et pourquoi c'est voulu
+    Les deux familles sortent donc en deux restes distincts, avec deux
+    gestes différents. Les confondre envoie refaire une ingestion pour
+    des élèves qui sont simplement partis, ou traiter en sortants des
+    élèves qui sont là.
 
-    Ces élèves figurent aussi dans « sortants encore rangés avec les
-    inscrits » — ils en sont le sous-ensemble douteux. Vider l'arbre de
-    l'année révolue les emporterait tous, et sortirait des élèves encore
-    présents dont l'export n'a simplement pas été chargé. Le geste le dit :
-    regarder ce reste **avant** de lancer la vidange.
+    ## Pourquoi des restes, et pourquoi ils comptent double
+
+    Ce n'est pas une erreur du programme : c'est une question à poser à
+    Charlemagne. Et ces élèves figurent **aussi** dans « sortants encore
+    rangés avec les inscrits » — ils en sont le sous-ensemble douteux.
+    Vider l'arbre de l'année révolue les emporterait tous, et sortirait
+    des élèves encore présents. D'où l'avertissement dans le geste.
     """
     q = session.query(Personne).filter(Personne.type == "eleve")
     if site_id is not None:
         q = q.filter(Personne.site_id == site_id)
 
-    inscrits = {
-        pid
-        for (pid,) in session.query(Snapshot.personne_id)
-        .filter(Snapshot.annee_scolaire_id == annee_id)
-        .distinct()
-    }
+    inscrits: dict[int, str | None] = {}
+    for pid, classe in session.query(
+        Snapshot.personne_id, Snapshot.classe
+    ).filter(Snapshot.annee_scolaire_id == annee_id):
+        if classe or pid not in inscrits:
+            inscrits[pid] = classe
+    peuplees = {c for c in inscrits.values() if c}
 
-    orphelins: list[str] = []
-    par_site: dict[str, int] = {}
+    vides: list[str] = []
+    trouees: list[str] = []
+    par_classe: dict[str, int] = {}
     for personne in q.all():
-        if personne.id in inscrits or not (personne.classe or "").strip():
+        classe = (personne.classe or "").strip()
+        if personne.id in inscrits or not classe:
             continue
-        adresse = (personne.email or "").strip().lower()
-        if adresse not in par_adresse:
+        if (personne.email or "").strip().lower() not in par_adresse:
             continue  # sans compte actif, rien ne traîne dans Google
-        nom_site = sites[personne.site_id].nom if personne.site_id in sites else "sans site"
-        par_site[nom_site] = par_site.get(nom_site, 0) + 1
-        orphelins.append(f"{personne.prenom} {personne.nom} ({personne.classe})")
-
-    if not orphelins:
-        return
-
-    repartition = ", ".join(
-        f"{n} à {site}" for site, n in sorted(par_site.items(), key=lambda x: -x[1])
-    )
-    bilan.restes.append(
-        Reste(
-            genre="sans_inscription",
-            nombre=len(orphelins),
-            libelle=(
-                "élève(s) dont la fiche porte une classe, dont le compte est "
-                f"actif, et qu'aucun export n'inscrit cette année — {repartition}"
-            ),
-            geste=(
-                "À regarder AVANT de vider l'arbre de l'année révolue : ces "
-                "élèves y sont comptés comme sortants, et les déplacer sortirait "
-                "des inscrits. Un site entier ici veut dire que son export "
-                "Charlemagne n'a pas été ingéré pour cette année — refais "
-                "l'ingestion d'abord. Quelques noms épars sont de vrais départs."
-            ),
-            exemples=sorted(orphelins)[:8],
+        nom_site = (
+            sites[personne.site_id].nom if personne.site_id in sites else "sans site"
         )
-    )
+        qui = f"{personne.prenom} {personne.nom} ({classe})"
+        if classe in peuplees:
+            trouees.append(qui)
+            cle = f"{nom_site}/{classe}"
+            par_classe[cle] = par_classe.get(cle, 0) + 1
+        else:
+            vides.append(qui)
+
+    if vides:
+        bilan.restes.append(
+            Reste(
+                genre="classe_videe",
+                nombre=len(vides),
+                libelle=(
+                    "ancien(s) élève(s) dont la classe n'a plus aucun inscrit "
+                    "cette année — la promotion est partie, le compte est resté"
+                ),
+                geste=GESTES["sortant_dans_arbre_actif"][1],
+                exemples=sorted(vides)[:8],
+            )
+        )
+
+    if trouees:
+        detail = ", ".join(
+            f"{n} en {cle}" for cle, n in sorted(par_classe.items(), key=lambda x: -x[1])[:4]
+        )
+        bilan.restes.append(
+            Reste(
+                genre="export_troue",
+                nombre=len(trouees),
+                libelle=(
+                    "élève(s) absent(s) de l'export alors que leur classe compte "
+                    f"des inscrits — {detail}"
+                ),
+                geste=(
+                    "Plusieurs absents d'une même classe ne sont pas des départs : "
+                    "c'est l'export de ce site qui est incomplet. Réingère-le avant "
+                    "de vider l'arbre de l'année révolue — sinon ces élèves, comptés "
+                    "parmi les sortants, en sortiraient alors qu'ils sont là."
+                ),
+                exemples=sorted(trouees)[:8],
+            )
+        )
 
 
 def _constat(genre, personne, classe, nom_site, detail) -> Constat:
