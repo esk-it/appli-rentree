@@ -14,8 +14,14 @@
   import CopiableTexte from "$lib/components/CopiableTexte.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import Segments from "$lib/components/Segments.svelte";
+  import Onglets from "$lib/components/Onglets.svelte";
+  import Pastille from "$lib/components/Pastille.svelte";
+  import Squelette from "$lib/components/Squelette.svelte";
+  import Search from "@lucide/svelte/icons/search";
+  import Send from "@lucide/svelte/icons/send";
   import Touche from "$lib/components/Touche.svelte";
-  import { parametres } from "$lib/api.js";
+  import { annees as anneesApi, envois as envoisApi, parametres } from "$lib/api.js";
+  import { TEINTES } from "$lib/familles.js";
   import { ouvrirLien } from "$lib/liens.js";
   import { lire, ecrire } from "$lib/memoire.svelte.js";
   import { notify } from "$lib/toasts.js";
@@ -50,6 +56,24 @@
    * rentrées, et ce qu'aucune liste à puces ne dit.
    */
 
+  /**
+   * Deux moitiés, et la première est celle qu'on ouvre le plus souvent.
+   *
+   * La procédure ne se lit qu'aux rentrées ; « ce qui a changé » se
+   * regarde chaque semaine. L'écran s'ouvre donc sur le tableau, et la
+   * procédure reste à un onglet.
+   */
+  let volet = $state(lire("sodexo.volet", "changements"));
+  $effect(() => ecrire("sodexo.volet", volet));
+
+  let listeAnnees = $state(/** @type {any[]} */ ([]));
+  let anneeId = $state(/** @type {number | null} */ (null));
+  let etatEnvoi = $state(/** @type {any} */ (null));
+  let chargement = $state(true);
+  let occupe = $state(false);
+  let recherche = $state("");
+  let seulementChangees = $state(false);
+
   let idProcedure = $state(lire("sodexo.procedure", PROCEDURES[0].id));
   $effect(() => ecrire("sodexo.procedure", idProcedure));
 
@@ -72,7 +96,76 @@
     })),
   );
 
+  let classes = $derived.by(() => {
+    let l = etatEnvoi?.classes ?? [];
+    if (seulementChangees) l = l.filter((c) => c.nb_changements > 0);
+    const q = recherche.trim().toLowerCase();
+    if (q) l = l.filter((c) => c.classe.toLowerCase().includes(q));
+    return l;
+  });
+
+  /** « il y a trois jours », plutôt qu'un horodatage à déchiffrer. */
+  function age(iso) {
+    if (!iso) return "";
+    const h = Math.round((Date.now() - new Date(iso + "Z").getTime()) / 3600000);
+    if (h < 1) return "à l'instant";
+    if (h < 24) return `il y a ${h} h`;
+    const j = Math.round(h / 24);
+    return j === 1 ? "hier" : `il y a ${j} jours`;
+  }
+
+  async function charger() {
+    if (!anneeId) return;
+    occupe = true;
+    try {
+      etatEnvoi = await envoisApi.etat("sodexo", anneeId);
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
+    } finally {
+      occupe = false;
+    }
+  }
+
+  /**
+   * Prendre acte d'un envoi que le programme n'a pas fabriqué.
+   *
+   * Le CSV naît du classeur Google : le programme ne peut pas savoir
+   * qu'il est parti. Il le tient d'ici, et le dit — « déclaré » et
+   * « produit » ne valent pas la même chose.
+   */
+  async function declarer() {
+    if (!anneeId) return;
+    if (
+      !confirm(
+        `Marquer les ${etatEnvoi?.nb_actuels ?? 0} élèves comme transmis à Sodexo ?\n\n` +
+          "À ne faire qu'une fois l'import réellement passé dans le portail : " +
+          "à partir de là, l'écran ne montrera plus que ce qui a bougé depuis.",
+      )
+    ) {
+      return;
+    }
+    occupe = true;
+    try {
+      etatEnvoi = await envoisApi.declarer("sodexo", { anneeId });
+      notify.succes("Envoi enregistré. L'écran repart de cet état.");
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 12000 });
+    } finally {
+      occupe = false;
+    }
+  }
+
   onMount(async () => {
+    try {
+      listeAnnees = await anneesApi.lister();
+      const triees = [...listeAnnees].sort((a, b) => b.libelle.localeCompare(a.libelle));
+      anneeId = triees[0]?.id ?? null;
+      await charger();
+    } catch {
+      // Sans l'état des envois, la procédure reste lisible.
+    } finally {
+      chargement = false;
+    }
     try {
       const tous = await parametres.lister();
       const trouve = (tous ?? []).find((p) => p.cle === REGLAGE_CLASSEUR_ELEVES);
@@ -128,6 +221,175 @@
     titre="Sodexo"
     description="La procédure d'import, dans l'ordre, avec ses pièges. Le fichier se fabrique dans le classeur Google — le programme ne le refait pas, il t'y mène."
   />
+
+  <Onglets
+    bind:valeur={volet}
+    onglets={[
+      {
+        id: "changements",
+        label: "Ce qui a changé",
+        compte: etatEnvoi?.nb_changements ?? 0,
+      },
+      { id: "procedure", label: "La procédure" },
+    ]}
+  />
+
+  {#if volet === "changements"}
+    {#if chargement}
+      <Squelette variante="ligne-tableau" nb={5} colonnes={4} />
+    {:else if !etatEnvoi}
+      <p class="py-10 text-center text-sm text-stone-500 dark:text-stone-400">
+        L'état des envois n'a pas pu être lu.
+      </p>
+    {:else}
+      <!-- --------------------------------------------------------------
+           Trois chiffres : ce qui est parti, ce qui a bougé, sur combien
+           de classes.
+           -------------------------------------------------------------- -->
+      <div class="flex flex-wrap items-end justify-between gap-6 border-b border-stone-200 pb-5 dark:border-stone-800">
+        <div class="flex flex-wrap gap-12">
+          <div>
+            <p class="titre-affiche text-3xl leading-none" style="color: {TEINTES.repas};">
+              {(etatEnvoi.nb_actuels ?? 0).toLocaleString("fr-FR")}
+            </p>
+            <p class="mt-1 text-xs text-stone-600 dark:text-stone-400">
+              élèves à transmettre
+            </p>
+          </div>
+          <div>
+            <p
+              class="titre-affiche text-3xl leading-none"
+              style="color: {etatEnvoi.nb_changements
+                ? 'var(--color-amber-600)'
+                : 'var(--color-vert-600)'};"
+            >
+              {(etatEnvoi.nb_changements ?? 0).toLocaleString("fr-FR")}
+            </p>
+            <p class="mt-1 text-xs text-stone-600 dark:text-stone-400">
+              changement{etatEnvoi.nb_changements > 1 ? "s" : ""} depuis le dernier envoi
+            </p>
+          </div>
+          <div>
+            <p class="titre-affiche text-3xl leading-none">
+              {(etatEnvoi.classes?.length ?? 0).toLocaleString("fr-FR")}
+            </p>
+            <p class="mt-1 text-xs text-stone-600 dark:text-stone-400">
+              classe{etatEnvoi.classes?.length > 1 ? "s" : ""}
+              {#if etatEnvoi.nb_classes_touchees}
+                · <strong>{etatEnvoi.nb_classes_touchees}</strong> à rouvrir
+              {/if}
+            </p>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <select class="champ w-36" bind:value={anneeId} onchange={charger}>
+            {#each listeAnnees as a (a.id)}<option value={a.id}>{a.libelle}</option>{/each}
+          </select>
+          <Bouton icon={ExternalLink} onclick={() => (volet = "procedure")}>
+            Ouvrir la procédure
+          </Bouton>
+          <Bouton variante="primary" icon={Send} occupe={occupe} onclick={declarer}>
+            J'ai transmis
+          </Bouton>
+        </div>
+      </div>
+
+      <!-- Le programme ne fabrique pas ce fichier : il faut le dire ici,
+           là où quelqu'un cherche le bouton qui le produirait. -->
+      <p class="text-[13px] leading-relaxed text-stone-600 dark:text-stone-400">
+        {#if !etatEnvoi.envoye_le}
+          <strong>Aucun envoi enregistré pour cette année.</strong> Tous les élèves
+          comptent donc comme des entrants — ce qui est exact, c'est ce que le
+          premier import contiendra.
+        {:else}
+          Dernier envoi <strong>{age(etatEnvoi.envoye_le)}</strong>{#if etatEnvoi.declare}, déclaré à la main{/if}, sur
+          <strong class="tabular-nums">{etatEnvoi.nb_envoyes}</strong> élèves.
+        {/if}
+        Le fichier ne se fabrique pas ici : il naît du classeur Google, et
+        l'onglet « La procédure » mène au geste. « J'ai transmis » ne fait que
+        prendre acte, une fois l'import réellement passé.
+      </p>
+
+      <div class="flex flex-wrap items-end gap-4">
+        <div class="relative">
+          <label class="libelle-champ" for="q-sodexo">Chercher une classe</label>
+          <Search class="pointer-events-none absolute top-1/2 left-3 h-4 w-4 translate-y-1 text-stone-400" />
+          <input id="q-sodexo" class="champ mt-1 w-64 pl-9" bind:value={recherche} />
+        </div>
+        <label class="flex cursor-pointer items-center gap-2 pb-2.5 text-sm">
+          <input type="checkbox" class="h-4 w-4 accent-emerald-600" bind:checked={seulementChangees} />
+          Avec changements seulement
+        </label>
+      </div>
+
+      {#if !classes.length}
+        <p class="py-10 text-center text-sm text-stone-500 dark:text-stone-400">
+          {seulementChangees
+            ? "Aucune classe n'a bougé depuis le dernier envoi."
+            : "Aucune classe ne correspond."}
+        </p>
+      {:else}
+        <div class="overflow-y-auto">
+          <div class="grid grid-cols-[minmax(0,1fr)_110px_minmax(0,1.6fr)_150px] items-center gap-3 border-b border-stone-200 py-2 dark:border-stone-800">
+            <span class="libelle-champ">Classe</span>
+            <span class="libelle-champ">Élèves</span>
+            <span class="libelle-champ">Changements</span>
+            <span class="libelle-champ">Ce qu'il faut faire</span>
+          </div>
+
+          {#each classes as c (c.classe)}
+            <div class="grid grid-cols-[minmax(0,1fr)_110px_minmax(0,1.6fr)_150px] items-center gap-3 border-b border-stone-100 py-3 text-sm dark:border-stone-800/70">
+              <strong class="font-mono">{c.classe}</strong>
+              <span class="tabular-nums text-stone-600 dark:text-stone-400">
+                {c.nb_actuel} élève{c.nb_actuel > 1 ? "s" : ""}
+              </span>
+              <span class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                {#if !c.nb_changements}
+                  <span class="text-stone-500 dark:text-stone-400">Aucun changement</span>
+                {:else}
+                  {#if c.entrants.length}
+                    <span
+                      class="whitespace-nowrap font-semibold"
+                      style="color: var(--color-vert-600);"
+                      title={c.entrants.join(", ")}
+                    >+{c.entrants.length} à créer</span>
+                  {/if}
+                  {#if c.arrives_d_ailleurs.length}
+                    <span
+                      class="whitespace-nowrap font-semibold"
+                      style="color: {TEINTES.annee};"
+                      title={c.arrives_d_ailleurs.join(", ")}
+                    >{c.arrives_d_ailleurs.length} venu(s) d'une autre classe</span>
+                  {/if}
+                  {#if c.sortants.length}
+                    <span
+                      class="whitespace-nowrap font-semibold"
+                      style="color: var(--color-amber-600);"
+                      title={c.sortants.join(", ")}
+                    >−{c.sortants.length} parti(s)</span>
+                  {/if}
+                {/if}
+              </span>
+              {#if !c.nb_changements}
+                <Pastille etat="pret" texte="Rien à rouvrir" />
+              {:else if c.entrants.length}
+                <Pastille etat="ecart" texte="Créer des comptes" />
+              {:else}
+                <Pastille etat="attente" texte="Corriger" />
+              {/if}
+            </div>
+          {/each}
+
+          <p class="mt-3 text-[13px] text-stone-500 dark:text-stone-400">
+            Un élève <strong>venu d'une autre classe</strong> a déjà un compte
+            chez Sodexo : il se corrige, il ne se crée pas. Lui en refaire un le
+            dédouble au self. Passe la souris sur un nombre pour voir les noms.
+          </p>
+        </div>
+      {/if}
+    {/if}
+  {:else}
 
   <Segments
     bind:valeur={idProcedure}
@@ -407,4 +669,5 @@
       </div>
     {/if}
   </div>
+  {/if}
 </section>

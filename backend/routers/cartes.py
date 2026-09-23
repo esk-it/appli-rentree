@@ -98,6 +98,44 @@ def fichier(
         )
     except CartesImpossibles as e:
         raise HTTPException(400, str(e))
+
+    # Prendre acte de ce qui part : c'est ce qui permettra de dire, la
+    # prochaine fois, quelles cartes ont déjà été faites. Sans cette
+    # trace on réimprime, et une carte réimprimée est une carte payée
+    # deux fois.
+    try:
+        from backend.models import AnneeScolaire, Snapshot
+        from backend.services.envois import enregistrer
+
+        annee_id = payload.annee_id
+        if annee_id is None:
+            annee = (
+                session.query(AnneeScolaire)
+                .order_by(AnneeScolaire.libelle.desc())
+                .first()
+            )
+            annee_id = annee.id if annee else None
+        if annee_id is not None:
+            classes = {
+                pid: classe
+                for pid, classe in session.query(
+                    Snapshot.personne_id, Snapshot.classe
+                ).filter(
+                    Snapshot.annee_scolaire_id == annee_id,
+                    Snapshot.personne_id.in_(payload.personne_ids),
+                )
+                if classe
+            }
+            enregistrer(
+                session,
+                systeme="cardstudio",
+                annee_id=annee_id,
+                lignes={pid: classes.get(pid) for pid in payload.personne_ids},
+                nom_fichier=rapport.nom_fichier_suggere,
+            )
+    except Exception:  # pragma: no cover - le fichier prime sur sa trace
+        pass
+
     return FichierReponse(
         nom_fichier=rapport.nom_fichier_suggere,
         contenu_base64=base64.b64encode(contenu).decode("ascii"),

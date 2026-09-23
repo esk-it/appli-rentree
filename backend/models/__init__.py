@@ -7,6 +7,7 @@ du stockage.
 from backend.models.annee_scolaire import AnneeScolaire
 from backend.models.arbitrage import Arbitrage
 from backend.models.compte_cible import CompteCible
+from backend.models.envoi import Envoi, LigneEnvoi
 from backend.models.etablissement import Etablissement
 from backend.models.generation import Generation
 from backend.models.login_reserve import LoginReserve
@@ -29,7 +30,9 @@ __all__ = [
     "AnneeScolaire",
     "Arbitrage",
     "CompteCible",
+    "Envoi",
     "Etablissement",
+    "LigneEnvoi",
     "Generation",
     "LoginReserve",
     "MouvementProf",

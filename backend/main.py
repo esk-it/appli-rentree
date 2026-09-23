@@ -43,6 +43,7 @@ from backend.routers import (
     arrivees as arrivees_router,
     bilan as bilan_router,
     concordance as concordance_router,
+    envois as envois_router,
     coffre as coffre_router,
     mouvements as mouvements_router,
     parcours as parcours_router,
@@ -265,3 +266,4 @@ app.include_router(concordance_router.router)
 app.include_router(parc_router.router)
 app.include_router(ts1000_router.router)
 app.include_router(cartes_router.router)
+app.include_router(envois_router.router)

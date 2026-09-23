@@ -1569,6 +1569,28 @@ export const sortants = {
   },
 };
 
+/**
+ * Ce qui est parti chez qui, et ce qui a bougé depuis.
+ *
+ * Pour Sodexo le programme ne fabrique rien : l'envoi se **déclare**,
+ * et l'écran distingue un envoi déclaré d'un fichier produit.
+ */
+export const envois = {
+  async etat(systeme, anneeId = null) {
+    const q = anneeId ? `?annee_id=${anneeId}` : "";
+    return jsonOrThrow(await fetch(`${BASE}/envois/${systeme}${q}`));
+  },
+  async declarer(systeme, { anneeId = null, note = null } = {}) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/envois/${systeme}/declarer`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ annee_id: anneeId, note }),
+      }),
+    );
+  },
+};
+
 export const annees = {
   async lister() {
     return jsonOrThrow(await fetch(`${BASE}/annees`));
