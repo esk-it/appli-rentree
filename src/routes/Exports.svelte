@@ -24,8 +24,18 @@
   let listeSites = $state([]);
   let listeAnnees = $state([]);
 
+  /**
+   * La cible ouverte. `cibleInitiale` permet d'arriver directement sur la
+   * bonne : l'écran « Produire un fichier » dit ce que chaque système
+   * attend, et ouvre celui qu'on a choisi — sans ça on retombait sur KoXo
+   * et il fallait recliquer.
+   */
+  let { cibleInitiale = null } = $props();
+
   let cible = $state(
-    /** @type {"koxo"|"google"|"groupes"|"pmb"|"charlemagne"|"listes"|"jpm"} */ ("koxo"),
+    /** @type {"koxo"|"google"|"groupes"|"pmb"|"charlemagne"|"listes"|"jpm"} */ (
+      cibleInitiale ?? "koxo"
+    ),
   );
 
   /**

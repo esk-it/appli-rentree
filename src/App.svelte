@@ -50,6 +50,7 @@
   import GroupesGoogle from "./routes/GroupesGoogle.svelte";
   import EntrantsSortants from "./routes/EntrantsSortants.svelte";
   import Conformite from "./routes/Conformite.svelte";
+  import Produire from "./routes/Produire.svelte";
   import Concordance from "./routes/Concordance.svelte";
   import Mouvements from "./routes/Mouvements.svelte";
   import Personnes from "./routes/Personnes.svelte";
@@ -175,6 +176,8 @@
   // Une intention formulée dans un écran et honorée dans un autre : la
   // Conformité constate le décalage d'année, la Table le corrige.
   let rotationDemandee = $state(/** @type {any} */ (null));
+  /** La cible choisie dans « Produire un fichier », pour y arriver dessus. */
+  let cibleExports = $state(/** @type {string | null} */ (null));
 
   /**
    * L'état de chaque étape du parcours, tel que le backend le calcule.
@@ -343,7 +346,7 @@
         // elle avait sa place dans un onglet d'un écran d'export, où
         // personne n'allait la chercher.
         { id: "cartes", label: "Les cartes", icon: CreditCard },
-        { id: "exports", label: "Produire un fichier", icon: FileDown },
+        { id: "produire", label: "Produire un fichier", icon: FileDown },
         // « Pourquoi ce compte est-il là ? » se pose des mois après :
         // le journal existait, il n'avait simplement pas de porte.
         { id: "sodexo", label: "Sodexo", icon: UtensilsCrossed },
@@ -400,6 +403,10 @@
     { id: "bascule", label: "Bascule des OU", icon: FolderTree },
     // La porte : quatre lignes qui disent où ça cloche. « Conformité
     // Google » garde les outils qui règlent, et s'ouvre depuis elle.
+    // L'écran détaillé : la porte « Produire un fichier » y mène, cible
+    // par cible. Il reste atteignable seul, pour les exports qui n'ont
+    // pas de ligne — listes, étiquettes, JPM.
+    { id: "exports", label: "Les exports en détail", icon: FileDown },
     { id: "conformite", label: "Conformité", icon: ShieldCheck },
     { id: "conformite_google", label: "Outils de conformité", icon: ShieldCheck },
     { id: "controle_koxo", label: "Contrôle KoXo", icon: ShieldCheck },
@@ -902,8 +909,15 @@
           <Arbitrage />
         {:else if page === "simulation"}
           <Simulation />
+        {:else if page === "produire"}
+          <Produire
+            onNaviguer={(p, options) => {
+              cibleExports = options?.cibleInitiale ?? null;
+              page = p;
+            }}
+          />
         {:else if page === "exports"}
-          <Exports />
+          <Exports cibleInitiale={cibleExports} />
         {:else if page === "suivi"}
           <Suivi />
         {:else if page === "statistiques"}

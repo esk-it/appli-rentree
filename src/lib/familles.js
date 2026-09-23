@@ -58,6 +58,7 @@ export const FAMILLE_PAR_ECRAN = {
   photos: "photos",
   sodexo: "repas",
   exports: "fichiers",
+  produire: "fichiers",
   cartes: "photos",
   journal: "fichiers",
   ts1000: "materiel",
