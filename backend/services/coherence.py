@@ -322,3 +322,82 @@ def compter(session: Session) -> dict:
         "nb_adultes": total - eleves,
         "nb_verifiees": verifiees,
     }
+
+
+# ---------------------------------------------------------------------------
+# L'autre source de verdicts : le bilan, qui n'a pas besoin de Charlemagne
+# ---------------------------------------------------------------------------
+
+GENRE_BILAN = {
+    # genre du bilan         -> état du lien vers Google
+    "compte_absent": "absent",
+    "compte_suspendu": "ecart",
+    "ou_inattendue": "ecart",
+    "groupe_manquant": "ecart",
+    "groupe_en_trop": "ecart",
+    "identifiant_discordant": "ecart",
+    "sortant_dans_arbre_actif": "ecart",
+}
+"""`sans_classe` n'y figure pas : c'est un trou du référentiel, pas un
+désaccord avec Google. L'y ranger accuserait Google de ne pas savoir une
+chose que personne ne lui a dite."""
+
+
+def enregistrer_bilan(session: Session, bilan) -> int:
+    """Range ce qu'un bilan a constaté du lien vers Google.
+
+    ## Pourquoi une seconde porte
+
+    La Concordance croise quatre sources et demande pour cela un export
+    Charlemagne frais. Le bilan, lui, confronte le référentiel à Google
+    et **n'a besoin d'aucun fichier** : les deux côtés sont déjà là.
+
+    C'est la question du matin — « est-ce que tout le monde est en
+    place » — et elle ne devrait pas attendre qu'on ait exporté
+    Charlemagne. Le lien vers Google se vérifie donc des deux façons, et
+    la plus récente fait foi.
+
+    Seules les personnes que ce bilan a **regardées** sont réécrites : un
+    bilan filtré sur un site n'a rien vu des deux autres, et les déclarer
+    cohérents serait le mensonge que ce verdict existe pour empêcher.
+
+    Rend le nombre de verdicts écrits.
+    """
+    examinees = list(dict.fromkeys(bilan.personnes_examinees))
+    if not examinees:
+        return 0
+
+    quand = datetime.utcnow()
+    etats: dict[int, dict] = {
+        pid: {"etat": "accord", "genre": None} for pid in examinees
+    }
+
+    for c in bilan.constats:
+        etat = GENRE_BILAN.get(c.genre)
+        if etat is None or c.personne_id is None:
+            continue
+        courant = etats.get(c.personne_id)
+        if courant is None:
+            continue  # un constat sur quelqu'un hors du champ examiné
+        # « absent » l'emporte : sans compte, il n'y a pas d'unité fausse.
+        if courant["etat"] == "absent":
+            continue
+        etats[c.personne_id] = {"etat": etat, "genre": c.genre}
+
+    session.execute(
+        delete(VerdictCoherence)
+        .where(VerdictCoherence.personne_id.in_(examinees))
+        .where(VerdictCoherence.systeme == "google")
+    )
+    for pid, v in etats.items():
+        session.add(
+            VerdictCoherence(
+                personne_id=pid,
+                systeme="google",
+                etat=v["etat"],
+                genre=v["genre"],
+                verifie_le=quand,
+            )
+        )
+    session.commit()
+    return len(etats)

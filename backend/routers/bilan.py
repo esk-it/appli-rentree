@@ -118,6 +118,17 @@ def dresser(
     except ValueError as e:
         raise HTTPException(404, str(e)) from None
 
+    # Le constat est rangé avant d'être rendu. Le bilan confronte le
+    # référentiel à Google sans demander d'export : c'est la seule
+    # vérification du lien vers Google qui ne coûte aucun fichier, et la
+    # laisser mourir avec l'écran obligeait à passer par la Concordance.
+    try:
+        from backend.services.coherence import enregistrer_bilan
+
+        enregistrer_bilan(session, b)
+    except Exception:  # pragma: no cover - le bilan prime sur son rangement
+        pass
+
     return BilanOut(
         annee_libelle=b.annee_libelle,
         chiffres=_chiffres(b.chiffres),

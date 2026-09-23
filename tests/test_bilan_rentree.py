@@ -286,7 +286,12 @@ def test_sans_annee_source_le_controle_des_sortants_est_omis(
     parti = eleve_factory(site.id, passee.id, "61", nom="PARTI")
 
     bilan = dresser_bilan(session, [_compte(parti, "/NDK/61")], {}, annee_id=an.id)
-    assert bilan.restes == []
+    assert not any(r.genre == "sortants_a_ranger" for r in bilan.restes)
+    # Il reste visible autrement : sa fiche porte une classe, son compte
+    # est actif, et aucun export ne l'inscrit cette année. Sans année de
+    # référence on ne peut pas dire qu'il est *parti* — on peut dire
+    # qu'on ne sait pas ce qu'il fait là, et c'est ce que dit ce reste.
+    assert [r.genre for r in bilan.restes] == ["sans_inscription"]
 
 
 # ---------------------------------------------------------------------------
@@ -407,3 +412,124 @@ def test_les_restes_portent_des_exemples_et_un_geste(session, etab, eleve_factor
     r = next(x for x in bilan.restes if x.genre == "a_basculer")
     assert r.nombre == 3
     assert r.exemples and r.geste.strip()
+
+
+# ---------------------------------------------------------------------------
+# L'angle mort : une classe sur la fiche, aucune inscription pour l'année
+# ---------------------------------------------------------------------------
+
+
+def test_une_fiche_avec_classe_sans_inscription_est_signalee(
+    session, etab, eleve_factory, personne_factory, annee_factory
+):
+    """Ni inscrit, ni sortant : personne ne le regardait.
+
+    Sa fiche porte une classe, son compte est actif, et aucun export ne
+    l'inscrit cette année. Les contrôles ne voient que les inscrits, et
+    le bilan concluait « tout est en place » sans l'avoir regardé.
+    """
+    from backend.services.bilan_rentree import dresser_bilan
+
+    site, an = etab
+    present = eleve_factory(site.id, an.id, "61")
+    # Celui-là n'a de photographie que pour l'an dernier.
+    passee = annee_factory("2025-2026")
+    absent = eleve_factory(site.id, passee.id, "62", nom="OUBLIE")
+
+    bilan = dresser_bilan(
+        session,
+        [_compte(present, "/NDK/61"), _compte(absent, "/NDK/62")],
+        {"61@lekreisker.fr": [present.email], "62@lekreisker.fr": []},
+        annee_id=an.id,
+    )
+
+    reste = next(r for r in bilan.restes if r.genre == "sans_inscription")
+    assert reste.nombre == 1
+    assert "OUBLIE" in reste.exemples[0]
+    assert "NDK" in reste.libelle
+    # Ce n'est pas un écart : le programme n'a rien fait de travers.
+    assert not any(c.genre == "sans_inscription" for c in bilan.constats)
+
+
+def test_sans_compte_actif_rien_ne_traine_dans_google(
+    session, etab, eleve_factory, annee_factory
+):
+    """Sans compte, il n'y a rien à ranger — et rien à signaler."""
+    from backend.services.bilan_rentree import dresser_bilan
+
+    site, an = etab
+    present = eleve_factory(site.id, an.id, "61")
+    passee = annee_factory("2025-2026")
+    eleve_factory(site.id, passee.id, "62", nom="PARTI")
+
+    bilan = dresser_bilan(
+        session,
+        [_compte(present, "/NDK/61")],  # le compte de PARTI n'existe pas
+        {"61@lekreisker.fr": [present.email], "62@lekreisker.fr": []},
+        annee_id=an.id,
+    )
+    assert not any(r.genre == "sans_inscription" for r in bilan.restes)
+
+
+def test_le_libelle_repartit_par_site_pour_departager_les_deux_causes(
+    session, site_factory, annee_factory, tc_factory, eleve_factory
+):
+    """Un site entier veut dire un export non ingéré ; deux noms épars,
+    des départs. C'est la répartition qui tranche, elle est donc écrite."""
+    from backend.services.bilan_rentree import dresser_bilan
+
+    ndk = site_factory("NDK")
+    nde = site_factory("NDE")
+    an = annee_factory("2026-2027")
+    passee = annee_factory("2025-2026")
+    for code in ("61", "62"):
+        tc_factory(ndk.id, code)
+    tc_factory(nde.id, "6V")
+
+    a = eleve_factory(nde.id, passee.id, "6V", nom="UN")
+    b = eleve_factory(nde.id, passee.id, "6V", nom="DEUX")
+    c = eleve_factory(ndk.id, passee.id, "61", nom="TROIS")
+
+    bilan = dresser_bilan(
+        session,
+        [_compte(a, "/NDE/6V"), _compte(b, "/NDE/6V"), _compte(c, "/NDK/61")],
+        {},
+        annee_id=an.id,
+    )
+
+    reste = next(r for r in bilan.restes if r.genre == "sans_inscription")
+    assert reste.nombre == 3
+    assert "2 à NDE" in reste.libelle
+    assert "1 à NDK" in reste.libelle
+    assert reste.libelle.index("NDE") < reste.libelle.index("NDK"), "le plus gros d'abord"
+
+
+def test_le_geste_previent_avant_de_vider_l_arbre(
+    session, etab, eleve_factory, annee_factory
+):
+    """Ces élèves sont comptés parmi les sortants.
+
+    Vider l'arbre de l'année révolue les emporterait — et sortirait des
+    élèves encore présents dont l'export n'a pas été chargé.
+    """
+    from backend.services.bilan_rentree import dresser_bilan
+
+    site, an = etab
+    present = eleve_factory(site.id, an.id, "61")
+    passee = annee_factory("2025-2026")
+    absent = eleve_factory(site.id, passee.id, "62", nom="DOUTEUX")
+
+    bilan = dresser_bilan(
+        session,
+        [_compte(present, "/NDK/61"), _compte(absent, "/NDK/62")],
+        {"61@lekreisker.fr": [present.email], "62@lekreisker.fr": []},
+        annee_id=an.id,
+        annee_source_id=passee.id,
+    )
+
+    genres = {r.genre for r in bilan.restes}
+    assert {"sans_inscription", "sortants_a_ranger"} <= genres, (
+        "les deux restes doivent coexister : le second emporte le premier"
+    )
+    reste = next(r for r in bilan.restes if r.genre == "sans_inscription")
+    assert "AVANT de vider l'arbre" in reste.geste

@@ -102,6 +102,7 @@
 
   /** Les genres d'écart, dits en français plutôt qu'en clé. */
   const LIBELLES = {
+    // Ceux que la Concordance nomme
     referentiel: "Classe différente du référentiel",
     google: "Unité d'une autre classe",
     groupe: "Groupe d'une autre classe",
@@ -109,6 +110,46 @@
     sans_compte: "Sans compte Google",
     koxo: "Classe différente dans KoXo",
     absent_koxo: "Absent de la base KoXo",
+    // Ceux que le bilan nomme
+    compte_absent: "Sans compte Google",
+    compte_suspendu: "Compte suspendu",
+    ou_inattendue: "Unité d'une autre classe",
+    groupe_manquant: "Absent du groupe de sa classe",
+    groupe_en_trop: "Membre du groupe d'une autre classe",
+    identifiant_discordant: "Identifiant Charlemagne discordant",
+    sortant_dans_arbre_actif: "Parti, mais rangé avec les inscrits",
+  };
+
+  /**
+   * Comment se vérifie chaque lien, et ce que ça coûte.
+   *
+   * Le lien vers Google se vérifie **sans aucun fichier** : les deux
+   * côtés sont déjà là, le référentiel et l'annuaire. Proposer « charger
+   * un export Charlemagne » pour lui, comme le faisait cet écran,
+   * envoyait chercher une pièce dont il n'a pas besoin.
+   */
+  const COMMENT_VERIFIER = {
+    charlemagne: {
+      texte:
+        "Cette comparaison demande un export Charlemagne frais : elle ne " +
+        "peut pas tourner toute seule.",
+      bouton: "Charger un export Charlemagne",
+      vers: "concordance",
+    },
+    google: {
+      texte:
+        "Cette comparaison ne demande aucun fichier : le référentiel et " +
+        "l'annuaire sont déjà là. Compter une minute de lecture.",
+      bouton: "Confronter à Google",
+      vers: "bilan",
+    },
+    koxo: {
+      texte:
+        "KoXo a une base par établissement : il faut déposer un export " +
+        "par serveur, avec un export Charlemagne pour les croiser.",
+      bouton: "Déposer les exports KoXo",
+      vers: "concordance",
+    },
   };
 
   function position(angle, rayon) {
@@ -408,18 +449,18 @@
             </p>
           {/if}
 
-          {#if ouvert.etat !== "sans_source"}
+          {#if ouvert.etat !== "sans_source" && COMMENT_VERIFIER[ouvert.systeme]}
+            {@const c = COMMENT_VERIFIER[ouvert.systeme]}
             <div class="space-y-3">
               <p class="text-[13px] leading-relaxed text-stone-600 dark:text-stone-400">
-                Cette comparaison demande un export Charlemagne frais : elle ne
-                peut pas tourner toute seule.
+                {c.texte}
               </p>
               <Bouton
                 variante="primary"
-                icon={Upload}
-                onclick={() => onNaviguer?.("concordance")}
+                icon={c.vers === "bilan" ? RefreshCw : Upload}
+                onclick={() => onNaviguer?.(c.vers)}
               >
-                Charger un export Charlemagne
+                {c.bouton}
               </Bouton>
             </div>
           {/if}

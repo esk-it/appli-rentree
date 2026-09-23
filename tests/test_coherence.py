@@ -296,3 +296,143 @@ def test_la_date_du_lien_est_celle_du_dernier_croisement(session):
     enregistrer(session, FauxRapport([FausseLigne(personne_id=p.id)]))
     neuf = next(l for l in etat_des_liens(session) if l.systeme == "google")
     assert neuf.verifie_le > vieux.verifie_le
+
+
+# ---------------------------------------------------------------------------
+# L'autre porte : le bilan, qui ne demande aucun fichier
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class FauxConstat:
+    genre: str
+    personne_id: int | None
+
+
+@dataclass
+class FauxBilan:
+    personnes_examinees: list[int]
+    constats: list[FauxConstat] = field(default_factory=list)
+
+
+def test_un_bilan_sans_ecart_rend_le_lien_google_coherent(session):
+    """La question du matin, sans export Charlemagne.
+
+    Les deux côtés — le référentiel et l'annuaire — sont déjà là. Faire
+    dépendre cette vérification d'un fichier la rendait plus chère
+    qu'elle n'est.
+    """
+    from backend.services.coherence import enregistrer_bilan
+
+    a = _personne(session, 50)
+    b = _personne(session, 51)
+    enregistrer_bilan(session, FauxBilan([a.id, b.id]))
+
+    liens = {l.systeme: l for l in etat_des_liens(session)}
+    assert liens["google"].etat == "coherent"
+    assert liens["google"].nb_verifies == 2
+    # Le bilan ne dit rien de Charlemagne ni de KoXo : ils restent gris.
+    assert liens["charlemagne"].etat == "non_verifie"
+    assert liens["koxo"].etat == "non_verifie"
+
+
+def test_un_bilan_range_ses_ecarts_par_genre(session):
+    from backend.services.coherence import enregistrer_bilan
+
+    a = _personne(session, 52)
+    b = _personne(session, 53)
+    c = _personne(session, 54)
+    enregistrer_bilan(
+        session,
+        FauxBilan(
+            [a.id, b.id, c.id],
+            [
+                FauxConstat("ou_inattendue", a.id),
+                FauxConstat("groupe_manquant", b.id),
+            ],
+        ),
+    )
+
+    google = next(l for l in etat_des_liens(session) if l.systeme == "google")
+    assert google.etat == "ecarts"
+    assert google.nb_ecarts == 2
+    assert {d["genre"] for d in google.details} == {"ou_inattendue", "groupe_manquant"}
+
+
+def test_un_bilan_filtre_sur_un_site_ne_juge_que_lui(session):
+    """Un bilan qui n'a vu qu'un site ne dit rien des deux autres.
+
+    Les déclarer cohérents serait exactement le mensonge que ce verdict
+    existe pour empêcher.
+    """
+    from backend.services.coherence import enregistrer_bilan
+
+    vu = _personne(session, 55)
+    pas_vu = _personne(session, 56)
+    enregistrer_bilan(session, FauxBilan([vu.id]))
+
+    par_personne = verdicts_par_personne(session)
+    assert vu.id in par_personne
+    assert pas_vu.id not in par_personne
+
+
+def test_sans_compte_l_emporte_sur_un_ecart_d_unite(session):
+    """Sans compte, il n'y a pas d'unité fausse — il n'y a pas d'unité."""
+    from backend.services.coherence import enregistrer_bilan
+
+    p = _personne(session, 57)
+    enregistrer_bilan(
+        session,
+        FauxBilan(
+            [p.id],
+            [
+                FauxConstat("compte_absent", p.id),
+                FauxConstat("ou_inattendue", p.id),
+            ],
+        ),
+    )
+
+    google = next(
+        s for s in verdicts_par_personne(session)[p.id]["systemes"]
+        if s["systeme"] == "google"
+    )
+    assert google["etat"] == "absent"
+
+
+def test_sans_classe_n_accuse_pas_google(session):
+    """C'est un trou du référentiel, pas un désaccord avec Google.
+
+    L'y ranger reprocherait à Google d'ignorer une chose que personne ne
+    lui a dite.
+    """
+    from backend.services.coherence import enregistrer_bilan
+
+    p = _personne(session, 58)
+    enregistrer_bilan(session, FauxBilan([p.id], [FauxConstat("sans_classe", p.id)]))
+
+    assert verdicts_par_personne(session)[p.id]["etat"] == "coherent"
+
+
+def test_un_bilan_remplace_le_verdict_google_d_un_croisement(session):
+    """Le plus récent fait foi, et lui seul touche à Google.
+
+    Le croisement d'hier avait vu Charlemagne et KoXo ; le bilan de ce
+    matin ne parle que de Google, et ne doit effacer ni l'un ni l'autre.
+    """
+    from backend.services.coherence import enregistrer_bilan
+
+    p = _personne(session, 59)
+    enregistrer(session, FauxRapport([FausseLigne(personne_id=p.id, genres=["google"])]))
+    enregistrer_bilan(session, FauxBilan([p.id]))
+
+    liens = {l.systeme: l for l in etat_des_liens(session)}
+    assert liens["google"].etat == "coherent", "le bilan n'a pas repris la main"
+    assert liens["charlemagne"].etat == "coherent"
+    assert liens["koxo"].etat == "coherent"
+
+
+def test_un_bilan_vide_n_ecrit_rien(session):
+    from backend.services.coherence import enregistrer_bilan
+
+    assert enregistrer_bilan(session, FauxBilan([])) == 0
+    assert session.query(VerdictCoherence).count() == 0

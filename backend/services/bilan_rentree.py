@@ -158,6 +158,12 @@ class BilanRentree:
     """Les écarts : ce qui a mal tourné."""
     restes: list[Reste] = field(default_factory=list)
     """Ce qui n'est pas encore fait, et qu'on a choisi de ne pas faire."""
+    personnes_examinees: list[int] = field(default_factory=list)
+    """Qui a été confronté à Google.
+
+    Un bilan filtré sur un site n'a rien vu des deux autres. Sans cette
+    liste, ranger son constat déclarerait « cohérent » des gens qu'il n'a
+    pas regardés — l'erreur exacte que le verdict existe pour éviter."""
 
     @property
     def nb_bloquants(self) -> int:
@@ -219,6 +225,7 @@ def dresser_bilan(
     en_attente: list[str] = []
 
     for personne, snapshot in inscrits:
+        bilan.personnes_examinees.append(personne.id)
         nom_site = sites[personne.site_id].nom if personne.site_id in sites else None
         classe = snapshot.classe or personne.classe
         chiffres = bilan.par_site.setdefault(nom_site or "sans site", Chiffres())
@@ -276,6 +283,8 @@ def dresser_bilan(
                 exemples=sorted(en_attente)[:8],
             )
         )
+
+    _controler_sans_inscription(bilan, session, annee_id, par_adresse, sites, site_id)
 
     if annee_source_id is not None:
         _controler_sortants(
@@ -424,6 +433,95 @@ def _controler_sortants(
 # ---------------------------------------------------------------------------
 # Détail
 # ---------------------------------------------------------------------------
+
+
+def _controler_sans_inscription(
+    bilan, session: Session, annee_id: int, par_adresse, sites, site_id
+) -> None:
+    """Ceux que la classe dit présents et que l'année ne connaît pas.
+
+    ## L'angle mort que ce contrôle ferme
+
+    Les contrôles précédents ne regardent que les **inscrits** : ceux qui
+    ont une photographie pour l'année préparée. C'est juste — sans
+    inscription, on ne sait ni quelle classe viser, ni quel groupe.
+
+    Mais un élève dont la fiche porte encore une classe, dont le compte
+    Google est toujours dans l'arbre actif, et qui n'a aucune inscription
+    pour l'année, n'est ni un inscrit ni un sortant. Aucun contrôle ne le
+    voyait, et le bilan concluait « tout est en place » sans l'avoir
+    regardé.
+
+    ## Ce que ça révèle, et qui n'est pas une faute
+
+    Deux causes, et l'écran ne peut pas trancher entre elles :
+
+    - l'élève est **parti** après l'an dernier, et sa fiche garde la
+      classe qu'il avait — son compte devrait rejoindre l'arbre de
+      sortie ;
+    - l'export de son site **n'a pas été ingéré** pour cette année. C'est
+      le cas quand tout un établissement apparaît ici d'un coup : ce sont
+      ses classes qui manquent, pas ses élèves.
+
+    D'où un *reste* et non un écart : ce n'est pas une erreur du
+    programme, c'est une question à poser à Charlemagne. Le nombre par
+    site est ce qui départage les deux causes, et il est dans le libellé.
+
+    ## Pourquoi ils comptent double, et pourquoi c'est voulu
+
+    Ces élèves figurent aussi dans « sortants encore rangés avec les
+    inscrits » — ils en sont le sous-ensemble douteux. Vider l'arbre de
+    l'année révolue les emporterait tous, et sortirait des élèves encore
+    présents dont l'export n'a simplement pas été chargé. Le geste le dit :
+    regarder ce reste **avant** de lancer la vidange.
+    """
+    q = session.query(Personne).filter(Personne.type == "eleve")
+    if site_id is not None:
+        q = q.filter(Personne.site_id == site_id)
+
+    inscrits = {
+        pid
+        for (pid,) in session.query(Snapshot.personne_id)
+        .filter(Snapshot.annee_scolaire_id == annee_id)
+        .distinct()
+    }
+
+    orphelins: list[str] = []
+    par_site: dict[str, int] = {}
+    for personne in q.all():
+        if personne.id in inscrits or not (personne.classe or "").strip():
+            continue
+        adresse = (personne.email or "").strip().lower()
+        if adresse not in par_adresse:
+            continue  # sans compte actif, rien ne traîne dans Google
+        nom_site = sites[personne.site_id].nom if personne.site_id in sites else "sans site"
+        par_site[nom_site] = par_site.get(nom_site, 0) + 1
+        orphelins.append(f"{personne.prenom} {personne.nom} ({personne.classe})")
+
+    if not orphelins:
+        return
+
+    repartition = ", ".join(
+        f"{n} à {site}" for site, n in sorted(par_site.items(), key=lambda x: -x[1])
+    )
+    bilan.restes.append(
+        Reste(
+            genre="sans_inscription",
+            nombre=len(orphelins),
+            libelle=(
+                "élève(s) dont la fiche porte une classe, dont le compte est "
+                f"actif, et qu'aucun export n'inscrit cette année — {repartition}"
+            ),
+            geste=(
+                "À regarder AVANT de vider l'arbre de l'année révolue : ces "
+                "élèves y sont comptés comme sortants, et les déplacer sortirait "
+                "des inscrits. Un site entier ici veut dire que son export "
+                "Charlemagne n'a pas été ingéré pour cette année — refais "
+                "l'ingestion d'abord. Quelques noms épars sont de vrais départs."
+            ),
+            exemples=sorted(orphelins)[:8],
+        )
+    )
 
 
 def _constat(genre, personne, classe, nom_site, detail) -> Constat:
