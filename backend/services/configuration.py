@@ -149,6 +149,22 @@ CATALOGUE: list[DefinitionParametre] = [
         categorie="Photos",
     ),
     DefinitionParametre(
+        cle="chemin_photos_cardstudio",
+        libelle="Dossier des photos, vu par CardStudio",
+        description=(
+            "Le même dossier que ci-dessus, mais écrit comme CardStudio "
+            "sait l'ouvrir. Les deux diffèrent quand le partage porte deux "
+            r"noms : ici \ESK-APP01\Charlemagne\Alcuin\Photos… pour "
+            r"l'application, \ESK-APP01\Alcuin$\Photos… pour CardStudio. "
+            "Le fichier de cartes porte ce chemin-là ; l'application "
+            "continue de lire les images par le premier. Vide = les deux "
+            "sont identiques."
+        ),
+        type="str",
+        defaut="",
+        categorie="Photos",
+    ),
+    DefinitionParametre(
         cle="url_classeur_sodexo_eleves",
         libelle="Classeur « SoHappy - Import des élèves »",
         description=(

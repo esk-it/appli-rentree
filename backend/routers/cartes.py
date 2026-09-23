@@ -122,6 +122,7 @@ class ApprentissageReponse(BaseModel):
     nb_dates_apprises: int
     nb_photos_memorisees: int
     badges_inconnus: int
+    racine_photos_apprise: str | None = None
 
 
 @router.post("/apprendre", response_model=ApprentissageReponse)

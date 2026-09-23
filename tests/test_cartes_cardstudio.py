@@ -421,3 +421,123 @@ def test_apprendre_refuse_un_fichier_qui_n_en_est_pas(session):
     contenu = _export([{"Truc": "1"}], colonnes=["Truc"])
     with pytest.raises(CartesImpossibles, match="n'a pas l'air d'un export"):
         apprendre_depuis_export(session, contenu=contenu, nom_fichier="e.xlsx")
+
+
+# ---------------------------------------------------------------------------
+# Le dossier des photos, vu de deux côtés
+# ---------------------------------------------------------------------------
+
+
+LECTURE = r"\ESK-APP01\Charlemagne\Alcuin\Photos\Eleves\KREISKER\2026-2027"
+CARDSTUDIO = r"\ESK-APP01\Alcuin$\Photos\Eleves\KREISKER\2026-2027"
+
+
+def test_sans_reglage_le_chemin_des_photos_ne_bouge_pas(session):
+    """Le cas de tout le monde : un seul nom de partage, rien à traduire."""
+    from backend.services.cartes_cardstudio import _vu_par_cardstudio
+
+    chemin = LECTURE + r"\MARTIN Jean.jpg"
+    assert _vu_par_cardstudio(session, chemin) == chemin
+
+
+def test_le_fichier_porte_le_chemin_que_cardstudio_sait_ouvrir(session):
+    r"""Le même dossier, l'autre nom de partage.
+
+    L'application lit les images par `Charlemagne\Alcuin` ; CardStudio les
+    ouvre sous un autre compte, par `Alcuin$`. Écrire notre chemin dans le
+    fichier donnait un classeur complet et pas une seule image.
+    """
+    from backend.services.cartes_cardstudio import _vu_par_cardstudio
+    from backend.services.configuration import set_param
+
+    set_param(session, "chemin_dossier_photos", LECTURE)
+    set_param(session, "chemin_photos_cardstudio", CARDSTUDIO)
+    session.commit()  # `set_param` ne commit pas : le routeur s'en charge
+
+    assert (
+        _vu_par_cardstudio(session, LECTURE + r"\MARTIN Jean.jpg")
+        == CARDSTUDIO + r"\MARTIN Jean.jpg"
+    )
+
+
+def test_un_chemin_venu_d_ailleurs_est_laisse_tel_quel(session):
+    """Photo d'adulte, chemin mémorisé d'un ancien export : on ne recolle
+    pas deux racines au hasard sous prétexte qu'un réglage existe."""
+    from backend.services.cartes_cardstudio import _vu_par_cardstudio
+    from backend.services.configuration import set_param
+
+    set_param(session, "chemin_dossier_photos", LECTURE)
+    set_param(session, "chemin_photos_cardstudio", CARDSTUDIO)
+    session.commit()  # `set_param` ne commit pas : le routeur s'en charge
+
+    etranger = r"\AUTRE-SERVEUR\Photos\Enseignants\DUPONT Marie.jpg"
+    assert _vu_par_cardstudio(session, etranger) == etranger
+
+
+def test_apprendre_retient_le_dossier_que_cardstudio_ecrit(
+    session, site_factory, annee_factory, personne_factory, classe_factory
+):
+    """Un export prouve par quel chemin CardStudio a su ouvrir les images.
+
+    C'est la seule occasion de l'apprendre, et elle rend le réglage
+    inutile : un import suffit.
+    """
+    from backend.services.cartes_cardstudio import apprendre_depuis_export
+    from backend.services.configuration import get_param, set_param
+
+    site = site_factory("NDK")
+    annee_factory("2026-2027")
+    classe_factory(site, "2_1", niveau="1-2NDES-LY", etablissement="03-LY")
+    p = personne_factory(site_id=site.id, nom="MARTIN", prenom="Jean")
+    set_param(session, "chemin_dossier_photos", LECTURE)
+    session.commit()
+
+    rapport = apprendre_depuis_export(
+        session,
+        contenu=_export([
+            {
+                "Code classe": "2_1",
+                "Num Badge": str(p.badge),
+                "Photo": CARDSTUDIO + r"\MARTIN Jean.jpg",
+            },
+            {
+                "Code classe": "2_1",
+                "Num Badge": str(p.badge),
+                "Photo": CARDSTUDIO + r"\AUTRE Eleve.jpg",
+            },
+        ]),
+        nom_fichier="export.xlsx",
+    )
+
+    assert rapport.racine_photos_apprise == CARDSTUDIO
+    assert get_param(session, "chemin_photos_cardstudio") == CARDSTUDIO
+
+
+def test_apprendre_ne_retient_rien_quand_le_dossier_est_le_notre(
+    session, site_factory, annee_factory, personne_factory, classe_factory
+):
+    """Un seul nom de partage : pas de réglage à poser, pas de bruit."""
+    from backend.services.cartes_cardstudio import apprendre_depuis_export
+    from backend.services.configuration import get_param, set_param
+
+    site = site_factory("NDK")
+    annee_factory("2026-2027")
+    classe_factory(site, "2_1", niveau="1-2NDES-LY", etablissement="03-LY")
+    p = personne_factory(site_id=site.id, nom="MARTIN", prenom="Jean")
+    set_param(session, "chemin_dossier_photos", LECTURE)
+    session.commit()
+
+    rapport = apprendre_depuis_export(
+        session,
+        contenu=_export([
+            {
+                "Code classe": "2_1",
+                "Num Badge": str(p.badge),
+                "Photo": LECTURE + r"\MARTIN Jean.jpg",
+            }
+        ]),
+        nom_fichier="export.xlsx",
+    )
+
+    assert rapport.racine_photos_apprise is None
+    assert not (get_param(session, "chemin_photos_cardstudio") or "")

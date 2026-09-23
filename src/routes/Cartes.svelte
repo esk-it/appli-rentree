@@ -228,6 +228,17 @@
           { duree: 12000 },
         );
       }
+      if (r.racine_photos_apprise) {
+        // L'export prouve par quel chemin CardStudio a su ouvrir les
+        // images — il n'est pas toujours celui par lequel l'application
+        // les lit. Le dire, parce que c'est un réglage qui vient d'être
+        // posé tout seul.
+        notify.info(
+          `Dossier des photos retenu pour CardStudio : ${r.racine_photos_apprise}. ` +
+            "Les prochains fichiers de cartes porteront ce chemin-là.",
+          { duree: 14000 },
+        );
+      }
       await charger();
     } catch (e) {
       notify.erreur(libelleErreur(e), { duree: 12000 });

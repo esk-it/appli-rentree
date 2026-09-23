@@ -54,6 +54,7 @@ from __future__ import annotations
 import io
 import re
 import unicodedata
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -63,6 +64,7 @@ import pandas as pd
 from sqlalchemy.orm import Session
 
 from backend.models import AnneeScolaire, Personne, Snapshot, TableCorrespondance
+from backend.services.configuration import get_param, set_param
 from backend.services.inventaire_photos import (
     InventaireImpossible,
     chemins_attribues,
@@ -144,6 +146,8 @@ class RapportApprentissage:
     nb_dates_apprises: int = 0
     nb_photos_memorisees: int = 0
     badges_inconnus: int = 0
+    racine_photos_apprise: str | None = None
+    """Le dossier tel que CardStudio l'écrit, quand il diffère du nôtre."""
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +265,34 @@ def lister_candidats(
 # ---------------------------------------------------------------------------
 
 
+def _vu_par_cardstudio(session: Session, chemin: str) -> str:
+    r"""Le chemin d'une photo, écrit comme CardStudio sait l'ouvrir.
+
+    Le même dossier porte deux noms selon le partage emprunté :
+    `\\ESK-APP01\Charlemagne\Alcuin\Photos…` pour l'application, qui y
+    lit les images, et `\\ESK-APP01\Alcuin$\Photos…` pour CardStudio,
+    qui les ouvre sous un autre compte.
+
+    Le programme composait un seul chemin pour les deux usages : il
+    trouvait bien les photos et écrivait dans le fichier de cartes une
+    adresse que CardStudio pouvait ne pas résoudre — un classeur complet,
+    trente-six cartes, et pas une image.
+
+    Seule la racine change ; le reste du chemin — l'année, le nom du
+    fichier — est le même des deux côtés. Sans réglage, rien ne bouge.
+    """
+    racine_cardstudio = (get_param(session, "chemin_photos_cardstudio", "") or "").strip()
+    if not chemin or not racine_cardstudio:
+        return chemin
+    racine_lecture = (get_param(session, "chemin_dossier_photos", "") or "").strip()
+    if racine_lecture and chemin.startswith(racine_lecture):
+        return racine_cardstudio + chemin[len(racine_lecture):]
+    # Le chemin ne vient pas du dossier réglé — une photo d'adulte, un
+    # chemin mémorisé d'un ancien export. On le laisse tel quel plutôt
+    # que de recoller deux racines au hasard.
+    return chemin
+
+
 def _date_pour_tri(valeur: date | None) -> str:
     """`AAAAMMJJ`, la forme que CardStudio trie."""
     return valeur.strftime("%Y%m%d") if valeur else ""
@@ -344,7 +376,7 @@ def construire_fichier(
             "Nom et prénom": nom_complet,
             "Nom": p.nom or "",
             "Prénom": p.prenom or "",
-            "Photo": chemin,
+            "Photo": _vu_par_cardstudio(session, chemin),
             "Date Entrée pour tri": _date_pour_tri(date_entree),
             # Écrit en valeur, jamais en formule : CardStudio lit le classeur
             # sans passer par Excel, et une formule sans cache lui est vide.
@@ -509,6 +541,7 @@ def apprendre_depuis_export(
     rapport = RapportApprentissage(nb_lignes_lues=len(df))
     apprises: set[str] = set()
     inconnues: set[str] = set()
+    racines: Counter[str] = Counter()
 
     for _, ligne in df.iterrows():
         if col(ligne, "Etablissement").upper() == ETABLISSEMENT_INTERNAT:
@@ -543,9 +576,21 @@ def apprendre_depuis_export(
             rapport.nb_dates_apprises += 1
 
         chemin = col(ligne, "Photo")
-        if chemin and personne.chemin_photo_constate != chemin:
-            personne.chemin_photo_constate = chemin
-            rapport.nb_photos_memorisees += 1
+        if chemin:
+            racines[chemin.rsplit("\\", 1)[0]] += 1
+            if personne.chemin_photo_constate != chemin:
+                personne.chemin_photo_constate = chemin
+                rapport.nb_photos_memorisees += 1
+
+    # Le dossier que CardStudio écrit, s'il n'est pas celui que nous
+    # composons. C'est la seule occasion de l'apprendre : un export est
+    # la preuve du chemin par lequel CardStudio a su ouvrir les images.
+    if racines:
+        vue = max(racines, key=racines.get)
+        nous = (get_param(session, "chemin_dossier_photos", "") or "").strip()
+        if vue and nous and vue.rstrip("\\") != nous.rstrip("\\"):
+            set_param(session, "chemin_photos_cardstudio", vue)
+            rapport.racine_photos_apprise = vue
 
     session.commit()
     rapport.classes_apprises = sorted(apprises)
