@@ -102,6 +102,16 @@ class RapportConcordance:
     lignes: list[LigneConcordance] = field(default_factory=list)
     """Seulement celles qui divergent : l'accord n'a rien à montrer."""
 
+    accords: list[LigneConcordance] = field(default_factory=list)
+    """Celles où tout concorde. L'écran ne les montre pas — mais le
+    constat doit les ranger.
+
+    Sans elles, seul ce qui divergeait était enregistré : sur mille huit
+    cents élèves croisés, vingt-trois verdicts, dont vingt-et-un écarts.
+    L'écran Cohérence en concluait que presque tout clochait, et la
+    colonne « Cohérent » du référentiel ne pouvait jamais passer au vert
+    par une Concordance."""
+
     acces_secondaires: list[str] = field(default_factory=list)
     """Les élèves qui ont aussi un compte sur la base d'un **autre**
     établissement — `« CAZUC Axel (SU) : NDK, groupe DAO »`.
@@ -261,6 +271,7 @@ def croiser(
             rapport.lignes.append(ligne)
         else:
             rapport.nb_accord += 1
+            rapport.accords.append(ligne)
 
     rapport.lignes.sort(key=lambda l: (l.propose or "", l.nom, l.prenom))
     return rapport

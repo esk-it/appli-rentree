@@ -683,3 +683,62 @@ def test_une_base_ne_sert_qu_un_etablissement(
     assert r.koxo_sites == ["NDK"]
     assert r.lignes == [], "SU n'a pas été interrogé : personne n'y est accusé"
     assert len(r.acces_secondaires) == 15
+
+
+
+# ---------------------------------------------------------------------------
+# Le constat range aussi ceux qui sont d'accord
+# ---------------------------------------------------------------------------
+
+
+def test_un_croisement_range_les_accords_et_pas_seulement_les_ecarts(
+    session, etab, site_factory, personne_factory
+):
+    """Le rapport ne montre que les écarts ; le constat doit tout ranger.
+
+    Vécu : mille huit cents élèves croisés, vingt-trois verdicts rangés,
+    dont vingt-et-un écarts. Seules les lignes en écart passaient au
+    rangement — l'écran Cohérence en concluait que presque tout clochait,
+    et la colonne « Cohérent » du référentiel ne passait jamais au vert.
+
+    Ce test passe par la vraie Concordance, pas par un faux rapport : c'est
+    le faux rapport, qui contenait tout le monde, qui avait masqué la faute.
+    """
+    from backend.services.coherence import enregistrer, verdicts_par_personne
+    from backend.services.concordance import croiser
+
+    ndk, an = etab
+    daccord = [
+        personne_factory(
+            type="eleve", site_id=ndk.id, nom=f"OK{i}", prenom="X",
+            login=f"ok{i}", classe="2_4",
+        )
+        for i in range(5)
+    ]
+    en_retard = personne_factory(
+        type="eleve", site_id=ndk.id, nom="RETARD", prenom="Y",
+        login="retard", classe="2_4",
+    )
+
+    r = croiser(
+        session,
+        _fichier(
+            *[f"{p.badge};{p.nom};{p.prenom};2_4" for p in daccord],
+            f"{en_retard.badge};RETARD;Y;2_4",
+        ),
+        annee_id=an.id,
+        koxo_par_base=[
+            [_LigneKoxo(str(p.badge), "2_4") for p in daccord]
+            + [_LigneKoxo(str(en_retard.badge), "2_3")],
+        ],
+    )
+    assert r.nb_accord == 5 and len(r.lignes) == 1
+
+    enregistrer(session, r)
+    verdicts = verdicts_par_personne(session)
+
+    assert all(verdicts[p.id]["etat"] == "coherent" for p in daccord), (
+        "un élève d'accord est un verdict « cohérent », pas une absence de verdict"
+    )
+    assert verdicts[en_retard.id]["etat"] == "ecarts"
+    assert len(verdicts) == 6

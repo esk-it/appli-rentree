@@ -1,35 +1,41 @@
 <script>
   /**
-   * Les six systèmes, et l'état du lien qui les rattache au référentiel.
+   * Le référentiel, et les trois systèmes qui doivent dire comme lui.
    *
-   * ## Pourquoi un schéma plutôt qu'un tableau
+   * ## Trois systèmes, pas six
    *
-   * La question posée ici n'est pas « combien d'écarts » mais « qu'est-ce
-   * que je n'ai pas vérifié ». Un tableau range les lignes par nom et
-   * laisse la réponse à l'addition ; un schéma la donne d'un regard — les
-   * traits en pointillé sont ceux qu'on n'a pas regardés.
+   * La première version dessinait une étoile à six branches, dont trois en
+   * pointillé permanent : PMB, Sodexo et CardStudio reçoivent des fichiers
+   * et n'en rendent aucun, il n'y a rien à comparer. Trois traits gris au
+   * milieu d'un écran qu'on ouvre pour savoir ce qui cloche ne disaient
+   * rien. La cohérence se juge là où elle se vérifie : Charlemagne, Google,
+   * KoXo. Sodexo se suit par ses envois, CardStudio par ses cartes.
    *
-   * Le référentiel est au centre parce qu'il est la référence : chaque
-   * autre système se compare à lui, jamais deux satellites entre eux.
+   * ## Un arbre, pas une étoile
    *
-   * ## Trois liens qu'on ne saura pas vérifier
+   * Avec trois branches, le cercle n'apportait plus rien — il occupait la
+   * place et reléguait le détail dans un encadré à côté, qu'il fallait
+   * ouvrir satellite par satellite. Ici le référentiel est en haut, parce
+   * qu'il est la référence ; chaque système pend de lui, et sous chacun
+   * son détail tient en entier. Tout se lit d'un coup, sans clic.
    *
-   * PMB, Sodexo et CardStudio reçoivent des fichiers du programme et n'en
-   * rendent aucun. Leur trait reste gris — pas « pas encore fait », mais
-   * « pas de source ». Les confondre ferait croire qu'il suffit de
-   * relancer un croisement, alors qu'il faudrait d'abord obtenir un
-   * export de ces trois-là.
+   * Le trait qui relie chaque système au référentiel porte l'état de la
+   * dernière comparaison : vert, ambre, ou pointillé quand elle n'a jamais
+   * tourné. Le cadre du logo reprend la même couleur — c'est ce qu'on voit
+   * en premier.
    *
-   * Ils sont montrés quand même : les cacher ferait croire que l'école
-   * tient en quatre systèmes, et c'est faux.
+   * ## Les vrais logos
+   *
+   * Le « C » rouge de Charlemagne, le « G » de Google, le « K » bleu de
+   * KoXo : on les reconnaît avant de les lire. Celui de Charlemagne vient
+   * de la procédure Sodexo, celui de KoXo de son propre installateur.
    *
    * ## L'écran ne croise rien
    *
-   * Croiser demande un export Charlemagne frais, l'annuaire Google, et
-   * une bonne minute. Le faire à l'ouverture rendrait insupportable le
-   * seul geste qu'on fait le plus souvent ici — regarder. L'écran lit ce
-   * que le dernier croisement a laissé, avec sa date, et mène à la
-   * Concordance quand il faut recommencer.
+   * Croiser demande des exports et une bonne minute. L'écran lit ce que
+   * les derniers croisements ont laissé, avec leur date, et chaque colonne
+   * dit ce que coûte sa vérification — un export frais pour Charlemagne,
+   * rien pour Google, un export par serveur pour KoXo.
    */
   import { onMount } from "svelte";
   import Network from "@lucide/svelte/icons/network";
@@ -42,62 +48,72 @@
   import { TEINTES } from "$lib/familles.js";
   import { concordance as concordanceApi } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+  import logoCharlemagne from "$lib/assets/systemes/charlemagne.png";
+  import logoGoogle from "$lib/assets/systemes/google.svg";
+  import logoKoxo from "$lib/assets/systemes/koxo.png";
 
   let { onNaviguer } = $props();
 
   let donnees = $state(/** @type {any} */ (null));
   let chargement = $state(true);
-  let choisi = $state("charlemagne");
 
   /**
-   * Le tour du schéma, dans le sens des aiguilles depuis le haut.
-   *
-   * L'ordre n'est pas décoratif : Charlemagne en haut parce que tout
-   * part de lui, puis les deux systèmes qu'on sait lire (Google, KoXo),
-   * puis les trois qu'on ne sait qu'alimenter. Le regard descend des
-   * liens vivants vers les liens muets.
+   * Les trois, dans l'ordre où l'information circule : Charlemagne la
+   * saisit, Google et KoXo la reçoivent.
    */
   const SYSTEMES = [
-    { id: "charlemagne", nom: "Charlemagne", sigle: "Ch", angle: -90, teinte: TEINTES.rentree },
-    // « Google », pas « Google Workspace » : le nom complet déborde sur la
-    // pastille voisine, et le schéma n'a pas à répéter ce que l'encadré dit.
-    { id: "google", nom: "Google", sigle: "G", angle: -30, teinte: TEINTES.google },
-    { id: "koxo", nom: "KoXo", sigle: "Ko", angle: 30, teinte: TEINTES.koxo },
-    { id: "pmb", nom: "PMB", sigle: "PM", angle: 90, teinte: TEINTES.materiel },
-    { id: "sodexo", nom: "Sodexo", sigle: "So", angle: 150, teinte: TEINTES.repas },
-    { id: "cardstudio", nom: "CardStudio", sigle: "Ca", angle: 210, teinte: TEINTES.photos },
+    {
+      id: "charlemagne",
+      nom: "Charlemagne",
+      logo: logoCharlemagne,
+      verifier: {
+        texte:
+          "Demande un export Charlemagne frais : cette comparaison ne peut " +
+          "pas tourner toute seule.",
+        bouton: "Charger un export Charlemagne",
+        icone: Upload,
+        vers: "concordance",
+      },
+    },
+    {
+      id: "google",
+      nom: "Google Workspace",
+      logo: logoGoogle,
+      verifier: {
+        texte:
+          "Ne demande aucun fichier : le référentiel et l'annuaire sont déjà " +
+          "là. Compter une minute de lecture.",
+        bouton: "Confronter à Google",
+        icone: RefreshCw,
+        vers: "bilan",
+      },
+    },
+    {
+      id: "koxo",
+      nom: "KoXo",
+      logo: logoKoxo,
+      verifier: {
+        texte:
+          "Un export par serveur — NDK et SU — avec un export Charlemagne pour " +
+          "les croiser. NDE n'a pas de KoXo : ses élèves ne comptent pas ici.",
+        bouton: "Déposer les exports KoXo",
+        icone: Upload,
+        vers: "concordance",
+      },
+    },
   ];
 
-  /** Le schéma, en coordonnées. Calculées, pour qu'un angle suffise. */
-  const CX = 310;
-  const CY = 300;
-  const R_CENTRE = 88;
-  const R_SATELLITE = 32;
-  const R_ORBITE = 196;
-  const R_LEGENDE = R_ORBITE + R_SATELLITE + 22;
-
-  /**
-   * Vert, ambre, gris — et le vert n'est pas `emerald`.
-   *
-   * L'échelle `emerald` a été reteintée en violet, qui est l'accent du
-   * programme : un schéma qui code l'état par la couleur montrerait du
-   * violet là où il dit « cohérent », et la légende mentirait. Le vert
-   * est une échelle à lui — `vert`, dans la feuille de style — et non la
-   * teinte de KoXo, qu'on lirait comme le nom d'un système.
-   */
-  const VERT = "var(--color-vert-500)";
+  /** Vert, ambre, gris — le vert du programme, pas `emerald` qui est violet. */
   const COULEURS = {
-    coherent: VERT,
+    coherent: "var(--color-vert-500)",
     ecarts: "var(--color-amber-500)",
     non_verifie: "var(--color-stone-400)",
-    sans_source: "var(--color-stone-400)",
   };
 
   const MOTS = {
     coherent: "Cohérent",
     ecarts: "Écarts",
     non_verifie: "Pas encore vérifié",
-    sans_source: "Pas de source",
   };
 
   /** Les genres d'écart, dits en français plutôt qu'en clé. */
@@ -121,80 +137,33 @@
   };
 
   /**
-   * Comment se vérifie chaque lien, et ce que ça coûte.
+   * Où mène une ligne d'écart : l'écran qui l'a constatée.
    *
-   * Le lien vers Google se vérifie **sans aucun fichier** : les deux
-   * côtés sont déjà là, le référentiel et l'annuaire. Proposer « charger
-   * un export Charlemagne » pour lui, comme le faisait cet écran,
-   * envoyait chercher une pièce dont il n'a pas besoin.
+   * Les genres du bilan se règlent depuis le bilan, ceux de la
+   * Concordance depuis la Concordance — un même lien, Google, peut avoir
+   * été vérifié par l'un ou par l'autre.
    */
-  const COMMENT_VERIFIER = {
-    charlemagne: {
-      texte:
-        "Cette comparaison demande un export Charlemagne frais : elle ne " +
-        "peut pas tourner toute seule.",
-      bouton: "Charger un export Charlemagne",
-      vers: "concordance",
-    },
-    google: {
-      texte:
-        "Cette comparaison ne demande aucun fichier : le référentiel et " +
-        "l'annuaire sont déjà là. Compter une minute de lecture.",
-      bouton: "Confronter à Google",
-      vers: "bilan",
-    },
-    koxo: {
-      texte:
-        "KoXo a une base par établissement : il faut déposer un export " +
-        "par serveur, avec un export Charlemagne pour les croiser.",
-      bouton: "Déposer les exports KoXo",
-      vers: "concordance",
-    },
-  };
-
-  function position(angle, rayon) {
-    const rad = (angle * Math.PI) / 180;
-    return { x: CX + rayon * Math.cos(rad), y: CY + rayon * Math.sin(rad) };
-  }
+  const GENRES_DU_BILAN = new Set([
+    "compte_absent", "compte_suspendu", "ou_inattendue", "groupe_manquant",
+    "groupe_en_trop", "identifiant_discordant", "sortant_dans_arbre_actif",
+  ]);
 
   let liens = $derived(
     SYSTEMES.map((s) => {
       const d = (donnees?.liens ?? []).find((l) => l.systeme === s.id);
-      const etat = d?.etat ?? "non_verifie";
-      const rad = (s.angle * Math.PI) / 180;
-      const centre = position(s.angle, R_ORBITE);
       return {
         ...s,
-        ...(d ?? { libelle: s.id, nb_ecarts: 0, nb_absents: 0, details: [] }),
-        etat,
-        centre,
-        // Le rayon place le texte du bon côté ; il ne dit pas de combien
-        // un bloc de deux lignes déborde. Sur les diagonales, sans ce
-        // décalage vertical, « Google » passait sur sa propre pastille.
-        legende: (() => {
-          const pt = position(s.angle, R_LEGENDE);
-          return { x: pt.x, y: pt.y + (Math.sin(rad) < 0 ? -22 : 22) };
-        })(),
-        // Le trait s'arrête au bord de chaque cercle, jamais dessous :
-        // un trait qui passe sous une pastille se lit comme une flèche.
-        depart: {
-          x: CX + R_CENTRE * Math.cos(rad),
-          y: CY + R_CENTRE * Math.sin(rad),
-        },
-        arrivee: {
-          x: centre.x - R_SATELLITE * Math.cos(rad),
-          y: centre.y - R_SATELLITE * Math.sin(rad),
-        },
+        etat: d?.etat ?? "non_verifie",
+        nb: (d?.nb_ecarts ?? 0) + (d?.nb_absents ?? 0),
+        nb_verifies: d?.nb_verifies ?? 0,
+        verifie_le: d?.verifie_le ?? null,
+        details: d?.details ?? [],
       };
     }),
   );
 
-  let ouvert = $derived(liens.find((l) => l.systeme === choisi) ?? liens[0]);
-
-  let nbAVerifier = $derived(
-    liens.filter((l) => l.etat === "non_verifie").length,
-  );
-  let nbEnEcart = $derived(liens.filter((l) => l.etat === "ecarts").length);
+  let nbNonVerifies = $derived(liens.filter((l) => l.etat === "non_verifie").length);
+  let toutConcorde = $derived(liens.every((l) => l.etat === "coherent"));
 
   onMount(charger);
 
@@ -202,10 +171,6 @@
     chargement = true;
     try {
       donnees = await concordanceApi.liens();
-      // S'ouvrir sur ce qui cloche : un écran qui s'ouvre sur un lien
-      // vert laisserait le seul lien rouge à découvrir.
-      const enEcart = donnees.liens.find((l) => l.etat === "ecarts");
-      choisi = enEcart?.systeme ?? "charlemagne";
     } catch (e) {
       notify.erreur(String(e).replace(/^Error:\s*/, ""));
     } finally {
@@ -233,246 +198,250 @@
   <EnTetePage
     icon={Network}
     titre="Cohérence entre les systèmes"
-    description="Le référentiel est la référence. Chaque lien dit où il diverge."
+    description="Le référentiel est la référence. Charlemagne, Google et KoXo se comparent à lui, et chaque trait dit où en est la dernière comparaison."
   >
     {#snippet actions()}
-      <Bouton icon={RefreshCw} onclick={charger} occupe={chargement}>
-        Relire
-      </Bouton>
-      <Bouton variante="primary" icon={Upload} onclick={() => onNaviguer?.("concordance")}>
-        Croiser les sources
-      </Bouton>
+      <Bouton icon={RefreshCw} onclick={charger} occupe={chargement}>Relire</Bouton>
     {/snippet}
   </EnTetePage>
 
   {#if chargement && !donnees}
     <Squelette variante="carte" nb={2} />
   {:else if donnees}
-    <!-- ------------------------------------------------------------------
-         La légende. Trois traits, trois mots — et jamais la couleur seule.
-         ------------------------------------------------------------------ -->
+    <!-- La légende : trois traits, trois mots — jamais la couleur seule. -->
     <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
       {#each ["coherent", "ecarts", "non_verifie"] as e (e)}
         <span class="flex items-center gap-2 text-xs text-stone-600 dark:text-stone-400">
-          <svg width="26" height="8" aria-hidden="true">
-            <line
-              x1="1" y1="4" x2="25" y2="4"
-              stroke={COULEURS[e]}
-              stroke-width="2.5"
-              stroke-linecap="round"
-              stroke-dasharray={e === "non_verifie" ? "4 4" : undefined}
-            />
-          </svg>
+          <span
+            class="w-6"
+            style="border-top: 2.5px {e === 'non_verifie' ? 'dashed' : 'solid'} {COULEURS[e]};"
+            aria-hidden="true"
+          ></span>
           {MOTS[e]}
         </span>
       {/each}
-      {#if nbAVerifier}
+      {#if nbNonVerifies}
         <span class="ml-auto text-xs text-stone-500 dark:text-stone-400">
-          <strong class="text-stone-800 dark:text-stone-200">{nbAVerifier}</strong>
-          lien{nbAVerifier > 1 ? "s" : ""} sur {liens.length} sans comparaison
+          <strong class="text-stone-800 dark:text-stone-200">{nbNonVerifies}</strong>
+          lien{nbNonVerifies > 1 ? "s" : ""} sur 3 jamais comparé{nbNonVerifies > 1 ? "s" : ""}
         </span>
       {/if}
     </div>
 
-    <div class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <!-- ----------------------------------------------------------------
-           Le schéma.
-           ---------------------------------------------------------------- -->
-      <div class="card p-2">
-        <svg
-          viewBox="0 0 620 620"
-          class="mx-auto block w-full max-w-[620px]"
-          role="img"
-          aria-label="Le référentiel au centre, six systèmes autour, chaque trait coloré selon l'état de la comparaison"
-        >
-          <!-- Les traits d'abord : ils passent sous les pastilles. -->
-          {#each liens as l (l.id)}
-            <line
-              x1={l.depart.x} y1={l.depart.y}
-              x2={l.arrivee.x} y2={l.arrivee.y}
-              stroke={COULEURS[l.etat]}
-              stroke-width={l.systeme === ouvert?.systeme ? 5 : 2.5}
-              stroke-linecap="round"
-              stroke-dasharray={l.etat === "non_verifie" || l.etat === "sans_source"
-                ? "5 6"
-                : undefined}
-              opacity={l.systeme === ouvert?.systeme ? 1 : 0.75}
-            />
-          {/each}
-
-          <!-- Le centre : le référentiel, et ce qu'il contient. -->
-          <circle cx={CX} cy={CY} r={R_CENTRE} fill={TEINTES.annee} />
-          <text
-            x={CX} y={CY - 22}
-            text-anchor="middle"
-            class="fill-white text-[11px] font-bold tracking-[0.08em] uppercase"
-          >
-            Référentiel
-          </text>
-          <text
-            x={CX} y={CY + 14}
-            text-anchor="middle"
-            class="fill-white text-[34px] font-bold tabular-nums"
-            style="font-family: var(--font-display);"
-          >
-            {nombre(donnees.nb_personnes)}
-          </text>
-          <text x={CX} y={CY + 36} text-anchor="middle" class="fill-white/80 text-[11px]">
-            {nombre(donnees.nb_eleves)} élèves · {nombre(donnees.nb_adultes)} adultes
-          </text>
-
-          <!-- Les satellites. Cliquables : c'est le seul geste de l'écran. -->
-          {#each liens as l (l.id)}
-            <g
-              role="button"
-              tabindex="0"
-              class="cursor-pointer outline-none"
-              onclick={() => (choisi = l.systeme)}
-              onkeydown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  choisi = l.systeme;
-                }
-              }}
-            >
-              <circle
-                cx={l.centre.x} cy={l.centre.y}
-                r={R_SATELLITE + (l.systeme === ouvert?.systeme ? 5 : 0)}
-                fill={l.etat === "sans_source" || l.etat === "non_verifie"
-                  ? "transparent"
-                  : l.teinte}
-                stroke={l.teinte}
-                stroke-width="2.5"
-                stroke-dasharray={l.etat === "sans_source" || l.etat === "non_verifie"
-                  ? "5 5"
-                  : undefined}
-                opacity={l.etat === "sans_source" ? 0.5 : 1}
-                class="transition-all"
-              />
-              <text
-                x={l.centre.x} y={l.centre.y + 5}
-                text-anchor="middle"
-                class="pointer-events-none text-[15px] font-bold"
-                fill={l.etat === "sans_source" || l.etat === "non_verifie"
-                  ? l.teinte
-                  : "#fff"}
-                opacity={l.etat === "sans_source" ? 0.6 : 1}
-              >
-                {l.sigle}
-              </text>
-
-              <text
-                x={l.legende.x} y={l.legende.y}
-                text-anchor="middle"
-                class="fill-stone-800 text-[13px] font-semibold dark:fill-stone-100"
-              >
-                {l.nom}
-              </text>
-              <text
-                x={l.legende.x} y={l.legende.y + 15}
-                text-anchor="middle"
-                class="fill-stone-500 text-[11px] dark:fill-stone-400"
-              >
-                {#if l.etat === "ecarts"}
-                  {nombre(l.nb_ecarts + l.nb_absents)} écart{l.nb_ecarts + l.nb_absents > 1 ? "s" : ""}
-                {:else}
-                  {MOTS[l.etat]}
-                {/if}
-              </text>
-            </g>
-          {/each}
-        </svg>
+    <!-- ----------------------------------------------------------------
+         L'arbre : le référentiel en haut, les trois systèmes en dessous.
+         ---------------------------------------------------------------- -->
+    <div class="arbre">
+      <div class="racine">
+        <p class="text-[11px] font-bold tracking-[0.08em] text-white/80 uppercase">
+          Référentiel
+        </p>
+        <p class="titre-affiche text-4xl leading-none tabular-nums text-white">
+          {nombre(donnees.nb_personnes)}
+        </p>
+        <p class="text-xs text-white/85">
+          {nombre(donnees.nb_eleves)} élèves · {nombre(donnees.nb_adultes)} adultes
+        </p>
+        {#if donnees.nb_verifiees}
+          <p class="mt-1 text-[11px] text-white/70">
+            {nombre(donnees.nb_verifiees)} déjà passées par un croisement
+          </p>
+        {/if}
       </div>
 
-      <!-- ----------------------------------------------------------------
-           Le lien ouvert, en détail.
-           ---------------------------------------------------------------- -->
-      {#if ouvert}
-        <aside class="space-y-4">
-          <div>
-            <p class="libelle-champ">Référentiel ↔ {ouvert.libelle}</p>
-            {#if ouvert.etat === "ecarts"}
-              <p
-                class="titre-affiche mt-1 text-2xl leading-tight"
-                style="color: var(--color-amber-600);"
-              >
-                {nombre(ouvert.nb_ecarts + ouvert.nb_absents)} écart{ouvert.nb_ecarts + ouvert.nb_absents > 1 ? "s" : ""} à regarder
+      <!-- La tige et le rail : neutres. Seules les descentes portent un
+           état, parce que c'est chaque lien qui a le sien. -->
+      <div class="tige" aria-hidden="true"></div>
+      <div class="colonnes">
+        <div class="rail" aria-hidden="true"></div>
+
+        {#each liens as l (l.id)}
+          <article class="colonne">
+            <div
+              class="descente"
+              style="border-left: 2.5px {l.etat === 'non_verifie' ? 'dashed' : 'solid'} {COULEURS[l.etat]};"
+              aria-hidden="true"
+            ></div>
+
+            <!-- Le cadre reprend l'état du trait : c'est ce qu'on voit en
+                 premier. `outline` plutôt qu'une ombre : lui sait être en
+                 pointillé, et suit l'arrondi. -->
+            <div
+              class="tuile"
+              style="outline: 2.5px {l.etat === 'non_verifie' ? 'dashed' : 'solid'} {COULEURS[l.etat]};"
+              class:tuile-grise={l.etat === "non_verifie"}
+            >
+              <img src={l.logo} alt="" class="h-9 w-9 object-contain" />
+            </div>
+
+            <h2 class="titre-affiche mt-3 text-lg">{l.nom}</h2>
+
+            {#if l.etat === "ecarts"}
+              <p class="titre-affiche text-2xl leading-tight" style="color: var(--color-amber-600);">
+                {nombre(l.nb)} écart{l.nb > 1 ? "s" : ""}
               </p>
-            {:else if ouvert.etat === "coherent"}
-              <p
-                class="titre-affiche mt-1 text-2xl leading-tight"
-                style="color: {VERT};"
-              >
+            {:else if l.etat === "coherent"}
+              <p class="titre-affiche text-2xl leading-tight" style="color: var(--color-vert-600);">
                 Tout concorde
               </p>
             {:else}
-              <p class="titre-affiche mt-1 text-2xl leading-tight text-stone-500">
-                {MOTS[ouvert.etat]}
+              <p class="titre-affiche text-2xl leading-tight text-stone-500 dark:text-stone-400">
+                Pas encore vérifié
               </p>
             {/if}
-            {#if ouvert.verifie_le}
-              <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
-                Comparé {age(ouvert.verifie_le)} sur
-                <strong class="tabular-nums">{nombre(ouvert.nb_verifies)}</strong>
-                personnes.
-              </p>
-            {/if}
-          </div>
 
-          {#if ouvert.details?.length}
-            <div class="filet"></div>
-            <div class="space-y-1">
-              {#each ouvert.details as d (d.genre)}
-                <button
-                  type="button"
-                  class="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-stone-100 dark:hover:bg-stone-800"
-                  onclick={() => onNaviguer?.("concordance")}
-                >
-                  <span
-                    class="titre-affiche w-14 shrink-0 text-right text-2xl leading-none tabular-nums"
-                    style="color: {ouvert.teinte};"
+            {#if l.verifie_le}
+              <p class="text-xs text-stone-500 dark:text-stone-400">
+                Comparé {age(l.verifie_le)} sur
+                <strong class="tabular-nums">{nombre(l.nb_verifies)}</strong> personnes
+              </p>
+            {/if}
+
+            {#if l.details.length}
+              <div class="mt-3 w-full space-y-0.5 text-left">
+                {#each l.details as d (d.genre)}
+                  <button
+                    type="button"
+                    class="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-stone-100 dark:hover:bg-stone-800"
+                    onclick={() =>
+                      onNaviguer?.(GENRES_DU_BILAN.has(d.genre) ? "bilan" : "concordance")}
                   >
-                    {nombre(d.nb)}
-                  </span>
-                  <span class="min-w-0 flex-1 text-sm text-stone-700 dark:text-stone-300">
-                    {LIBELLES[d.genre] ?? d.genre}
-                  </span>
-                  <ArrowRight class="h-4 w-4 shrink-0 text-stone-400" />
-                </button>
-              {/each}
-            </div>
-          {/if}
+                    <span
+                      class="titre-affiche w-10 shrink-0 text-right text-lg leading-none tabular-nums"
+                      style="color: var(--color-amber-600);"
+                    >
+                      {nombre(d.nb)}
+                    </span>
+                    <span class="min-w-0 flex-1 text-[13px] text-stone-700 dark:text-stone-300">
+                      {LIBELLES[d.genre] ?? d.genre}
+                    </span>
+                    <ArrowRight class="h-3.5 w-3.5 shrink-0 text-stone-400" />
+                  </button>
+                {/each}
+              </div>
+            {/if}
 
-          {#if ouvert.pourquoi}
-            <p class="rounded-xl bg-stone-100 p-3 text-[13px] leading-relaxed text-stone-600 dark:bg-stone-800/60 dark:text-stone-300">
-              {ouvert.pourquoi}
-            </p>
-          {/if}
-
-          {#if ouvert.etat !== "sans_source" && COMMENT_VERIFIER[ouvert.systeme]}
-            {@const c = COMMENT_VERIFIER[ouvert.systeme]}
-            <div class="space-y-3">
-              <p class="text-[13px] leading-relaxed text-stone-600 dark:text-stone-400">
-                {c.texte}
+            <div class="mt-auto w-full space-y-2.5 border-t border-stone-200 pt-3 text-left dark:border-stone-800">
+              <p class="text-[12.5px] leading-relaxed text-stone-600 dark:text-stone-400">
+                {l.verifier.texte}
               </p>
               <Bouton
-                variante="primary"
-                icon={c.vers === "bilan" ? RefreshCw : Upload}
-                onclick={() => onNaviguer?.(c.vers)}
+                variante={l.etat === "coherent" ? "secondary" : "primary"}
+                icon={l.verifier.icone}
+                onclick={() => onNaviguer?.(l.verifier.vers)}
               >
-                {c.bouton}
+                {l.verifier.bouton}
               </Bouton>
             </div>
-          {/if}
-        </aside>
-      {/if}
+          </article>
+        {/each}
+      </div>
     </div>
 
-    {#if nbEnEcart === 0 && nbAVerifier === 0}
+    {#if toutConcorde}
       <p class="text-sm text-stone-600 dark:text-stone-400">
-        Les trois systèmes qu'on sait lire disent la même chose que le
-        référentiel. Les trois autres attendent un export.
+        Les trois systèmes disent la même chose que le référentiel.
       </p>
     {/if}
+
+    <p class="text-[13px] leading-relaxed text-stone-500 dark:text-stone-400">
+      PMB, Sodexo et CardStudio n'y figurent pas : ils reçoivent des fichiers
+      et n'en rendent aucun, il n'y a rien à comparer. Sodexo se suit par ses
+      envois, dans son écran ; CardStudio par les cartes déjà faites.
+    </p>
   {/if}
 </section>
+
+<style>
+  /* L'arbre se lit de haut en bas : la référence, puis ce qui en dépend. */
+  .arbre {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .racine {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 1.1rem 2.25rem;
+    border-radius: 1.25rem;
+    background: var(--color-emerald-600); /* l'accent — violet ici */
+    text-align: center;
+  }
+
+  .tige {
+    width: 2px;
+    height: 1.5rem;
+    background: var(--color-stone-300);
+  }
+  :global(.dark) .tige {
+    background: var(--color-stone-700);
+  }
+
+  .colonnes {
+    --ecart: 2rem;
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--ecart);
+    width: 100%;
+  }
+
+  /* Du centre de la première colonne au centre de la dernière. */
+  .rail {
+    position: absolute;
+    top: 0;
+    left: calc((100% - 2 * var(--ecart)) / 6);
+    right: calc((100% - 2 * var(--ecart)) / 6);
+    height: 2px;
+    background: var(--color-stone-300);
+  }
+  :global(.dark) .rail {
+    background: var(--color-stone-700);
+  }
+
+  .colonne {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding-bottom: 0.25rem;
+  }
+
+  .descente {
+    width: 0;
+    height: 1.75rem;
+  }
+
+  /* Une tuile blanche dans les deux thèmes : les logos sont dessinés pour
+     un fond clair, comme une icône d'application. */
+  .tuile {
+    display: grid;
+    place-items: center;
+    width: 4rem;
+    height: 4rem;
+    border-radius: 1rem;
+    background: #fff;
+  }
+  .tuile-grise img {
+    opacity: 0.55;
+    filter: grayscale(0.4);
+  }
+
+  /* Étroit : les colonnes s'empilent, et les traits n'ont plus de sens. */
+  @media (max-width: 767px) {
+    .colonnes {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .rail,
+    .tige,
+    .descente {
+      display: none;
+    }
+    .colonne {
+      padding-top: 1rem;
+    }
+  }
+</style>

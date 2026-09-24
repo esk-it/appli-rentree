@@ -37,12 +37,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 from backend.database import Base
 
 SYSTEMES_COMPARES = ("charlemagne", "google", "koxo")
-"""Les systèmes dont un export entre réellement dans le programme.
+"""Les trois systèmes où la cohérence se vérifie.
 
 PMB, Sodexo et CardStudio reçoivent des fichiers mais n'en rendent
-aucun : le programme leur écrit sans jamais les relire. Leur lien reste
-donc « pas de source », et aucun verdict ne les concerne — tant qu'un
-export n'arrive pas, auquel cas il suffira de les ajouter ici.
+aucun : il n'y a rien à comparer. Ils se suivent autrement — Sodexo par
+ses envois, CardStudio par les cartes déjà faites. Si PMB rend un jour
+un export exploitable, c'est ici qu'il s'ajoutera.
 """
 
 ETATS = ("accord", "ecart", "absent")

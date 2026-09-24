@@ -11,14 +11,17 @@ et le rend sous deux formes :
 - par système, pour l'écran Cohérence, qui dessine les liens ;
 - par personne, pour la colonne « Cohérent » du référentiel.
 
-## Les trois systèmes sans source
+## Trois systèmes, et pas six
 
+La première version dessinait six liens, dont trois en « pas de source » :
 PMB, Sodexo et CardStudio reçoivent des fichiers du programme et n'en
-rendent aucun. Leur lien ne peut pas être vérifié — pas parce que
-personne n'a pris le temps, mais parce qu'il n'y a rien à lire. L'écran
-les montre quand même, en pointillé : un lien qu'on ne sait pas vérifier
-reste un lien, et le cacher ferait croire que l'école tient en quatre
-systèmes.
+rendent aucun. C'était honnête, mais inutile — trois pointillés
+permanents au milieu d'un écran qu'on ouvre pour savoir ce qui cloche.
+
+Décidé le 24 septembre 2026 : la cohérence se juge là où elle se
+vérifie, entre Charlemagne, Google et KoXo. Sodexo se suit par ses
+envois, dans son propre écran ; CardStudio par les cartes déjà faites ;
+PMB le jour où l'on saura ce qu'il peut rendre.
 """
 from __future__ import annotations
 
@@ -53,21 +56,6 @@ LIBELLE_SYSTEME = {
     "charlemagne": "Charlemagne",
     "google": "Google Workspace",
     "koxo": "KoXo",
-    "pmb": "PMB",
-    "sodexo": "Sodexo",
-    "cardstudio": "CardStudio",
-}
-
-SANS_SOURCE = ("pmb", "sodexo", "cardstudio")
-"""Le programme leur écrit ; ils ne lui répondent pas. Voir l'en-tête."""
-
-POURQUOI_SANS_SOURCE = {
-    "pmb": "Le programme produit le fichier d'import PMB. PMB n'exporte "
-           "rien qui revienne ici : le lien ne peut pas être vérifié.",
-    "sodexo": "Les comptes partent par le classeur SoHappy. Rien n'en "
-              "revient : la comparaison demanderait un export Sodexo.",
-    "cardstudio": "Les cartes sont produites depuis un fichier. CardStudio "
-                  "ne rend pas la liste de ce qu'il a imprimé.",
 }
 
 
@@ -78,13 +66,13 @@ class EtatLien:
     systeme: str
     libelle: str
     etat: str
-    """`coherent` · `ecarts` · `non_verifie` · `sans_source`."""
+    """`coherent` · `ecarts` · `non_verifie`."""
     nb_ecarts: int = 0
     nb_absents: int = 0
     nb_verifies: int = 0
     verifie_le: datetime | None = None
     pourquoi: str | None = None
-    """Pour les liens sans source, ce qui empêche de les vérifier."""
+    """Pour un lien jamais vérifié, ce qu'il manque pour le vérifier."""
     details: list[dict] = field(default_factory=list)
     """Les écarts regroupés par genre, du plus nombreux au moins."""
 
@@ -118,7 +106,10 @@ def enregistrer(session: Session, rapport) -> int:
     # le groupe, par exemple — et c'est un seul lien en écart.
     a_ecrire: dict[tuple[int, str], dict] = {}
 
-    for ligne in rapport.lignes:
+    # Les écarts **et** les accords : un élève d'accord est un verdict
+    # « cohérent », pas une absence de verdict. `getattr` parce qu'un
+    # rapport d'avant ce champ n'en a pas.
+    for ligne in [*rapport.lignes, *getattr(rapport, "accords", [])]:
         pid = ligne.personne_id
         if pid is None:
             continue
@@ -205,9 +196,8 @@ def _constate(ligne, systeme: str) -> str | None:
 def etat_des_liens(session: Session) -> list[EtatLien]:
     """Un état par système, dans l'ordre du schéma.
 
-    Les six sont rendus, y compris ceux qu'aucun export ne renseigne :
-    l'écran doit pouvoir dire *pourquoi* un lien est gris, et « pas de
-    source » n'est pas « pas encore fait ».
+    Les trois sont toujours rendus, même jamais vérifiés : un lien gris
+    dit « personne n'a regardé », et c'est une information.
     """
     liens: list[EtatLien] = []
 
@@ -253,16 +243,6 @@ def etat_des_liens(session: Session) -> list[EtatLien]:
                     {"genre": g, "nb": n}
                     for g, n in sorted(par_genre.items(), key=lambda x: -x[1])
                 ],
-            )
-        )
-
-    for systeme in SANS_SOURCE:
-        liens.append(
-            EtatLien(
-                systeme=systeme,
-                libelle=LIBELLE_SYSTEME[systeme],
-                etat="sans_source",
-                pourquoi=POURQUOI_SANS_SOURCE[systeme],
             )
         )
 

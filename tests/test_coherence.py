@@ -17,13 +17,35 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from backend.models import Personne, VerdictCoherence
-from backend.services.coherence import (
-    compter,
-    enregistrer,
-    etat_des_liens,
-    verdicts_par_personne,
-)
+# Rien n'est importé du programme au chargement du module : le conftest
+# purge le cache d'imports entre deux tests pour rebâtir la base, et un nom
+# capturé ici désignerait une classe d'une base précédente. Les quatre
+# fonctions du service passent donc par ces relais, qui importent à
+# l'appel.
+
+
+def enregistrer(*args, **kwargs):
+    from backend.services.coherence import enregistrer as f
+
+    return f(*args, **kwargs)
+
+
+def etat_des_liens(*args, **kwargs):
+    from backend.services.coherence import etat_des_liens as f
+
+    return f(*args, **kwargs)
+
+
+def verdicts_par_personne(*args, **kwargs):
+    from backend.services.coherence import verdicts_par_personne as f
+
+    return f(*args, **kwargs)
+
+
+def compter(*args, **kwargs):
+    from backend.services.coherence import compter as f
+
+    return f(*args, **kwargs)
 
 
 @dataclass
@@ -47,7 +69,9 @@ class FauxRapport:
     koxo_fourni: bool = True
 
 
-def _personne(session, id_charlemagne: int, **kw) -> Personne:
+def _personne(session, id_charlemagne: int, **kw):
+    from backend.models import Personne
+
     p = Personne(
         type="eleve",
         id_charlemagne=id_charlemagne,
@@ -153,6 +177,7 @@ def test_une_base_koxo_absente_laisse_ses_eleves_hors_verdict(session):
 
 
 def test_une_ligne_redevenue_coherente_cesse_d_etre_en_ecart(session):
+    from backend.models import VerdictCoherence
     p = _personne(session, 7)
     enregistrer(session, FauxRapport([FausseLigne(personne_id=p.id, genres=["google"])]))
     enregistrer(session, FauxRapport([FausseLigne(personne_id=p.id)]))
@@ -183,6 +208,7 @@ def test_sans_compte_l_emporte_sur_un_ecart_de_groupe(session):
 
 def test_un_inconnu_du_referentiel_n_engendre_aucun_verdict(session):
     """Sans identité, aucune ligne à rattacher — ça se règle par une ingestion."""
+    from backend.models import VerdictCoherence
     enregistrer(
         session,
         FauxRapport([FausseLigne(personne_id=None, genres=["absent_referentiel"])]),
@@ -190,17 +216,15 @@ def test_un_inconnu_du_referentiel_n_engendre_aucun_verdict(session):
     assert session.query(VerdictCoherence).count() == 0
 
 
-def test_les_trois_systemes_sans_source_sont_rendus_et_expliques(session):
-    """PMB, Sodexo et CardStudio ne se cachent pas : ils s'expliquent.
+def test_la_coherence_se_juge_sur_trois_systemes(session):
+    """Charlemagne, Google, KoXo — et rien d'autre.
 
-    « Pas de source » n'est pas « pas encore fait » : le premier demande
-    un export qu'on n'a pas, le second un clic.
+    PMB, Sodexo et CardStudio ne rendent aucun export : trois pointillés
+    permanents au milieu d'un écran qu'on ouvre pour savoir ce qui cloche
+    ne disaient rien. Ils se suivent ailleurs.
     """
-    liens = {l.systeme: l for l in etat_des_liens(session)}
-    assert len(liens) == 6
-    for systeme in ("pmb", "sodexo", "cardstudio"):
-        assert liens[systeme].etat == "sans_source"
-        assert liens[systeme].pourquoi, systeme
+    liens = [l.systeme for l in etat_des_liens(session)]
+    assert liens == ["charlemagne", "google", "koxo"]
 
 
 def test_sans_aucun_croisement_les_trois_liens_lisibles_sont_gris(session):
@@ -263,6 +287,7 @@ def test_verdicts_par_personne_filtre_sur_les_identites_demandees(session):
 
 
 def test_compter_separe_eleves_et_adultes(session):
+    from backend.models import Personne
     _personne(session, 30)
     adulte = Personne(
         type="adulte",
@@ -281,6 +306,7 @@ def test_compter_separe_eleves_et_adultes(session):
 
 
 def test_la_date_du_lien_est_celle_du_dernier_croisement(session):
+    from backend.models import VerdictCoherence
     p = _personne(session, 40)
     enregistrer(session, FauxRapport([FausseLigne(personne_id=p.id)]))
     avant = next(l for l in etat_des_liens(session) if l.systeme == "google")
@@ -432,6 +458,7 @@ def test_un_bilan_remplace_le_verdict_google_d_un_croisement(session):
 
 
 def test_un_bilan_vide_n_ecrit_rien(session):
+    from backend.models import VerdictCoherence
     from backend.services.coherence import enregistrer_bilan
 
     assert enregistrer_bilan(session, FauxBilan([])) == 0
