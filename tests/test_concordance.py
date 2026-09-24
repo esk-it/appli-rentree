@@ -320,18 +320,22 @@ def test_deux_comptes_pour_un_eleve_dans_la_meme_base_sont_signales():
     assert "lperon et lperon1" in avertis[0]
 
 
-def test_un_eleve_present_dans_deux_bases_est_signale_autrement():
-    """Là, ce n'est pas une création rejouée : c'est un compte resté sur le
-    serveur de l'établissement qu'il a quitté."""
+def test_un_eleve_present_dans_deux_bases_reste_dans_les_deux():
+    """Deux bases, deux comptes, et aucun n'est jeté à la lecture.
+
+    La lecture ne connaît pas le site de l'élève : elle ne peut pas savoir
+    lequel des deux fait foi. Garder « le premier lu » faisait dépendre la
+    réponse de l'ordre de dépôt — et comme on dépose NDK avant SU, un
+    élève de SU inscrit en DAO au lycée était jugé sur son compte DAO.
+    """
     from backend.routers.concordance import _lire_les_exports_koxo
 
     bases, avertis = _lire_les_exports_koxo([
-        _export_koxo(("2_4", "MOVED", "amoved", "333")),
-        _export_koxo(("61", "MOVED", "amoved", "333")),
+        _export_koxo(("DAO", "SCHOLAR", "ascholar", "333")),
+        _export_koxo(("31", "SCHOLAR", "ascholar", "333")),
     ])
-    assert [len(b) for b in bases] == [1, 0]
-    assert len(avertis) == 1
-    assert "deux bases" in avertis[0]
+    assert [len(b) for b in bases] == [1, 1]
+    assert avertis == [], "ce n'est pas un doublon : ce sont deux serveurs"
 
 
 # ---------------------------------------------------------------------------
@@ -476,3 +480,206 @@ def test_le_format_se_reconnait_au_contenu_pas_a_l_extension(session, etab, elev
     ).decode("cp1252").encode("utf-8")
     r = croiser(session, avec_bom, annee_id=an.id)
     assert r.nb_lignes_lues == 1
+
+
+
+# ---------------------------------------------------------------------------
+# Les accès secondaires : la DAO
+# ---------------------------------------------------------------------------
+
+
+def _eleves(personne_factory, site, prefixe, classe, n):
+    return [
+        personne_factory(
+            type="eleve", site_id=site.id, nom=f"{prefixe}{i}", prenom="X",
+            login=f"{prefixe.lower()}{i}", classe=classe,
+        )
+        for i in range(n)
+    ]
+
+
+def test_un_eleve_de_su_en_dao_n_est_pas_mal_range(
+    session, etab, site_factory, personne_factory
+):
+    """Le cas vécu, à la lettre.
+
+    Des élèves de SU suivent la DAO en 3PM au lycée. Il a fallu leur
+    ouvrir un compte sur le KoXo de NDK, rangé dans le groupe « DAO ». La
+    Concordance lisait NDK en premier, trouvait « DAO » là où la base de
+    SU dit « 31 », et accusait dix-neuf élèves d'être mal rangés.
+
+    Chacun se compare à la base de son propre établissement.
+    """
+    from backend.services.concordance import croiser
+
+    ndk, an = etab
+    su = site_factory("SU")
+    lyceens = _eleves(personne_factory, ndk, "LY", "3_PM", 30)
+    collegiens = _eleves(personne_factory, su, "CO", "31", 10)
+    dao = personne_factory(
+        type="eleve", site_id=su.id, nom="SCHOLAR", prenom="Axel",
+        login="ascholar", classe="31",
+    )
+
+    r = croiser(
+        session,
+        _fichier(
+            *[f"{p.badge};{p.nom};{p.prenom};3_PM" for p in lyceens],
+            f"{dao.badge};SCHOLAR;Axel;31",
+            *[f"{p.badge};{p.nom};{p.prenom};31" for p in collegiens],
+        ),
+        annee_id=an.id,
+        koxo_par_base=[
+            # Serveur NDK — déposé en premier, avec le compte DAO.
+            [_LigneKoxo(str(p.badge), "3_PM") for p in lyceens]
+            + [_LigneKoxo(str(dao.badge), "DAO")],
+            # Serveur SU — le compte principal, dans sa classe.
+            [_LigneKoxo(str(dao.badge), "31")]
+            + [_LigneKoxo(str(p.badge), "31") for p in collegiens],
+        ],
+    )
+
+    assert not [l for l in r.lignes if l.nom == "SCHOLAR"], (
+        "le compte DAO de NDK n'est pas sa classe"
+    )
+    assert r.koxo_sites == ["NDK", "SU"]
+    assert r.acces_secondaires == ["SCHOLAR Axel (SU) : base NDK, groupe DAO"]
+
+
+def test_l_ordre_de_depot_ne_change_rien(
+    session, etab, site_factory, personne_factory
+):
+    """SU d'abord ou NDK d'abord : la même réponse.
+
+    Une Concordance dont le verdict dépend de l'ordre dans lequel on a
+    choisi les fichiers ne vérifie rien.
+    """
+    from backend.services.concordance import croiser
+
+    ndk, an = etab
+    su = site_factory("SU")
+    lyceen = personne_factory(
+        type="eleve", site_id=ndk.id, nom="LY", prenom="X", login="ly", classe="3_PM",
+    )
+    dao = personne_factory(
+        type="eleve", site_id=su.id, nom="SCHOLAR", prenom="Axel",
+        login="ascholar", classe="31",
+    )
+    base_ndk = [_LigneKoxo(str(lyceen.badge), "3_PM"), _LigneKoxo(str(dao.badge), "DAO")]
+    base_su = [_LigneKoxo(str(dao.badge), "31")]
+    source = _fichier(f"{lyceen.badge};LY;X;3_PM", f"{dao.badge};SCHOLAR;Axel;31")
+
+    un = croiser(session, source, annee_id=an.id, koxo_par_base=[base_ndk, base_su])
+    deux = croiser(session, source, annee_id=an.id, koxo_par_base=[base_su, base_ndk])
+
+    assert [l.nom for l in un.lignes] == [l.nom for l in deux.lignes] == []
+    assert un.acces_secondaires == deux.acces_secondaires
+
+
+def test_un_vrai_ecart_sur_la_base_de_son_site_reste_signale(
+    session, etab, site_factory, personne_factory
+):
+    """Le correctif ne doit rien taire d'autre.
+
+    Un élève de SU dont la base de SU dit une autre classe est en écart,
+    DAO ou pas.
+    """
+    from backend.services.concordance import croiser
+
+    ndk, an = etab
+    su = site_factory("SU")
+    lyceen = personne_factory(
+        type="eleve", site_id=ndk.id, nom="LY", prenom="X", login="ly", classe="3_PM",
+    )
+    dao = personne_factory(
+        type="eleve", site_id=su.id, nom="SCHOLAR", prenom="Axel",
+        login="ascholar", classe="31",
+    )
+    r = croiser(
+        session,
+        _fichier(f"{lyceen.badge};LY;X;3_PM", f"{dao.badge};SCHOLAR;Axel;31"),
+        annee_id=an.id,
+        koxo_par_base=[
+            [_LigneKoxo(str(lyceen.badge), "3_PM"), _LigneKoxo(str(dao.badge), "DAO")],
+            [_LigneKoxo(str(dao.badge), "42")],  # SU se trompe de classe
+        ],
+    )
+    ligne = next(l for l in r.lignes if l.nom == "SCHOLAR")
+    assert ligne.genres == ["koxo"]
+    assert ligne.koxo == "42", "c'est la base de SU qui parle, pas le groupe DAO"
+
+
+def test_absent_de_la_base_de_son_site_meme_present_ailleurs(
+    session, etab, site_factory, personne_factory
+):
+    """Un compte DAO ne remplace pas le compte de l'établissement.
+
+    Sans compte sur le serveur de SU, un élève de SU ne se connecte pas au
+    collège — même s'il se connecte très bien au lycée.
+    """
+    from backend.services.concordance import croiser
+
+    ndk, an = etab
+    su = site_factory("SU")
+    lyceen = personne_factory(
+        type="eleve", site_id=ndk.id, nom="LY", prenom="X", login="ly", classe="3_PM",
+    )
+    dao = personne_factory(
+        type="eleve", site_id=su.id, nom="SCHOLAR", prenom="Axel",
+        login="ascholar", classe="31",
+    )
+    autre = personne_factory(
+        type="eleve", site_id=su.id, nom="AUTRE", prenom="Y", login="autre", classe="31",
+    )
+    r = croiser(
+        session,
+        _fichier(
+            f"{lyceen.badge};LY;X;3_PM",
+            f"{dao.badge};SCHOLAR;Axel;31",
+            f"{autre.badge};AUTRE;Y;31",
+        ),
+        annee_id=an.id,
+        koxo_par_base=[
+            [_LigneKoxo(str(lyceen.badge), "3_PM"), _LigneKoxo(str(dao.badge), "DAO")],
+            [_LigneKoxo(str(autre.badge), "31")],  # SCHOLAR absent de SU
+        ],
+    )
+    ligne = next(l for l in r.lignes if l.nom == "SCHOLAR")
+    assert ligne.genres == ["absent_koxo"]
+
+
+def test_une_base_ne_sert_qu_un_etablissement(
+    session, etab, site_factory, personne_factory
+):
+    """Beaucoup de DAO ne font pas du serveur de NDK un serveur de SU.
+
+    Si la base de NDK passait pour couvrir SU, chaque élève de SU absent
+    du serveur de NDK serait accusé d'absence — alors qu'on n'a simplement
+    pas déposé la base de SU.
+    """
+    from backend.services.concordance import croiser
+
+    ndk, an = etab
+    su = site_factory("SU")
+    lyceens = _eleves(personne_factory, ndk, "LY", "3_PM", 40)
+    # Plus d'un vingtième du site dominant : l'ancien seuil cédait.
+    daos = _eleves(personne_factory, su, "DAO", "31", 15)
+    sans_dao = personne_factory(
+        type="eleve", site_id=su.id, nom="SANSDAO", prenom="Z", login="sansdao", classe="31",
+    )
+    r = croiser(
+        session,
+        _fichier(
+            *[f"{p.badge};{p.nom};{p.prenom};3_PM" for p in lyceens],
+            *[f"{p.badge};{p.nom};{p.prenom};31" for p in daos],
+            f"{sans_dao.badge};SANSDAO;Z;31",
+        ),
+        annee_id=an.id,
+        koxo_par_base=[
+            [_LigneKoxo(str(p.badge), "3_PM") for p in lyceens]
+            + [_LigneKoxo(str(p.badge), "DAO") for p in daos],
+        ],  # la base de SU n'a pas été déposée
+    )
+    assert r.koxo_sites == ["NDK"]
+    assert r.lignes == [], "SU n'a pas été interrogé : personne n'y est accusé"
+    assert len(r.acces_secondaires) == 15

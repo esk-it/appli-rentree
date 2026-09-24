@@ -102,6 +102,15 @@ class RapportConcordance:
     lignes: list[LigneConcordance] = field(default_factory=list)
     """Seulement celles qui divergent : l'accord n'a rien à montrer."""
 
+    acces_secondaires: list[str] = field(default_factory=list)
+    """Les élèves qui ont aussi un compte sur la base d'un **autre**
+    établissement — `« CAZUC Axel (SU) : NDK, groupe DAO »`.
+
+    Ce n'est pas un écart : c'est un accès ouvert exprès, pour suivre un
+    enseignement de l'autre site. Il est dit ici, une fois, pour que
+    personne ne le prenne pour un compte oublié — et il n'est jamais
+    comparé à la classe."""
+
     @property
     def nb_a_corriger(self) -> int:
         return len(self.lignes)
@@ -171,11 +180,25 @@ def croiser(
         if koxo_par_base is not None
         else ([lignes_koxo] if lignes_koxo is not None else [])
     )
-    toutes_les_lignes = [l for b in bases for l in b]
-    koxo_par_id = _index_koxo(toutes_les_lignes)
-    koxo_sites: set[str] = set()
-    for base in bases:
-        koxo_sites |= _sites_couverts_par_koxo(session, base, par_badge)
+    # Chaque base est le serveur d'un établissement : celui dont elle
+    # porte le plus d'élèves. Un élève se compare **à la base de son
+    # propre établissement**, et à elle seule.
+    #
+    # Pourquoi pas « la première base où on le trouve » : des élèves de SU
+    # suivent la DAO en 3PM au lycée, et ont pour cela un compte sur le
+    # serveur de NDK, rangé dans le groupe « DAO ». Les exports se déposent
+    # NDK d'abord ; la première lecture trouvait donc « DAO » là où la base
+    # de SU dit « 31 », et accusait dix-neuf élèves d'être mal rangés alors
+    # qu'ils l'étaient parfaitement.
+    principal_par_base = [_site_principal(session, b, par_badge) for b in bases]
+    koxo_par_site: dict[str, dict[str, str]] = {}
+    for base, site_base in zip(bases, principal_par_base):
+        if site_base is None:
+            continue
+        index = koxo_par_site.setdefault(site_base, {})
+        for ident, groupe in _index_koxo(base).items():
+            index.setdefault(ident, groupe)
+    koxo_sites = set(koxo_par_site)
 
     rapport = RapportConcordance(
         annee_libelle=annee.libelle,
@@ -183,6 +206,22 @@ def croiser(
         koxo_fourni=bool(bases),
         koxo_sites=sorted(koxo_sites),
     )
+
+    # Les comptes posés sur la base d'un autre établissement : un accès
+    # secondaire, jamais une classe. On les nomme une fois, on ne les
+    # compare pas.
+    for base, site_base in zip(bases, principal_par_base):
+        for ident, groupe in _index_koxo(base).items():
+            p = par_badge.get(ident)
+            if p is None or site_base is None:
+                continue
+            site_eleve = sites.get(p.site_id)
+            if site_eleve and site_eleve != site_base:
+                rapport.acces_secondaires.append(
+                    f"{p.nom} {p.prenom} ({site_eleve}) : base {site_base}"
+                    + (f", groupe {groupe}" if groupe else "")
+                )
+    rapport.acces_secondaires.sort()
 
     for enr in source:
         classe_ch = enr["classe"]
@@ -206,7 +245,11 @@ def croiser(
             referentiel=(p.classe or None) if p is not None else None,
             google_ou=ou_par_adresse.get(adresse),
             google_classe=classe_par_ou.get((ou_par_adresse.get(adresse) or "").lower()),
-            koxo=koxo_par_id.get(badge),
+            koxo=(
+                koxo_par_site.get(sites.get(p.site_id), {}).get(badge)
+                if p is not None
+                else None
+            ),
             koxo_consulte=(
                 p is not None and sites.get(p.site_id) in koxo_sites
             ),
@@ -448,22 +491,31 @@ def _index_koxo(lignes_koxo: list | None) -> dict[str, str]:
     return par_id
 
 
-def _sites_couverts_par_koxo(
+def _site_principal(
     session: Session, lignes_koxo: list | None, par_badge: dict
-) -> set[str]:
-    """Les sites dont cet export KoXo parle, déduits de ses propres lignes.
+) -> str | None:
+    """L'établissement dont cette base KoXo est le serveur.
 
-    KoXo a **une base par établissement** : NDK et SU sont deux serveurs, et
-    on ne peut en exporter qu'un à la fois. Sans cette restriction, déposer
-    l'export de NDK faisait passer les six cent quatre-vingt-neuf élèves de
-    SU pour absents de KoXo — un écart par élève, sur une base qui n'était
-    même pas interrogée.
+    KoXo a **une base par établissement** : NDK et SU sont deux serveurs,
+    et on n'en exporte qu'un à la fois. Le site se lit sur les personnes
+    que l'export contient, pas sur son nom de fichier :
+    `Export_complet_NDK.CSV` peut être renommé, ses lignes non.
 
-    Le site se lit sur les personnes que l'export contient, pas sur son nom
-    de fichier : `Export_complet_NDK.CSV` peut être renommé, ses lignes non.
+    ## Un seul site par base
+
+    La version précédente acceptait qu'une base couvre plusieurs sites,
+    dès qu'un site y dépassait un vingtième du site dominant. C'était
+    fragile : les élèves de SU qui suivent la DAO au lycée ont un compte
+    sur le serveur de NDK. Qu'ils soient un peu plus nombreux, et la base
+    de NDK aurait été tenue pour une base de SU — chaque élève de SU
+    absent du serveur de NDK accusé d'absence.
+
+    Un serveur sert un établissement. Les quelques comptes d'un autre
+    site qu'il porte sont des accès secondaires, et la Concordance les
+    nomme à part.
     """
     if lignes_koxo is None:
-        return set()
+        return None
     sites = {s.id: s.nom for s in session.query(Site).all()}
     trouves: dict[str, int] = {}
     for l in lignes_koxo:
@@ -472,11 +524,6 @@ def _sites_couverts_par_koxo(
         if p is not None and p.site_id in sites:
             nom = sites[p.site_id]
             trouves[nom] = trouves.get(nom, 0) + 1
-    # Un site représenté par une poignée de lignes face à des centaines est
-    # un accident — un professeur partagé, un compte de service. Le seuil se
-    # prend donc **en proportion** du site dominant, pas en valeur absolue :
-    # un export de trois lignes reste un export de son établissement.
     if not trouves:
-        return set()
-    plancher = max(1, max(trouves.values()) // 20)
-    return {nom for nom, n in trouves.items() if n >= plancher}
+        return None
+    return max(trouves, key=trouves.get)

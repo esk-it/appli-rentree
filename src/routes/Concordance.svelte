@@ -297,7 +297,7 @@
         <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
           <Upload class="h-3.5 w-3.5" />
           {fichiersKoxo.length === 0
-            ? "Ajouter un export KoXo (NDK, puis SU)"
+            ? "Ajouter un export KoXo (une base par établissement)"
             : `Ajouter une autre base (${fichiersKoxo.length} déposée${fichiersKoxo.length > 1 ? "s" : ""})`}
           <input
             type="file"
@@ -350,10 +350,13 @@
         chaque groupe de classe : compte une minute. Sans export KoXo, sa
         colonne reste vide plutôt que fausse.
         <strong>KoXo a une base par établissement</strong> : un export ne
-        couvre que la sienne. Clique le bouton <strong>une fois par base</strong>
-        (NDK, puis SU) — elles s'ajoutent l'une à l'autre et s'affichent
-        au-dessus. Les élèves d'une base non déposée restent « hors base »
-        plutôt qu'accusés d'absence.
+        couvre que la sienne. Clique le bouton <strong>une fois par base</strong>,
+        dans l'ordre que tu veux — elles s'ajoutent l'une à l'autre et
+        s'affichent au-dessus. Chaque élève est comparé à la base de
+        <strong>son</strong> établissement : un compte ouvert sur l'autre
+        serveur, comme la DAO, n'est pas pris pour sa classe. Les élèves
+        d'une base non déposée restent « hors base » plutôt qu'accusés
+        d'absence.
       </p>
     </div>
 
@@ -386,6 +389,26 @@
             : "sans KoXo"}
         />
       </div>
+
+      {#if rapport.acces_secondaires?.length}
+        <!-- Un compte ouvert exprès sur le serveur d'un autre établissement
+             — la DAO au lycée pour des élèves de SU. Nommé ici une fois,
+             jamais comparé à la classe : sans ça, la Concordance les
+             accusait d'être mal rangés. -->
+        <details class="rounded-xl bg-stone-100 px-4 py-3 text-sm dark:bg-stone-800/60">
+          <summary class="cursor-pointer text-stone-700 dark:text-stone-300">
+            <strong>{rapport.acces_secondaires.length}</strong>
+            élève{rapport.acces_secondaires.length > 1 ? "s ont" : " a"} aussi un compte
+            sur la base KoXo d'un autre établissement — un accès secondaire, comme la
+            DAO. {rapport.acces_secondaires.length > 1 ? "Ils ne sont" : "Il n'est"}
+            pas comparé{rapport.acces_secondaires.length > 1 ? "s" : ""} à la classe :
+            chacun se juge sur la base de son propre site.
+          </summary>
+          <ul class="mt-2 columns-1 gap-6 text-xs text-stone-600 sm:columns-2 dark:text-stone-400">
+            {#each rapport.acces_secondaires as a (a)}<li>{a}</li>{/each}
+          </ul>
+        </details>
+      {/if}
 
       {#if rapport.nb_a_corriger === 0}
         <div class="card flex items-center gap-3 border-emerald-300 p-4 dark:border-emerald-800">

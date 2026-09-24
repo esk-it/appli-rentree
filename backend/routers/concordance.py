@@ -86,6 +86,9 @@ class ConcordanceReponse(BaseModel):
     classes_concernees: list[str]
     lignes: list[LigneOut]
     avertissements: list[str] = []
+    acces_secondaires: list[str] = []
+    """Comptes posés sur la base KoXo d'un autre établissement — la DAO.
+    Nommés, jamais comparés à la classe."""
 
 
 def _lire_les_exports_koxo(fichiers: list[str]) -> tuple[list[list], list[str]]:
@@ -121,9 +124,7 @@ def _lire_les_exports_koxo(fichiers: list[str]) -> tuple[list[list], list[str]]:
 
     bases: list[list] = []
     avertissements: list[str] = []
-    vus: dict[str, tuple[int, str]] = {}
     en_double: list[str] = []
-    entre_bases: list[str] = []
 
     for rang, b64 in enumerate(fichiers, start=1):
         rang_dit = f"fichier {rang} sur {len(fichiers)}"
@@ -158,20 +159,22 @@ def _lire_les_exports_koxo(fichiers: list[str]) -> tuple[list[list], list[str]]:
                 f"Colonnes reconnues : {', '.join(colonnes) or 'aucune'}.",
             )
 
+        # Les doublons ne se cherchent qu'**à l'intérieur** d'une base. Un
+        # même élève dans deux bases n'est pas une anomalie en soi : les
+        # élèves de SU qui suivent la DAO au lycée ont un compte sur le
+        # serveur de NDK. C'est le service, qui connaît le site de chacun,
+        # qui dit lequel des deux fait foi.
+        vus: dict[str, str] = {}
         retenues = []
         for l in du_fichier:
             ident = (getattr(l, "id_unique", "") or "").strip()
+            login = (getattr(l, "login", "") or "").strip()
             if ident and ident in vus:
-                rang_vu, login_vu = vus[ident]
                 qui = f"{getattr(l, 'prenom', '')} {getattr(l, 'nom', '')}".strip()
-                login = (getattr(l, "login", "") or "").strip()
-                if rang_vu == rang:
-                    en_double.append(f"{qui or ident} ({login_vu} et {login})")
-                else:
-                    entre_bases.append(f"{qui or ident} (fichiers {rang_vu} et {rang})")
+                en_double.append(f"{qui or ident} ({vus[ident]} et {login})")
                 continue
             if ident:
-                vus[ident] = (rang, (getattr(l, "login", "") or "").strip())
+                vus[ident] = login
             retenues.append(l)
         bases.append(retenues)
 
@@ -180,12 +183,6 @@ def _lire_les_exports_koxo(fichiers: list[str]) -> tuple[list[list], list[str]]:
             f"{len(en_double)} élève(s) ont deux comptes dans la même base KoXo "
             "— une création rejouée. Le second est à supprimer dans KoXo : "
             + ", ".join(en_double[:12])
-        )
-    if entre_bases:
-        avertissements.append(
-            f"{len(entre_bases)} élève(s) présents dans deux bases KoXo — le "
-            "compte n'a pas été retiré de l'ancien établissement. La première "
-            "occurrence a été retenue : " + ", ".join(entre_bases[:12])
         )
     return bases, avertissements
 
@@ -276,6 +273,7 @@ def croiser_les_sources(
         classes_concernees=r.classes_concernees,
         lignes=[LigneOut(**vars(l)) for l in r.lignes],
         avertissements=avertissements,
+        acces_secondaires=r.acces_secondaires,
     )
 
 
