@@ -124,6 +124,27 @@ class CandidatCarte:
     a_une_photo: bool
     codes_connus: bool
     """Vrai si la classe porte son code niveau et son code établissement."""
+    faite_le: date | None = None
+    """Quand une carte est partie pour lui, si elle est partie.
+
+    Le fichier CardStudio enregistre ce qu'il contenait : on sait donc
+    qui a déjà eu sa carte. Sans cette trace on recoche tout le monde,
+    et une carte réimprimée est une carte payée deux fois."""
+    faite_pour: str | None = None
+    """La classe telle qu'elle est partie sur la carte.
+
+    Si elle diffère de la classe du jour, la carte existe mais ne dit
+    plus la vérité — c'est à l'utilisateur de décider si ça vaut une
+    réimpression, pas au programme."""
+
+    @property
+    def deja_faite(self) -> bool:
+        return self.faite_le is not None
+
+    @property
+    def carte_perimee(self) -> bool:
+        """Faite, mais pour une autre classe que celle d'aujourd'hui."""
+        return self.faite_le is not None and self.faite_pour != self.classe
 
 
 @dataclass
@@ -220,6 +241,25 @@ def lister_candidats(
     except InventaireImpossible:
         photos = {}
 
+    # Ce qui est déjà parti chez CardStudio. Lu ici plutôt que calculé
+    # par l'écran : c'est la même question que « qui a déjà sa carte »,
+    # et deux réponses qui divergeraient seraient pires qu'aucune.
+    deja: dict[int, tuple[date, str | None]] = {}
+    try:
+        from backend.services.envois import dernier
+
+        envoi = dernier(session, "cardstudio", annee.id)
+        if envoi is not None:
+            from backend.models import LigneEnvoi
+
+            quand = envoi.envoye_le.date()
+            for l in session.query(LigneEnvoi).filter(
+                LigneEnvoi.envoi_id == envoi.id
+            ):
+                deja[l.personne_id] = (quand, l.classe)
+    except Exception:  # pragma: no cover - la liste prime sur sa décoration
+        deja = {}
+
     voulus_sites = {s.strip().upper() for s in (sites or []) if s and s.strip()}
     voulus_classes = {c.strip() for c in (classes or []) if c and c.strip()}
 
@@ -254,6 +294,8 @@ def lister_candidats(
                 and correspondance.code_niveau
                 and correspondance.code_etablissement
             ),
+            faite_le=deja.get(p.id, (None, None))[0],
+            faite_pour=deja.get(p.id, (None, None))[1],
         ))
 
     candidats.sort(key=lambda c: (c.classe, c.nom, c.prenom))

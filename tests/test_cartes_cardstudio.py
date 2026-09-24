@@ -541,3 +541,109 @@ def test_apprendre_ne_retient_rien_quand_le_dossier_est_le_notre(
 
     assert rapport.racine_photos_apprise is None
     assert not (get_param(session, "chemin_photos_cardstudio") or "")
+
+
+# ---------------------------------------------------------------------------
+# Les cartes déjà faites
+# ---------------------------------------------------------------------------
+
+
+def test_sans_envoi_aucune_carte_n_est_faite(
+    session, site_factory, annee_factory, personne_factory, snap_factory, classe_factory
+):
+    from backend.services.cartes_cardstudio import lister_candidats
+
+    site = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    classe_factory(site, "2_1", niveau="1-2NDES-LY", etablissement="03-LY")
+    p = personne_factory(site_id=site.id, nom="NEUF")
+    snap_factory(p.id, annee.id, classe="2_1")
+
+    c = lister_candidats(session, annee_id=annee.id)[0]
+    assert c.deja_faite is False
+    assert c.faite_le is None
+    assert c.carte_perimee is False
+
+
+def test_un_envoi_marque_les_cartes_qu_il_contenait(
+    session, site_factory, annee_factory, personne_factory, snap_factory, classe_factory
+):
+    """Une carte réimprimée est une carte payée deux fois."""
+    from backend.services.cartes_cardstudio import lister_candidats
+    from backend.services.envois import enregistrer
+
+    site = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    classe_factory(site, "2_1", niveau="1-2NDES-LY", etablissement="03-LY")
+    faite = personne_factory(site_id=site.id, nom="AFAITE")
+    sans = personne_factory(site_id=site.id, nom="BSANS")
+    snap_factory(faite.id, annee.id, classe="2_1")
+    snap_factory(sans.id, annee.id, classe="2_1")
+
+    enregistrer(
+        session, systeme="cardstudio", annee_id=annee.id,
+        lignes={faite.id: "2_1"}, nom_fichier="CardStudio.xlsx",
+    )
+
+    par_nom = {c.nom: c for c in lister_candidats(session, annee_id=annee.id)}
+    assert par_nom["AFAITE"].deja_faite is True
+    assert par_nom["AFAITE"].faite_pour == "2_1"
+    assert par_nom["AFAITE"].carte_perimee is False
+    assert par_nom["BSANS"].deja_faite is False
+
+
+def test_une_carte_faite_pour_une_autre_classe_est_perimee(
+    session, site_factory, annee_factory, personne_factory, snap_factory, classe_factory
+):
+    """La classe est imprimée sur la carte : changer de classe la périme.
+
+    Le programme le dit ; il ne décide pas de réimprimer — cet arbitrage
+    coûte de l'argent et appartient à l'utilisateur.
+    """
+    from backend.services.cartes_cardstudio import lister_candidats
+    from backend.services.envois import enregistrer
+
+    site = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    classe_factory(site, "2_1", niveau="1-2NDES-LY", etablissement="03-LY")
+    classe_factory(site, "2_2", niveau="1-2NDES-LY", etablissement="03-LY")
+    p = personne_factory(site_id=site.id, nom="BOUGE")
+    snap_factory(p.id, annee.id, classe="2_1")
+
+    enregistrer(
+        session, systeme="cardstudio", annee_id=annee.id, lignes={p.id: "2_1"},
+    )
+    # Il change de classe après l'impression.
+    snap_factory(p.id, annee.id, classe="2_2")
+
+    c = lister_candidats(session, annee_id=annee.id)[0]
+    assert c.classe == "2_2"
+    assert c.deja_faite is True
+    assert c.faite_pour == "2_1"
+    assert c.carte_perimee is True
+
+
+def test_seul_le_dernier_envoi_compte(
+    session, site_factory, annee_factory, personne_factory, snap_factory, classe_factory
+):
+    """Un fichier de trente-six cartes n'efface pas les mille d'avant —
+    mais c'est le dernier qui dit où en est l'impression."""
+    from backend.services.cartes_cardstudio import lister_candidats
+    from backend.services.envois import enregistrer
+
+    site = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    classe_factory(site, "2_1", niveau="1-2NDES-LY", etablissement="03-LY")
+    a = personne_factory(site_id=site.id, nom="APREMIER")
+    b = personne_factory(site_id=site.id, nom="BSECOND")
+    snap_factory(a.id, annee.id, classe="2_1")
+    snap_factory(b.id, annee.id, classe="2_1")
+
+    enregistrer(session, systeme="cardstudio", annee_id=annee.id, lignes={a.id: "2_1"})
+    enregistrer(session, systeme="cardstudio", annee_id=annee.id, lignes={b.id: "2_1"})
+
+    par_nom = {c.nom: c for c in lister_candidats(session, annee_id=annee.id)}
+    assert par_nom["BSECOND"].deja_faite is True
+    assert par_nom["APREMIER"].deja_faite is False, (
+        "le dernier envoi seul décrit l'état de l'impression"
+    )

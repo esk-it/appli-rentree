@@ -99,11 +99,24 @@
     ].sort(),
   );
 
+  /**
+   * Écarter ce qui a déjà une carte valable.
+   *
+   * Une carte réimprimée est une carte payée deux fois. Le dernier
+   * fichier produit dit qui a déjà la sienne ; ce filtre s'en sert.
+   *
+   * Une carte **périmée** — faite pour une autre classe, puisque la
+   * classe y est imprimée — reste affichée : c'est un cas à trancher,
+   * pas un cas réglé, et l'arbitrage coûte de l'argent.
+   */
+  let sansCarteSeulement = $state(false);
+
   let affiches = $derived.by(() => {
     const q = recherche.trim().toLowerCase();
     return candidats.filter((c) => {
       if (siteChoisi && c.site !== siteChoisi) return false;
       if (classesChoisies.length && !classesChoisies.includes(c.classe)) return false;
+      if (sansCarteSeulement && c.deja_faite && !c.carte_perimee) return false;
       if (q) {
         const foin = `${c.nom} ${c.prenom} ${c.classe} ${c.badge ?? ""}`.toLowerCase();
         if (!foin.includes(q)) return false;
@@ -119,6 +132,14 @@
   let selectionSansPhoto = $derived(selection.filter((c) => !c.a_une_photo));
   let selectionSansCodes = $derived(
     [...new Set(selection.filter((c) => !c.codes_connus).map((c) => c.classe))].sort(),
+  );
+  /** Cochés alors qu'ils ont déjà une carte à jour : on la referait. */
+  let selectionDejaFaites = $derived(
+    selection.filter((c) => c.deja_faite && !c.carte_perimee),
+  );
+  let nbPerimees = $derived(candidats.filter((c) => c.carte_perimee).length);
+  let nbDejaFaites = $derived(
+    candidats.filter((c) => c.deja_faite && !c.carte_perimee).length,
   );
 
   onMount(() => {
@@ -167,6 +188,18 @@
   function retirerLesSansPhoto() {
     const sans = new Set(selectionSansPhoto.map((c) => c.personne_id));
     coches = coches.filter((id) => !sans.has(id));
+  }
+
+  /**
+   * Retirer ceux qui ont déjà leur carte.
+   *
+   * Les périmées restent : une carte faite pour une autre classe est un
+   * cas à trancher, et cet arbitrage coûte de l'argent — il n'est pas au
+   * programme de le rendre.
+   */
+  function retirerLesDejaFaites() {
+    const faites = new Set(selectionDejaFaites.map((c) => c.personne_id));
+    coches = coches.filter((id) => !faites.has(id));
   }
 
   function basculerClasse(classe) {
@@ -349,6 +382,26 @@
             affiché{affiches.length > 1 ? "s" : ""} · {nbAffichesCoches} coché{nbAffichesCoches > 1 ? "s" : ""}
           </span>
         </p>
+
+        {#if nbDejaFaites || nbPerimees}
+          <label class="flex cursor-pointer items-center gap-2 text-xs">
+            <input
+              type="checkbox"
+              class="h-4 w-4 accent-emerald-600"
+              bind:checked={sansCarteSeulement}
+            />
+            Masquer les {nbDejaFaites} déjà faite{nbDejaFaites > 1 ? "s" : ""}
+          </label>
+          {#if nbPerimees}
+            <span
+              class="text-xs font-semibold"
+              style="color: var(--color-amber-600);"
+              title="Faites pour une autre classe — la classe est imprimée sur la carte"
+            >
+              {nbPerimees} à revoir
+            </span>
+          {/if}
+        {/if}
         <Bouton taille="sm" icon={CheckSquare} onclick={cocherAffiches}>
           Tout cocher
         </Bouton>
@@ -390,6 +443,23 @@
               <span class="w-16 shrink-0 text-right font-mono text-xs text-stone-500 tabular-nums dark:text-stone-400">
                 {c.badge ?? ""}
               </span>
+              {#if c.carte_perimee}
+                <span
+                  class="flex shrink-0 items-center gap-1 text-xs font-semibold"
+                  style="color: var(--color-amber-600);"
+                  title="Carte faite le {c.faite_le} pour la classe {c.faite_pour} — la classe est imprimée dessus"
+                >
+                  carte en {c.faite_pour}
+                </span>
+              {:else if c.deja_faite}
+                <span
+                  class="flex shrink-0 items-center gap-1 text-xs"
+                  style="color: var(--color-vert-600);"
+                  title="Carte faite le {c.faite_le}"
+                >
+                  déjà faite
+                </span>
+              {/if}
               {#if c.a_une_photo}
                 <Camera class="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
               {:else}
@@ -447,6 +517,27 @@
           <button
             class="mt-1.5 text-xs font-medium text-amber-800 underline dark:text-amber-300"
             onclick={retirerLesSansPhoto}
+          >
+            Les retirer de la sélection
+          </button>
+        </div>
+      {/if}
+
+      {#if selectionDejaFaites.length}
+        <!-- Une carte réimprimée est une carte payée deux fois. Le dire
+             avant de produire, pas après. -->
+        <div class="rounded-lg border-l-4 border-l-amber-500 bg-amber-50 p-3 dark:bg-amber-900/25">
+          <p class="text-[11px] font-bold tracking-[0.08em] text-amber-800 uppercase dark:text-amber-300">
+            {selectionDejaFaites.length} carte{selectionDejaFaites.length > 1 ? "s" : ""} déjà faite{selectionDejaFaites.length > 1 ? "s" : ""}
+          </p>
+          <p class="mt-1 text-sm text-amber-900 dark:text-amber-200">
+            {selectionDejaFaites.slice(0, 6).map((c) => `${c.nom} ${c.prenom}`).join(", ")}{selectionDejaFaites.length > 6 ? `, et ${selectionDejaFaites.length - 6} autres` : ""}.
+            Leur carte est partie au dernier fichier, dans la classe qu'ils ont
+            encore. La refaire la paie deux fois.
+          </p>
+          <button
+            class="mt-1.5 text-xs font-medium text-amber-800 underline dark:text-amber-300"
+            onclick={retirerLesDejaFaites}
           >
             Les retirer de la sélection
           </button>

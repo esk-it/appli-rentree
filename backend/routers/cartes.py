@@ -6,6 +6,8 @@ une fois, pour les trois choses que le référentiel ne peut pas connaître.
 """
 from __future__ import annotations
 
+from datetime import date
+
 import base64
 import binascii
 
@@ -36,6 +38,10 @@ class CandidatOut(BaseModel):
     regime: str | None
     a_une_photo: bool
     codes_connus: bool
+    faite_le: date | None = None
+    faite_pour: str | None = None
+    deja_faite: bool = False
+    carte_perimee: bool = False
 
 
 class CandidatsReponse(BaseModel):
@@ -60,7 +66,15 @@ def candidats(
     except CartesImpossibles as e:
         raise HTTPException(400, str(e))
     return CandidatsReponse(
-        candidats=[CandidatOut(**vars(c)) for c in trouves],
+        # Les deux dernières sont des propriétés, pas des champs : `vars`
+        # ne les voit pas, et les oublier ferait sortir « jamais faite »
+        # sur des cartes qui existent.
+        candidats=[
+            CandidatOut(
+                **vars(c), deja_faite=c.deja_faite, carte_perimee=c.carte_perimee
+            )
+            for c in trouves
+        ],
         nb_chambres=len(CHAMBRES),
     )
 
