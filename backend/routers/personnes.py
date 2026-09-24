@@ -53,6 +53,10 @@ class PersonneOut(BaseModel):
     civilite: str | None
     poste_occupe: str | None
     matieres: str | None
+    classes_prof_principal: str | None = None
+    au_coffre: bool = False
+    """Un mot de passe au moins est gardé au coffre pour elle. Dit sans
+    ouvrir le coffre : savoir qu'un secret existe n'en révèle rien."""
     date_creation: datetime
     date_derniere_maj: datetime
 
@@ -68,10 +72,18 @@ def _constats_par_badge(session: Session) -> dict[int, str]:
     }
 
 
+def _au_coffre(session: Session) -> set[int]:
+    """Les personnes dont le coffre garde au moins un mot de passe."""
+    from backend.models import SecretConserve
+
+    return {pid for (pid,) in session.query(SecretConserve.personne_id).distinct()}
+
+
 def _serialiser(
     p: Personne,
     sites_par_id: dict[int, Site],
     constats: dict[int, str] | None = None,
+    coffre: set[int] | None = None,
 ) -> PersonneOut:
     site = sites_par_id.get(p.site_id) if p.site_id else None
     # Recalcul local plutôt que `p.email` : la relation `p.site` déclencherait
@@ -107,6 +119,8 @@ def _serialiser(
         civilite=p.civilite,
         poste_occupe=p.poste_occupe,
         matieres=p.matieres,
+        classes_prof_principal=p.classes_prof_principal,
+        au_coffre=p.id in (coffre or ()),
         date_creation=p.date_creation,
         date_derniere_maj=p.date_derniere_maj,
     )
@@ -130,7 +144,8 @@ def lister_personnes(
         q = q.filter_by(site_id=site_obj.id)
     q = q.order_by(Personne.type, Personne.nom, Personne.prenom)
     constats = _constats_par_badge(session)
-    return [_serialiser(p, sites_par_id, constats) for p in q.all()]
+    coffre = _au_coffre(session)
+    return [_serialiser(p, sites_par_id, constats, coffre) for p in q.all()]
 
 
 class LigneMouvementOut(BaseModel):
@@ -374,6 +389,102 @@ def lister_collisions(session: Session = Depends(db_session)) -> list[CollisionO
         )
 
     return sorties
+
+
+class ClasseCompletudeOut(BaseModel):
+    classe: str
+    site: str | None
+    effectif: int
+    avec_adresse: int
+    avec_photo: int | None
+    avec_ine: int
+    avec_naissance: int
+    au_coffre: int
+    codes_carte: bool
+    verifies: int
+    coherents: int
+
+
+class CompletudeOut(BaseModel):
+    annee: str
+    effectif: int
+    eleves: int
+    adultes: int
+    avec_adresse: int
+    avec_photo: int | None
+    avec_ine: int
+    avec_naissance: int
+    au_coffre: int
+    classes: int
+    classes_avec_codes: int
+    photos_injoignables: str | None
+    par_classe: list[ClasseCompletudeOut]
+
+
+@router.get("/completude", response_model=CompletudeOut)
+def lire_completude(
+    annee_id: int | None = None, session: Session = Depends(db_session)
+) -> CompletudeOut:
+    """Ce que le référentiel sait des inscrits de l'année, et ce qui manque.
+
+    Adresse du compte, mot de passe au coffre, photo, INE, date de
+    naissance, cohérence : par classe, pour qu'on sache où corriger. Le
+    partage des photos injoignable donne `None`, pas zéro.
+    """
+    from dataclasses import asdict
+
+    from backend.services.completude import relever
+
+    try:
+        return CompletudeOut(**asdict(relever(session, annee_id=annee_id)))
+    except ValueError as e:
+        raise HTTPException(404, str(e)) from None
+
+
+class TrombinoscopePayload(BaseModel):
+    classe: str = Field(..., min_length=1, max_length=30)
+    annee_id: int | None = None
+
+
+class TrombinoscopeOut(BaseModel):
+    nom_fichier: str
+    pdf_base64: str
+    nb_eleves: int
+    nb_sans_photo: int
+
+
+@router.post("/trombinoscope", response_model=TrombinoscopeOut)
+def imprimer_trombinoscope(
+    payload: TrombinoscopePayload, session: Session = Depends(db_session)
+) -> TrombinoscopeOut:
+    """Le trombinoscope d'une classe, en PDF A4, photos comprises.
+
+    Imprimé par le navigateur du poste, comme les étiquettes : Edge ou
+    Chrome doit être installé.
+    """
+    import base64
+
+    from backend.services.impression_pdf import (
+        ImpressionImpossible,
+        html_en_pdf,
+        nom_de_fichier,
+    )
+    from backend.services.trombinoscope import TrombinoscopeImpossible, composer
+
+    try:
+        t = composer(session, classe=payload.classe.strip(), annee_id=payload.annee_id)
+    except TrombinoscopeImpossible as e:
+        raise HTTPException(404, str(e)) from None
+    try:
+        pdf = html_en_pdf(t.html)
+    except ImpressionImpossible as e:
+        raise HTTPException(400, str(e)) from None
+    return TrombinoscopeOut(
+        nom_fichier=nom_de_fichier(f"Trombinoscope_{t.classe}_{t.annee}") + ".pdf",
+        pdf_base64=base64.b64encode(pdf).decode("ascii"),
+        nb_eleves=t.nb_eleves,
+        nb_sans_photo=t.nb_sans_photo,
+    )
 
 
 class DoublonOut(BaseModel):

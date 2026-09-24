@@ -42,8 +42,13 @@
   }
 </script>
 
+<!-- Le filet du bas est une ombre intérieure, pas une bordure : l'onglet
+     actif le recouvre de son soulignement sans déborder du conteneur. Avec
+     une bordure et un `-mb-px`, le contenu dépassait d'un pixel — et
+     `overflow-x-auto` faisait apparaître une barre de défilement verticale
+     à côté des onglets. -->
 <div
-  class="flex gap-8 overflow-x-auto border-b border-stone-200 text-sm font-semibold dark:border-stone-800"
+  class="flex gap-8 overflow-x-auto text-sm font-semibold shadow-[inset_0_-1px_0_var(--color-stone-200)] dark:shadow-[inset_0_-1px_0_var(--color-stone-800)]"
   role="tablist"
 >
   {#each onglets as o (o.id)}
@@ -52,7 +57,7 @@
       type="button"
       role="tab"
       aria-selected={actif}
-      class="-mb-px shrink-0 border-b-2 py-2.5 whitespace-nowrap transition-colors
+      class="shrink-0 border-b-2 py-2.5 whitespace-nowrap transition-colors
              {actif
                ? ''
                : 'border-transparent text-stone-500 hover:text-stone-800 dark:text-stone-400 dark:hover:text-stone-200'}"

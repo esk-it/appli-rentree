@@ -110,6 +110,21 @@ export const personnes = {
   async fiche(id) {
     return jsonOrThrow(await fetch(`${BASE}/personnes/${id}/fiche`));
   },
+  /** Ce que le référentiel sait des inscrits de l'année, classe par classe. */
+  async completude(anneeId = null) {
+    const qs = anneeId ? `?annee_id=${anneeId}` : "";
+    return jsonOrThrow(await fetch(`${BASE}/personnes/completude${qs}`));
+  },
+  /** Le trombinoscope d'une classe, en PDF (base64). */
+  async trombinoscope(classe, anneeId = null) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/personnes/trombinoscope`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ classe, annee_id: anneeId }),
+      }),
+    );
+  },
   async lister({ type = null, site = null } = {}) {
     const p = new URLSearchParams();
     if (type) p.set("type", type);

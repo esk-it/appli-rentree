@@ -857,7 +857,7 @@
             onRechercher={() => (paletteOuverte = true)}
           />
         {:else if page === "personnes"}
-          <Personnes onOuvrirFiche={ouvrirFiche} />
+          <Personnes onOuvrirFiche={ouvrirFiche} onNaviguer={(p) => (page = p)} />
         {:else if page === "coffre"}
           <Coffre />
         {:else if page === "arrivees"}
