@@ -27,19 +27,18 @@ router = APIRouter(prefix="/api/photos", tags=["photos"])
 def _dossier_pour(session: Session, personne: Personne) -> str | None:
     """Le dossier où chercher la photo de cette personne.
 
-    Les photos du personnel ne sont pas rangées avec celles des élèves :
-    celles-ci vivent dans une arborescence par année, celles-là dans un
-    dossier à part. Un seul réglage ne pouvait donc pas servir les deux —
-    et c'est pourquoi les adultes n'avaient jamais de visage.
+    La règle vit dans `inventaire_photos.dossier_de` : celui de son site
+    s'il en a un, sinon le dossier commun de sa population. Les avatars,
+    l'inventaire et les cartes la lisent au même endroit — sans quoi le
+    trombinoscope montrerait un visage que l'inventaire dit absent.
+
+    Pas de repli d'une population sur l'autre : le dossier des élèves ne
+    contient pas les adultes, et y chercher ne ferait que des 404 plus
+    lents.
     """
-    if personne.type == "adulte":
-        adultes = _lire_parametre(session, "chemin_dossier_photos_adultes")
-        if adultes:
-            return adultes
-        # Pas de repli sur le dossier des élèves : il ne contient pas les
-        # adultes, et y chercher ne ferait que des 404 plus lents.
-        return None
-    return _lire_parametre(session, "chemin_dossier_photos")
+    from backend.services.inventaire_photos import dossier_de
+
+    return dossier_de(session, personne)
 
 
 def _lire_parametre(session: Session, cle: str) -> str | None:
@@ -80,6 +79,7 @@ class EleveSansPhotoOut(BaseModel):
 
 class InventaireOut(BaseModel):
     dossier: str
+    dossiers_injoignables: dict[str, int] = {}
     type_personne: str
     nb_eleves: int
     nb_avec: int
@@ -111,6 +111,7 @@ def inventaire(
 
     return InventaireOut(
         dossier=r.dossier,
+        dossiers_injoignables=r.dossiers_injoignables,
         type_personne=r.type_personne,
         nb_eleves=r.nb_eleves,
         nb_avec=r.nb_avec,

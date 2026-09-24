@@ -305,3 +305,159 @@ def test_la_parenthese_lemporte_sur_le_nom_nu(session, contexte):
 
     r = _relever(session, contexte)
     assert r.nb_sans == 0
+
+
+
+# ---------------------------------------------------------------------------
+# Un dossier par site : les photos de NDE à part
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def deux_sites(session, site_factory, annee_factory, personne_factory, tmp_path):
+    """NDK sur le dossier commun, NDE sur le sien."""
+    from backend.models import Parametre, Snapshot
+
+    commun = tmp_path / "KREISKER"
+    propre = tmp_path / "NDE"
+    commun.mkdir()
+    propre.mkdir()
+
+    ndk = site_factory("NDK")
+    nde = site_factory("NDE")
+    nde.dossier_photos_eleves = str(propre)
+    annee = annee_factory("2026-2027")
+    session.add(
+        Parametre(cle="chemin_dossier_photos", valeur_json=json.dumps(str(commun)))
+    )
+    session.commit()
+
+    def _eleve(site, nom, prenom, classe="61", **kw):
+        p = personne_factory(nom=nom, prenom=prenom, site_id=site.id, **kw)
+        session.add(
+            Snapshot(
+                personne_id=p.id, annee_scolaire_id=annee.id,
+                nom=nom, prenom=prenom, classe=classe,
+            )
+        )
+        session.commit()
+        return p
+
+    return {
+        "ndk": ndk, "nde": nde, "annee": annee, "eleve": _eleve,
+        "commun": commun, "propre": propre,
+    }
+
+
+def test_un_eleve_de_nde_se_cherche_dans_le_dossier_de_nde(session, deux_sites):
+    from backend.services.inventaire_photos import chemins_attribues, relever
+
+    d = deux_sites
+    e = d["eleve"](d["nde"], "LEGALL", "Anna", classe="6B")
+    (d["propre"] / "LEGALL Anna.jpg").write_bytes(b"x")
+
+    r = relever(session, annee_id=d["annee"].id)
+    assert (r.nb_eleves, r.nb_avec) == (1, 1)
+    chemins = chemins_attribues(session, annee_id=d["annee"].id)
+    assert chemins[e.id] == str(d["propre"] / "LEGALL Anna.jpg")
+
+
+def test_une_photo_de_nde_ne_se_trouve_pas_dans_le_dossier_commun(session, deux_sites):
+    """Si NDE a son dossier, c'est là qu'on cherche — et seulement là."""
+    from backend.services.inventaire_photos import relever
+
+    d = deux_sites
+    d["eleve"](d["nde"], "LEGALL", "Anna", classe="6B")
+    (d["commun"] / "LEGALL Anna.jpg").write_bytes(b"x")  # mauvais dossier
+
+    r = relever(session, annee_id=d["annee"].id)
+    assert r.nb_sans == 1
+    assert r.manquantes[0].chemin_attendu.startswith(str(d["propre"]))
+
+
+def test_deux_homonymes_de_deux_sites_ne_se_disputent_pas(session, deux_sites):
+    """Deux MARTIN Léa, une à NDK et une à NDE : deux photos, deux élèves.
+
+    Dans un seul dossier, les deux se réclameraient du même fichier, et la
+    règle des disputes le leur retirerait à toutes les deux. Chacune a son
+    dossier : chacune a sa photo.
+    """
+    from backend.services.inventaire_photos import chemins_attribues
+
+    d = deux_sites
+    a = d["eleve"](d["ndk"], "MARTIN", "Lea", classe="61")
+    b = d["eleve"](d["nde"], "MARTIN", "Lea", classe="6B", login="lmartin1")
+    (d["commun"] / "MARTIN Lea.jpg").write_bytes(b"ndk")
+    (d["propre"] / "MARTIN Lea.jpg").write_bytes(b"nde")
+
+    chemins = chemins_attribues(session, annee_id=d["annee"].id)
+    assert chemins[a.id] == str(d["commun"] / "MARTIN Lea.jpg")
+    assert chemins[b.id] == str(d["propre"] / "MARTIN Lea.jpg")
+
+
+def test_un_dossier_de_site_pas_encore_en_place_ne_fait_pas_tomber_le_releve(
+    session, deux_sites
+):
+    """Le dossier de NDE est réglé mais pas encore sur le serveur.
+
+    Le relevé de NDK ne doit pas en tomber, et les élèves de NDE ne doivent
+    pas passer pour sans photo : on ne sait rien d'eux. Ils sont mis de
+    côté, et le rapport nomme le dossier.
+    """
+    from backend.services.inventaire_photos import relever
+
+    d = deux_sites
+    d["nde"].dossier_photos_eleves = str(d["propre"] / "pas-encore")
+    session.commit()
+    d["eleve"](d["ndk"], "DUPONT", "Jean", classe="61")
+    d["eleve"](d["nde"], "LEGALL", "Anna", classe="6B")
+    (d["commun"] / "DUPONT Jean.jpg").write_bytes(b"x")
+
+    r = relever(session, annee_id=d["annee"].id)
+    assert (r.nb_eleves, r.nb_avec, r.nb_sans) == (1, 1, 0)
+    assert r.dossiers_injoignables == {str(d["propre"] / "pas-encore"): 1}
+
+
+def test_un_site_sans_dossier_propre_garde_le_dossier_commun(session, deux_sites):
+    """Le réglage par site est une exception : vide, rien ne change."""
+    from backend.services.inventaire_photos import dossier_de
+
+    d = deux_sites
+    e = d["eleve"](d["ndk"], "DUPONT", "Jean")
+    assert dossier_de(session, e) == str(d["commun"])
+
+
+def test_un_adulte_de_nde_se_cherche_dans_le_dossier_des_adultes_de_nde(
+    session, deux_sites, personne_factory
+):
+    """Les professeurs de NDE aussi ont leurs photos à part."""
+    from backend.services.inventaire_photos import dossier_de
+
+    d = deux_sites
+    profs_nde = d["propre"] / "Enseignants"
+    profs_nde.mkdir()
+    d["nde"].dossier_photos_adultes = str(profs_nde)
+    session.commit()
+
+    prof = personne_factory(type="adulte", nom="PROF", prenom="Nde", site_id=d["nde"].id)
+    assert dossier_de(session, prof) == str(profs_nde)
+
+
+def test_l_avatar_lit_la_meme_regle(session, deux_sites):
+    """Le trombinoscope ne doit pas montrer un visage que l'inventaire dit
+    absent, ni l'inverse : les deux lisent le même dossier."""
+    from fastapi.testclient import TestClient
+
+    from backend.database import db_session
+    from backend.main import app
+
+    d = deux_sites
+    e = d["eleve"](d["nde"], "LEGALL", "Anna", classe="6B")
+    (d["propre"] / "LEGALL Anna.jpg").write_bytes(b"\xff\xd8\xff")
+
+    app.dependency_overrides[db_session] = lambda: session
+    try:
+        reponse = TestClient(app).get(f"/api/photos/{e.id}")
+    finally:
+        app.dependency_overrides.clear()
+    assert reponse.status_code == 200

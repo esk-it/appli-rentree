@@ -68,6 +68,23 @@ class Site(Base):
     dont aucune n'était réelle — ses élèves étaient comparés à ceux de deux
     annuaires où ils n'ont pas de compte."""
 
+    dossier_photos_eleves: Mapped[str | None] = mapped_column(
+        String(300), nullable=True
+    )
+    """Le dossier des photos d'élèves de ce site, quand il n'est pas le
+    dossier commun.
+
+    NDK et SU partagent un dossier : Charlemagne range toutes leurs photos
+    sous `…\\Photos\\Eleves\\KREISKER\\<année>`. NDE a les siennes à part —
+    les mélanger ferait se disputer les homonymes des deux établissements,
+    et une carte pourrait porter le visage d'un autre. Vide : le dossier
+    commun des Paramètres."""
+
+    dossier_photos_adultes: Mapped[str | None] = mapped_column(
+        String(300), nullable=True
+    )
+    """Le même, pour le personnel. Vide : le dossier commun des adultes."""
+
     numero_ordre: Mapped[int] = mapped_column(Integer)
     """Numéro d'ordre pour l'arborescence OU : 2 (NDE), 3 (NDK), 4 (SU), 7 (Sortis)."""
 

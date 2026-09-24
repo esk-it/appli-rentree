@@ -324,3 +324,54 @@ def test_la_version_annoncee_suit_celle_de_lapplication():
         .read_text(encoding="utf-8")
     )
     assert app.version == conf["version"]
+
+
+# ---------------------------------------------------------------------------
+# Le dossier des photos propre à un site
+# ---------------------------------------------------------------------------
+
+
+def _site_nde():
+    return {
+        "nom": "NDE",
+        "nom_complet": "Notre-Dame d'Espérance",
+        "domaine_mail": "ndecleder.fr",
+        "prefixe_annee_ou": "NDE",
+        "numero_ordre": 2,
+    }
+
+
+def test_le_dossier_photos_d_un_site_se_regle_et_se_relit(client):
+    """Les photos de NDE vivent à part : le dossier se règle sur le site."""
+    r = client.post("/api/sites", json=_site_nde())
+    assert r.status_code == 200
+    site_id = r.json()["id"]
+    assert r.json()["dossier_photos_eleves"] is None
+
+    r = client.put(
+        f"/api/sites/{site_id}",
+        json={
+            **_site_nde(),
+            # Un chemin collé depuis l'explorateur traîne souvent une barre
+            # finale et des espaces : on les retire.
+            "dossier_photos_eleves": r"  \\ESK-APP01\Photos\NDE\  ",
+            "dossier_photos_adultes": "",
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["dossier_photos_eleves"] == r"\\ESK-APP01\Photos\NDE"
+    assert r.json()["dossier_photos_adultes"] is None, "vide veut dire : le dossier commun"
+
+
+def test_un_formulaire_qui_ignore_le_dossier_ne_l_efface_pas(client):
+    """Un appelant qui ne connaît pas ces champs ne doit pas vider un
+    dossier réglé ailleurs."""
+    site_id = client.post("/api/sites", json=_site_nde()).json()["id"]
+    client.put(
+        f"/api/sites/{site_id}",
+        json={**_site_nde(), "dossier_photos_eleves": r"\\ESK-APP01\Photos\NDE"},
+    )
+
+    r = client.put(f"/api/sites/{site_id}", json={**_site_nde(), "nom_complet": "NDE"})
+    assert r.status_code == 200
+    assert r.json()["dossier_photos_eleves"] == r"\\ESK-APP01\Photos\NDE"

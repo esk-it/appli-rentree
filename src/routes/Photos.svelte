@@ -224,6 +224,26 @@
       </span>
     </div>
 
+    {#if Object.keys(inventaire.dossiers_injoignables ?? {}).length}
+      <!-- Un site qui a son propre dossier, pas encore en place sur le
+           serveur : ses personnes ne sont pas comptées sans photo — on ne
+           sait rien d'elles — et le relevé des autres sites ne tombe pas. -->
+      <div class="rounded-xl bg-stone-100 px-4.5 py-3 text-sm text-stone-700 dark:bg-stone-800/60 dark:text-stone-300">
+        {#each Object.entries(inventaire.dossiers_injoignables) as [dossier, nb] (dossier)}
+          <p>
+            Dossier introuvable :
+            <span class="font-mono text-xs">{dossier}</span>
+            {#if nb}— <strong>{nb}</strong> personne{nb > 1 ? "s" : ""} non
+              comptée{nb > 1 ? "s" : ""}, ni avec ni sans photo.{/if}
+          </p>
+        {/each}
+        <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
+          Le dossier se règle par site, dans l'écran Sites. Tant qu'il n'est pas
+          sur le serveur, ces personnes restent hors du relevé.
+        </p>
+      </div>
+    {/if}
+
     <!-- Les trois constats, en grands chiffres colorés. -->
     <div class="flex flex-wrap gap-14 border-b border-stone-200 pb-5 dark:border-stone-800">
       <div>

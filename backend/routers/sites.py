@@ -29,6 +29,8 @@ class SiteOut(BaseModel):
     L'interface s'en sert pour savoir si les mots de passe doivent être
     fabriqués — un site sans KoXo n'a personne pour les produire."""
     organisation_etiquettes: str | None = None
+    dossier_photos_eleves: str | None = None
+    dossier_photos_adultes: str | None = None
 
 
 class SitePayload(BaseModel):
@@ -38,6 +40,16 @@ class SitePayload(BaseModel):
     ou_sortants: str | None = Field(None, max_length=200)
     prefixe_annee_ou: str = Field(..., min_length=1, max_length=20)
     numero_ordre: int = Field(..., ge=1)
+    dossier_photos_eleves: str | None = Field(None, max_length=300)
+    """Absent du formulaire : on n'y touche pas. Vide : dossier commun."""
+    dossier_photos_adultes: str | None = Field(None, max_length=300)
+
+
+def _nettoyer(chemin: str | None) -> str | None:
+    """Un chemin collé depuis l'explorateur traîne souvent un espace ou
+    une barre finale ; vide veut dire « le dossier commun »."""
+    chemin = (chemin or "").strip().rstrip("\\/")
+    return chemin or None
 
 
 def _serialiser(s: Site) -> SiteOut:
@@ -52,6 +64,8 @@ def _serialiser(s: Site) -> SiteOut:
         prefixe_racine_ou=s.prefixe_racine_ou(),
         base_koxo=s.base_koxo,
         organisation_etiquettes=s.organisation_etiquettes,
+        dossier_photos_eleves=s.dossier_photos_eleves,
+        dossier_photos_adultes=s.dossier_photos_adultes,
     )
 
 
@@ -73,6 +87,8 @@ def creer_site(
         ou_sortants=payload.ou_sortants,
         prefixe_annee_ou=payload.prefixe_annee_ou,
         numero_ordre=payload.numero_ordre,
+        dossier_photos_eleves=_nettoyer(payload.dossier_photos_eleves),
+        dossier_photos_adultes=_nettoyer(payload.dossier_photos_adultes),
     )
     session.add(s)
     session.commit()
@@ -93,6 +109,12 @@ def modifier_site(
     s.ou_sortants = payload.ou_sortants
     s.prefixe_annee_ou = payload.prefixe_annee_ou
     s.numero_ordre = payload.numero_ordre
+    # Seulement s'ils sont envoyés : un appelant qui ignore ces champs ne
+    # doit pas vider un dossier réglé ailleurs.
+    if "dossier_photos_eleves" in payload.model_fields_set:
+        s.dossier_photos_eleves = _nettoyer(payload.dossier_photos_eleves)
+    if "dossier_photos_adultes" in payload.model_fields_set:
+        s.dossier_photos_adultes = _nettoyer(payload.dossier_photos_adultes)
     session.commit()
     session.refresh(s)
     return _serialiser(s)

@@ -15,7 +15,7 @@
   let erreur = $state("");
 
   let modaleOuverte = $state(null);
-  let form = $state({ nom: "", nom_complet: "", domaine_mail: "", prefixe_annee_ou: "", numero_ordre: 2, ou_sortants: "" });
+  let form = $state({ nom: "", nom_complet: "", domaine_mail: "", prefixe_annee_ou: "", numero_ordre: 2, ou_sortants: "", dossier_photos_eleves: "", dossier_photos_adultes: "" });
 
   onMount(rafraichir);
 
@@ -31,12 +31,14 @@
   }
 
   function ouvrirNouveau() {
-    form = { nom: "", nom_complet: "", domaine_mail: "", prefixe_annee_ou: "", numero_ordre: liste.length + 2, ou_sortants: "" };
+    form = { nom: "", nom_complet: "", domaine_mail: "", prefixe_annee_ou: "", numero_ordre: liste.length + 2, ou_sortants: "", dossier_photos_eleves: "", dossier_photos_adultes: "" };
     modaleOuverte = { mode: "creer" };
   }
 
   function ouvrirEdition(s) {
-    form = { ...s };
+    form = { dossier_photos_eleves: "", dossier_photos_adultes: "", ...s };
+    form.dossier_photos_eleves ??= "";
+    form.dossier_photos_adultes ??= "";
     modaleOuverte = { mode: "editer", id: s.id };
   }
 
@@ -199,6 +201,38 @@
       <label class="block">
         <span class="libelle-champ">N° d'ordre</span>
         <input type="number" min="1" bind:value={form.numero_ordre} class="champ mt-1 w-24" />
+      </label>
+    </div>
+
+    <!--
+      Les photos de NDK et SU vivent dans le même dossier de Charlemagne ;
+      celles de NDE à part. Les mélanger ferait se disputer les homonymes
+      des deux établissements, et une carte pourrait porter le visage d'un
+      autre. Vide : le dossier commun des Paramètres.
+    -->
+    <div class="space-y-3 rounded-xl bg-stone-100 p-3 dark:bg-stone-800/60">
+      <p class="text-xs text-stone-600 dark:text-stone-400">
+        <strong>Photos propres à ce site</strong> — seulement si elles ne sont
+        pas rangées dans le dossier commun des Paramètres. Vide : le dossier
+        commun.
+      </p>
+      <label class="block">
+        <span class="libelle-champ">Dossier des photos élèves</span>
+        <input
+          type="text"
+          bind:value={form.dossier_photos_eleves}
+          placeholder="\\ESK-APP01\...\Photos\NDE"
+          class="champ mt-1 font-mono text-xs"
+        />
+      </label>
+      <label class="block">
+        <span class="libelle-champ">Dossier des photos adultes</span>
+        <input
+          type="text"
+          bind:value={form.dossier_photos_adultes}
+          placeholder="\\ESK-APP01\...\Photos\NDE\Enseignants"
+          class="champ mt-1 font-mono text-xs"
+        />
       </label>
     </div>
 

@@ -72,6 +72,13 @@ class InventairePhotos:
     manquantes: list[EleveSansPhoto] = field(default_factory=list)
     par_classe: dict[str, dict[str, int]] = field(default_factory=dict)
     """`{classe: {"avec": n, "sans": n}}` — la maille à laquelle on relance."""
+    dossiers_injoignables: dict[str, int] = field(default_factory=dict)
+    """`{dossier: nb de personnes}` pour les dossiers qu'on n'a pas pu lire.
+
+    Ces personnes ne sont **pas** comptées sans photo : on ne sait rien
+    d'elles. Le cas se présente dès qu'un site a son propre dossier et que
+    le partage n'est pas encore en place — le relevé des deux autres ne
+    doit pas en tomber, ni ce site-là passer pour vide."""
 
     @property
     def nb_sans(self) -> int:
@@ -116,6 +123,40 @@ def dossier_photos(session: Session, *, type_personne: str = "eleve") -> str | N
         return json.loads(param.valeur_json) or None
     except (json.JSONDecodeError, TypeError):
         return None
+
+
+def dossier_de(
+    session: Session, personne: Personne, *, sites: dict | None = None
+) -> str | None:
+    """Le dossier où chercher la photo de cette personne.
+
+    Celui de **son site** quand le site en a un, sinon le dossier commun de
+    sa population. NDK et SU partagent le dossier de Charlemagne ; NDE a
+    ses photos à part, et les mélanger ferait se disputer les homonymes des
+    deux établissements — une carte pourrait porter le visage d'un autre.
+
+    C'est l'unique endroit où la règle s'écrit : les avatars, l'inventaire
+    et les cartes la lisent tous ici.
+
+    Args:
+        sites: `{id: Site}` déjà chargé, pour ne pas relire la table à
+            chaque personne d'un relevé de deux mille.
+    """
+    from backend.models import Site
+
+    if sites is None:
+        site = session.get(Site, personne.site_id) if personne.site_id else None
+    else:
+        site = sites.get(personne.site_id)
+    if site is not None:
+        propre = (
+            site.dossier_photos_adultes
+            if personne.type == "adulte"
+            else site.dossier_photos_eleves
+        )
+        if (propre or "").strip():
+            return propre.strip()
+    return dossier_photos(session, type_personne=personne.type)
 
 
 def _sans_separateurs(texte: str) -> str:
@@ -215,6 +256,20 @@ def _pistes(
 
 
 @dataclass
+class Lecture:
+    """Un dossier du partage, lu une fois."""
+
+    racine: Path
+    dossier: str
+    reels: dict[str, str]
+    """Nom de fichier replié → nom réel. Le partage se lit sans égard à la
+    casse, mais un chemin qu'on écrit dans un fichier doit être le vrai."""
+    presents: set[str]
+    disputes: set[str] = field(default_factory=set)
+    pris: set[str] = field(default_factory=set)
+
+
+@dataclass
 class Parcours:
     """Le partage lu une fois, et ce qu'on en a déduit.
 
@@ -224,19 +279,25 @@ class Parcours:
     deux homonymes n'appartient à aucun des deux — ne doit exister qu'à un
     seul endroit : dupliquée, elle finirait par diverger, et la carte
     porterait le visage que la liste déclarait douteux.
+
+    ## Un dossier par site, quand il le faut
+
+    Les disputes se jugent **dans un dossier**, jamais entre deux : un
+    `MARTIN Léa.jpg` dans le dossier de NDE et un autre dans celui de NDK
+    sont deux photos de deux élèves, pas une photo que deux élèves se
+    disputent.
     """
 
-    racine: Path
-    dossier: str
-    reels: dict[str, str]
-    """Nom de fichier replié → nom réel. Le partage se lit sans égard à la
-    casse, mais un chemin qu'on écrit dans un fichier doit être le vrai."""
-    presents: set[str]
-    retenus: list[tuple[Personne, str, str | None]]
-    """(personne, classe, fichier trouvé — replié) pour les présents de l'année."""
-    disputes: set[str]
-    pris: set[str]
+    lectures: dict[str, Lecture]
+    retenus: list[tuple[Personne, str, str | None, Lecture]]
+    """(personne, classe, fichier trouvé — replié, dossier où il l'a été)."""
     sites: dict[int, str]
+    injoignables: dict[str, int] = field(default_factory=dict)
+
+    @property
+    def dossier(self) -> str:
+        """Les dossiers lus, pour l'affichage."""
+        return " · ".join(self.lectures) or ""
 
 
 def _parcourir(
@@ -245,22 +306,16 @@ def _parcourir(
     """Lit le partage et attribue ce qui ne fait pas de doute.
 
     Raises:
-        InventaireImpossible: dossier non réglé, ou inaccessible — les deux
-            se disent différemment, parce qu'ils se corrigent différemment.
+        InventaireImpossible: aucun dossier réglé, ou aucun joignable — les
+            deux se disent différemment, parce qu'ils se corrigent
+            différemment. Un seul dossier injoignable parmi plusieurs ne
+            fait pas tomber le relevé : ses personnes sont mises de côté,
+            et le rapport le dit.
     """
-    dossier = dossier_photos(session, type_personne=type_personne)
-    if not dossier:
-        qui = "adultes" if type_personne == "adulte" else "élèves"
-        raise InventaireImpossible(
-            f"Le dossier des photos {qui} n'est pas réglé. Il se déclare "
-            "dans les Paramètres — c'est le partage où Charlemagne les dépose."
-        )
-    racine = Path(dossier)
-    if not racine.exists():
-        raise InventaireImpossible(
-            f"Dossier introuvable : {dossier}. Le partage réseau est-il monté "
-            "sur ce poste ?"
-        )
+    from backend.models import Site
+
+    tous_sites = {s.id: s for s in session.query(Site).all()}
+    sites = {i: s.nom for i, s in tous_sites.items()}
 
     derniers: dict[int, Snapshot] = {}
     for sn in session.query(Snapshot).filter(Snapshot.annee_scolaire_id == annee_id):
@@ -272,29 +327,67 @@ def _parcourir(
         ):
             derniers[sn.personne_id] = sn
 
-    # Un seul parcours du dossier plutôt qu'un test par nom candidat : sur un
-    # partage réseau, lister une fois coûte bien moins que deux mille
-    # interrogations de fichier.
-    reels = {
-        f.name.casefold(): f.name
-        for f in racine.iterdir()
-        if f.is_file() and f.suffix.casefold() in EXTENSIONS
+    # Présent cette année, et lui seul : sans ce filtre, tout le personnel
+    # passé serait compté comme sans photo, et la liste des relances serait
+    # pleine de gens partis depuis des années.
+    presents_annee = [
+        (p, derniers[p.id])
+        for p in session.query(Personne).filter(Personne.type == type_personne).all()
+        if p.id in derniers
+    ]
+    dossier_par_personne = {
+        p.id: dossier_de(session, p, sites=tous_sites) for p, _ in presents_annee
     }
-    presents = set(reels)
+    # Le dossier commun est toujours du nombre, même si personne n'y est
+    # attendu cette année : un réglage fait et un partage absent ne se
+    # disent pas pareil, et on ne le saurait pas sans le lire.
+    commun = dossier_photos(session, type_personne=type_personne)
+    voulus = {d for d in dossier_par_personne.values() if d} | (
+        {commun} if commun else set()
+    )
+    if not voulus:
+        qui = "adultes" if type_personne == "adulte" else "élèves"
+        raise InventaireImpossible(
+            f"Le dossier des photos {qui} n'est pas réglé. Il se déclare "
+            "dans les Paramètres — c'est le partage où Charlemagne les dépose."
+        )
 
-    from backend.models import Site
+    # Un seul parcours par dossier plutôt qu'un test par nom candidat : sur
+    # un partage réseau, lister une fois coûte bien moins que deux mille
+    # interrogations de fichier.
+    lectures: dict[str, Lecture] = {}
+    injoignables: dict[str, int] = {}
+    for dossier in sorted(voulus):
+        racine = Path(dossier)
+        if not racine.exists():
+            injoignables[dossier] = 0
+            continue
+        reels = {
+            f.name.casefold(): f.name
+            for f in racine.iterdir()
+            if f.is_file() and f.suffix.casefold() in EXTENSIONS
+        }
+        lectures[dossier] = Lecture(
+            racine=racine, dossier=dossier, reels=reels, presents=set(reels)
+        )
+    if not lectures:
+        raise InventaireImpossible(
+            "Dossier introuvable : "
+            + ", ".join(sorted(injoignables))
+            + ". Le partage réseau est-il monté sur ce poste ?"
+        )
 
-    sites = {s.id: s.nom for s in session.query(Site).all()}
-
-    # Première passe : qui revendique quoi. Rien n'est attribué encore.
-    retenus: list[tuple[Personne, str, str | None]] = []
-    revendications: dict[str, int] = defaultdict(int)
-    for p in session.query(Personne).filter(Personne.type == type_personne).all():
-        sn = derniers.get(p.id)
-        # Présent cette année, et lui seul : sans ce filtre, tout le
-        # personnel passé serait compté comme sans photo, et la liste des
-        # relances serait pleine de gens partis depuis des années.
-        if sn is None:
+    # Première passe : qui revendique quoi, dossier par dossier. Rien n'est
+    # attribué encore.
+    retenus: list[tuple[Personne, str, str | None, Lecture]] = []
+    revendications: dict[tuple[str, str], int] = defaultdict(int)
+    for p, sn in presents_annee:
+        dossier = dossier_par_personne.get(p.id)
+        if not dossier:
+            continue
+        lecture = lectures.get(dossier)
+        if lecture is None:
+            injoignables[dossier] += 1
             continue
         # Un adulte n'a pas de classe : sa maille de regroupement est son
         # site. Exiger une classe l'écarterait purement et simplement.
@@ -306,29 +399,25 @@ def _parcourir(
         if not classe:
             continue
         trouve = _trouver(
-            presents, p, classe if type_personne == "eleve" else ""
+            lecture.presents, p, classe if type_personne == "eleve" else ""
         )
         if trouve:
-            revendications[trouve.casefold()] += 1
-        retenus.append((p, classe, trouve))
+            revendications[(dossier, trouve.casefold())] += 1
+        retenus.append((p, classe, trouve, lecture))
 
     # Un fichier revendiqué par deux personnes n'appartient à aucune des
     # deux : `BELLEC Manon.jpg` existe à côté de `BELLEC Manon (21).jpg` et
     # `(TMCV1).jpg`, et les deux Manon s'en réclamaient — chacune comptée
     # « avec photo », sur la même image. C'est précisément ce que la
     # parenthèse existe pour éviter ; on rend donc le fichier au doute.
-    disputes = {f for f, n in revendications.items() if n > 1}
-    pris = {f for f in revendications if f not in disputes}
+    for (dossier, fichier), n in revendications.items():
+        (lectures[dossier].disputes if n > 1 else lectures[dossier].pris).add(fichier)
 
     return Parcours(
-        racine=racine,
-        dossier=dossier,
-        reels=reels,
-        presents=presents,
+        lectures=lectures,
         retenus=retenus,
-        disputes=disputes,
-        pris=pris,
         sites=sites,
+        injoignables=injoignables,
     )
 
 
@@ -350,13 +439,13 @@ def chemins_attribues(
     # nom nu), tantôt une entrée déjà repliée (branche des homonymes). C'est
     # la forme repliée qui indexe le partage, ici comme dans les revendications.
     attribues: dict[int, str] = {}
-    for p, _classe, trouve in parcours.retenus:
+    for p, _classe, trouve, lecture in parcours.retenus:
         if not trouve:
             continue
         cle = trouve.casefold()
-        if cle in parcours.disputes or cle not in parcours.reels:
+        if cle in lecture.disputes or cle not in lecture.reels:
             continue
-        attribues[p.id] = str(parcours.racine / parcours.reels[cle])
+        attribues[p.id] = str(lecture.racine / lecture.reels[cle])
     return attribues
 
 
@@ -374,23 +463,26 @@ def relever(
         InventaireImpossible: dossier non réglé, ou inaccessible.
     """
     parcours = _parcourir(session, annee_id=annee_id, type_personne=type_personne)
-    racine, presents = parcours.racine, parcours.presents
-    disputes, pris, sites = parcours.disputes, parcours.pris, parcours.sites
+    sites = parcours.sites
 
     inventaire = InventairePhotos(
-        dossier=parcours.dossier, type_personne=type_personne
+        dossier=parcours.dossier,
+        type_personne=type_personne,
+        dossiers_injoignables=dict(parcours.injoignables),
     )
     par_classe: dict[str, dict[str, int]] = defaultdict(lambda: {"avec": 0, "sans": 0})
 
-    # Seconde passe : ce qui reste, et les pistes encore libres.
-    for p, classe, trouve in parcours.retenus:
+    # Seconde passe : ce qui reste, et les pistes encore libres — dans le
+    # dossier de chacun.
+    for p, classe, trouve, lecture in parcours.retenus:
+        presents, disputes, pris = lecture.presents, lecture.disputes, lecture.pris
         inventaire.nb_eleves += 1
         if trouve and trouve.casefold() not in disputes:
             inventaire.nb_avec += 1
             par_classe[classe]["avec"] += 1
             continue
 
-        candidats = _candidats(racine, p)
+        candidats = _candidats(lecture.racine, p)
         par_classe[classe]["sans"] += 1
         inventaire.manquantes.append(
             EleveSansPhoto(
