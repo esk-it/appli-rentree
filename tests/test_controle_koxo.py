@@ -566,3 +566,147 @@ def test_un_controle_sans_site_le_dit(session, client, tmp_path, peupler):
     assert any("Aucun site" in a for a in r.json()["avertissements"])
 
     assert session.query(LoginReserve).filter_by(login="ccueff").one().site is None
+
+
+
+# ---------------------------------------------------------------------------
+# Deux serveurs : la DAO, et les homonymes partis
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def deux_serveurs(session, site_factory, annee_factory):
+    """NDK et SU, chacun son serveur KoXo, et une année en cours."""
+    from backend.models import Personne, Snapshot
+
+    ndk = site_factory("NDK")
+    su = site_factory("SU")
+    ndk.base_koxo, su.base_koxo = "NDK", "SU"
+    an = annee_factory("2026-2027")
+    session.commit()
+
+    def _eleve(site, nom, prenom, login, badge, classe="31", inscrit=True):
+        e = Personne(
+            type="eleve", nom=nom, prenom=prenom, login=login, badge=badge,
+            id_charlemagne=badge, site_id=site.id, classe=classe,
+        )
+        session.add(e)
+        session.flush()
+        if inscrit:
+            session.add(Snapshot(
+                personne_id=e.id, annee_scolaire_id=an.id,
+                nom=nom, prenom=prenom, classe=classe,
+            ))
+        session.commit()
+        return e
+
+    return {"ndk": ndk, "su": su, "an": an, "eleve": _eleve}
+
+
+def _ligne(groupe, nom, prenom, login, badge):
+    return ["Elèves", groupe, nom, prenom, login, badge, "Xxxxxx11", ""]
+
+
+def test_un_compte_dao_n_est_pas_un_identifiant_a_aligner(
+    session, tmp_path, deux_serveurs
+):
+    """Le cas vécu : BOCHER Loann, élève de SU, suit la DAO au lycée.
+
+    Sur le serveur de NDK, `lbocher` est déjà à un autre BOCHER : son
+    compte DAO s'appelle `lbocher1`. Le contrôle déclarait l'identifiant
+    « divergent » et conseillait d'aligner le référentiel dessus — donc
+    d'écraser l'identifiant de son vrai compte, celui de SU.
+    """
+    from backend.services.controle_koxo import controler_export_koxo
+
+    d = deux_serveurs
+    lyceen = d["eleve"](d["ndk"], "BOCHER", "Lou", "lbocher", 11111, classe="3_PM")
+    loann = d["eleve"](d["su"], "BOCHER", "Loann", "lbocher2", 84040, classe="42")
+
+    f = _export(tmp_path, [
+        _ligne("3_PM", "BOCHER", "Lou", "lbocher", lyceen.badge),
+        _ligne("DAO", "BOCHER", "Loann", "lbocher1", loann.badge),
+    ])
+    r = controler_export_koxo(
+        session, f, type_personne="eleve", site_id=d["ndk"].id, annee_id=d["an"].id
+    )
+
+    genres = {e.genre for e in r.ecarts if e.qui == "Loann BOCHER"}
+    assert genres == {"acces_secondaire"}, "pas « divergent » : un accès secondaire"
+    assert r.est_sain
+    e = next(e for e in r.ecarts if e.genre == "acces_secondaire")
+    assert "SU" in e.explication and "DAO" in e.explication
+    assert "destructif" in e.consequence, "le risque réel doit être dit"
+
+
+def test_le_serveur_se_deduit_des_lignes_quand_aucun_site_n_est_choisi(
+    session, tmp_path, deux_serveurs
+):
+    """Un serveur sert un établissement : celui dont il porte le plus
+    d'élèves. Sans site choisi, c'est lui qui dit qui est d'ailleurs."""
+    from backend.services.controle_koxo import controler_export_koxo
+
+    d = deux_serveurs
+    lyceens = [
+        d["eleve"](d["ndk"], f"LY{i}", "X", f"xly{i}", 20000 + i, classe="3_PM")
+        for i in range(3)
+    ]
+    dao = d["eleve"](d["su"], "SCHOLAR", "Axel", "ascholar", 30000)
+    f = _export(tmp_path, [
+        *[_ligne("3_PM", p.nom, p.prenom, p.login, p.badge) for p in lyceens],
+        _ligne("DAO", "SCHOLAR", "Axel", "ascholar9", dao.badge),
+    ])
+
+    r = controler_export_koxo(session, f, type_personne="eleve")
+    assert [e.genre for e in r.ecarts if e.qui == "Axel SCHOLAR"] == ["acces_secondaire"]
+
+
+def test_un_homonyme_parti_d_un_autre_serveur_n_est_pas_une_ambiguite(
+    session, tmp_path, deux_serveurs
+):
+    """Le cas vécu : Apolline KERMARREC, élève de SU, porte `akermarrec`
+    sur le serveur de SU. Le référentiel attribue `akermarrec` à Ambre
+    KERMARREC, de NDK, partie l'an dernier — une identité ne se supprime
+    pas. Aucune base ne porte plus Ambre, donc aucune preuve par l'autre
+    base : huit élèves de SU étaient déclarés « ambigus ».
+
+    Deux personnes de deux serveurs ne se gênent pas : c'est la règle.
+    """
+    from backend.services.controle_koxo import controler_export_koxo
+
+    d = deux_serveurs
+    d["eleve"](d["ndk"], "KERMARREC", "Ambre", "akermarrec", 80750, inscrit=False)
+    apolline = d["eleve"](d["su"], "KERMARREC", "Apolline", "akermarrec2", 93940, classe="32")
+
+    f = _export(tmp_path, [_ligne("32", "KERMARREC", "Apolline", "akermarrec", apolline.badge)])
+    r = controler_export_koxo(
+        session, f, type_personne="eleve", site_id=d["su"].id, annee_id=d["an"].id
+    )
+
+    assert [e.genre for e in r.ecarts] == ["homonyme_autre_base"]
+    assert r.est_sain
+    assert "partie" in r.ecarts[0].explication
+    assert "NDK" in r.ecarts[0].explication
+
+
+def test_une_vraie_ambiguite_sur_le_meme_serveur_reste_signalee(
+    session, tmp_path, deux_serveurs
+):
+    """Le correctif ne doit rien taire d'autre.
+
+    Deux élèves de SU, le badge désigne l'un et l'identifiant l'autre :
+    sur un même serveur, c'est exactement l'erreur que ce contrôle existe
+    pour attraper.
+    """
+    from backend.services.controle_koxo import controler_export_koxo
+
+    d = deux_serveurs
+    d["eleve"](d["su"], "MARTIN", "Lea", "lmartin", 50001)
+    autre = d["eleve"](d["su"], "MARTIN", "Louis", "lmartin2", 50002)
+
+    f = _export(tmp_path, [_ligne("31", "MARTIN", "Louis", "lmartin", autre.badge)])
+    r = controler_export_koxo(
+        session, f, type_personne="eleve", site_id=d["su"].id, annee_id=d["an"].id
+    )
+    assert "rapprochement_ambigu" in {e.genre for e in r.ecarts}
+    assert not r.est_sain

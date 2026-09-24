@@ -175,6 +175,7 @@ GENRES = (
     "login_divergent",
     "rapprochement_ambigu",
     "homonyme_autre_base",
+    "acces_secondaire",
     "absent_de_koxo",
 )
 
@@ -236,9 +237,11 @@ class RapportControle:
 
         Ni `absent_de_koxo` — un compte à créer est le déroulement normal
         d'une rentrée — ni `homonyme_autre_base`, qui constate une
-        cohabitation légitime entre deux serveurs KoXo.
+        cohabitation légitime entre deux serveurs KoXo, ni
+        `acces_secondaire`, un compte ouvert exprès sur le serveur d'un
+        autre établissement.
         """
-        sans_objet = ("absent_de_koxo", "homonyme_autre_base")
+        sans_objet = ("absent_de_koxo", "homonyme_autre_base", "acces_secondaire")
         return not [e for e in self.ecarts if e.genre not in sans_objet]
 
 
@@ -437,6 +440,37 @@ def controler_export_koxo(
             par_login[p.login].append(p)
         par_nom[_cle_nom(p.prenom, p.nom)].append(p)
 
+    # --- Le serveur que cet export décrit ------------------------------------
+    # Celui du site désigné, sinon celui dont l'export porte le plus
+    # d'élèves : un serveur sert un établissement. C'est ce qui permet de
+    # reconnaître, plus bas, un compte ouvert pour un élève d'un autre site.
+    from backend.models import Site
+
+    tous_les_sites = session.query(Site).all()
+    noms_sites = {x.id: x.nom for x in tous_les_sites}
+    # Le serveur KoXo de chaque site — `None` quand il n'en a pas (NDE).
+    # Un identifiant n'est unique que sur son serveur : c'est la seule
+    # chose qui dise si deux personnes peuvent se gêner.
+    serveur_du_site = {x.id: (x.base_koxo or None) for x in tous_les_sites}
+    inscrits_annee: set[int] | None = None
+    if annee_id is not None:
+        inscrits_annee = {
+            x.personne_id
+            for x in session.query(Snapshot.personne_id).filter(
+                Snapshot.annee_scolaire_id == annee_id
+            )
+        }
+    site_de_la_base = site_id
+    if site_de_la_base is None:
+        compte_sites: dict[int, int] = defaultdict(int)
+        for l in lignes:
+            if (l.id_unique or "").isdigit():
+                for q in par_badge.get(int(l.id_unique)) or []:
+                    if q.site_id is not None:
+                        compte_sites[q.site_id] += 1
+        if compte_sites:
+            site_de_la_base = max(compte_sites, key=compte_sites.get)
+
     # --- Doublons internes à l'export ---------------------------------------
     lignes_par_id: dict[str, list[LigneKoxo]] = defaultdict(list)
     lignes_par_login: dict[str, list[LigneKoxo]] = defaultdict(list)
@@ -599,6 +633,55 @@ def controler_export_koxo(
 
         personne = par_id[0]
 
+        # Un élève d'un autre établissement, sur ce serveur : un accès
+        # ouvert exprès — des élèves de SU suivent la DAO en 3PM au lycée,
+        # et ont pour cela un compte sur le serveur de NDK.
+        #
+        # Son identifiant ici peut légitimement différer de celui du
+        # référentiel : il est pris dans l'espace de noms de ce serveur-ci
+        # (`lbocher1` parce que `lbocher` y est déjà à un autre BOCHER).
+        # Le déclarer « divergent » faisait conseiller d'aligner le
+        # référentiel sur l'identifiant de l'accès secondaire — c'est-à-dire
+        # d'écraser celui du vrai compte.
+        #
+        # Ce que ce compte risque, en revanche, doit être dit : les exports
+        # du programme pour ce site ne portent que ses élèves. Une
+        # synchronisation destructive le supprimerait.
+        if (
+            site_de_la_base is not None
+            and personne.site_id is not None
+            and personne.site_id != site_de_la_base
+        ):
+            chez_lui = noms_sites.get(personne.site_id, "son établissement")
+            ici = noms_sites.get(site_de_la_base, "ce serveur")
+            rapport.ecarts.append(
+                Ecart(
+                    genre="acces_secondaire",
+                    qui=l.nom_complet,
+                    login=l.login,
+                    id_unique=l.id_unique,
+                    badge_referentiel=str(personne.badge),
+                    login_referentiel=personne.login or "",
+                    lignes=[l.ligne],
+                    explication=(
+                        f"Élève de {chez_lui}, avec un compte sur la base de "
+                        f"{ici}"
+                        + (f", groupe « {l.groupe_secondaire} »"
+                           if l.groupe_secondaire else "")
+                        + " — un accès secondaire, comme la DAO."
+                    ),
+                    consequence=(
+                        f"Rien à corriger : son compte principal est sur la "
+                        f"base de {chez_lui}, et l'identifiant d'ici n'a pas "
+                        f"à être celui du référentiel. Mais ce compte n'est "
+                        f"pas dans les exports {ici} du programme : une "
+                        "synchronisation en mode destructif le supprimerait."
+                    ),
+                )
+            )
+            rapport.nb_concordants += 1
+            continue
+
         # Le badge désigne quelqu'un, le login quelqu'un d'autre : on ne
         # tranche pas — c'est exactement l'erreur que ce contrôle existe
         # pour ne plus commettre.
@@ -611,7 +694,42 @@ def controler_export_koxo(
             # ce sont des homonymes, souvent des fratries. Le référentiel
             # n'en garde qu'un et suffixe l'autre. Rien à corriger — et
             # l'afficher en rouge noierait le seul cas qui, lui, en demande.
-            if (l.login, autre.badge) in constats:
+            #
+            # La preuve par l'autre base ne suffit pas toujours : quand
+            # l'autre titulaire est **parti**, aucune base ne le porte
+            # plus, mais le référentiel lui garde son identifiant — une
+            # identité ne se supprime pas. Huit élèves de SU étaient ainsi
+            # déclarés « ambigus » à cause d'homonymes de NDK sortis l'an
+            # dernier. Deux personnes de deux serveurs différents ne se
+            # gênent pas, preuve ou non : c'est la règle, pas une présomption.
+            serveur_ligne = serveur_du_site.get(personne.site_id)
+            serveur_autre = serveur_du_site.get(autre.site_id)
+            autre_serveur = (
+                autre.site_id is not None
+                and personne.site_id is not None
+                and serveur_autre != serveur_ligne
+            )
+            if (l.login, autre.badge) in constats or autre_serveur:
+                chez_autre = noms_sites.get(autre.site_id, "un autre site")
+                parti = (
+                    inscrits_annee is not None and autre.id not in inscrits_annee
+                )
+                if (l.login, autre.badge) in constats:
+                    explication = (
+                        f"« {l.login} » est aussi détenu par {autre.prenom} "
+                        f"{autre.nom} (badge {autre.badge}) dans une autre "
+                        "base KoXo. Les deux sont légitimes, chacun chez "
+                        "soi."
+                    )
+                else:
+                    explication = (
+                        f"Le référentiel attribue « {l.login} » à "
+                        f"{autre.prenom} {autre.nom}, de {chez_autre}"
+                        + (" — partie, absente de l'année en cours"
+                           if parti else "")
+                        + ". Un identifiant n'est unique que sur son serveur "
+                        "KoXo : les deux ne se gênent pas."
+                    )
                 rapport.ecarts.append(
                     Ecart(
                         genre="homonyme_autre_base",
@@ -621,12 +739,7 @@ def controler_export_koxo(
                         badge_referentiel=str(personne.badge),
                         login_referentiel=personne.login or "",
                         lignes=[l.ligne],
-                        explication=(
-                            f"« {l.login} » est aussi détenu par {autre.prenom} "
-                            f"{autre.nom} (badge {autre.badge}) dans une autre "
-                            "base KoXo. Les deux sont légitimes, chacun chez "
-                            "soi."
-                        ),
+                        explication=explication,
                         consequence=(
                             "Le référentiel ne garde qu'un identifiant par "
                             f"personne : il a suffixé celui de {personne.prenom} "

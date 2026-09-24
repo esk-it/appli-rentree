@@ -79,6 +79,11 @@
       quoi: "Deux serveurs KoXo attribuent cet identifiant, chacun légitimement. Rien à faire.",
       ton: "neutre",
     },
+    acces_secondaire: {
+      titre: "Accès secondaire",
+      quoi: "Élève d'un autre établissement, avec un compte ouvert exprès sur ce serveur — comme la DAO. Rien à corriger, mais une synchronisation destructive le supprimerait.",
+      ton: "neutre",
+    },
     absent_de_koxo: {
       titre: "À créer dans KoXo",
       quoi: "Le déroulement normal d'une rentrée : la synchronisation créera le compte.",
@@ -238,7 +243,7 @@
   });
 
   /** Ce qui empêchera une reconnaissance — les créations n'en sont pas. */
-  const SANS_OBJET = ["absent_de_koxo", "homonyme_autre_base"];
+  const SANS_OBJET = ["absent_de_koxo", "homonyme_autre_base", "acces_secondaire"];
 
   let nbBloquants = $derived(
     rapport
