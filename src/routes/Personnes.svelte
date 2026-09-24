@@ -581,6 +581,18 @@
                       <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Clé pivot</dt>
                       <dd class="font-mono">{fiche.personne.cle_pivot}</dd>
                     </div>
+                    {#if fiche.anciennes_fiches?.length}
+                      <!-- Une fiche réunie à celle-ci : sans elle, le
+                           parcours montrerait une année à NDE sans dire
+                           d'où elle vient. -->
+                      <div class="flex gap-2">
+                        <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Ancienne fiche</dt>
+                        <dd>
+                          <span class="font-mono">{fiche.anciennes_fiches.join(", ")}</span>
+                          <span class="ml-1 text-stone-400">réunie à celle-ci</span>
+                        </dd>
+                      </div>
+                    {/if}
                     <div class="flex gap-2">
                       <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Badge</dt>
                       <dd class="font-mono tabular-nums">{fiche.personne.badge}</dd>

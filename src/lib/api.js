@@ -157,6 +157,19 @@ export const personnes = {
       }),
     );
   },
+  /**
+   * Réunit deux fiches d'une même personne. Le programme choisit celle qui
+   * reste — l'inscription la plus récente. `simulation` n'écrit rien.
+   */
+  async fusionner(ids, mode = "simulation") {
+    return jsonOrThrow(
+      await fetch(`${BASE}/personnes/fusion`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids, mode }),
+      }),
+    );
+  },
 };
 
 // ---------------------------------------------------------------------------

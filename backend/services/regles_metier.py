@@ -137,12 +137,18 @@ def login_est_libre(session: Session, login: str) -> bool:
     premier entrant du même nom hérite de son identifiant — c'est ce qui
     est arrivé à `llesaout`, parti d'une élève en poste à une homonyme
     entrante. Voir `backend/models/login_reserve.py`.
+
+    Et les **fiches réunies** : l'identifiant d'une fiche absorbée par une
+    fusion a pu servir sur un serveur KoXo, où le mode non destructif le
+    laisse vivre.
     """
-    from backend.models import LoginReserve, Personne
+    from backend.models import FicheFusionnee, LoginReserve, Personne
 
     if not login:
         return False
     if session.query(Personne).filter_by(login=login).first() is not None:
+        return False
+    if session.query(FicheFusionnee).filter_by(login=login).first() is not None:
         return False
     return session.query(LoginReserve).filter_by(login=login).first() is None
 
@@ -153,8 +159,14 @@ def motif_de_reservation(session: Session, login: str) -> str | None:
     Un identifiant refusé sans explication se cherche longtemps : celui-ci
     n'est porté par personne au référentiel, il ne se voit nulle part.
     """
-    from backend.models import LoginReserve
+    from backend.models import FicheFusionnee, LoginReserve
 
+    f = session.query(FicheFusionnee).filter_by(login=login).first()
+    if f is not None:
+        return (
+            f"Identifiant de l'ancienne fiche {f.cle_pivot} de {f.prenom} "
+            f"{f.nom}, réunie à une autre : un identifiant n'est pas recyclé."
+        )
     r = session.query(LoginReserve).filter_by(login=login).first()
     if r is None:
         return None

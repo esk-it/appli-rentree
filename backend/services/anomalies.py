@@ -276,14 +276,15 @@ def _collisions_email(session: Session, annee_id: int | None) -> Anomalie | None
     return Anomalie(
         type="collision_email",
         gravite="bloquant",
-        libelle=f"{len(conflits)} adresse(s) mail visée(s) par plusieurs personnes",
+        libelle=f"{len(conflits)} adresse(s) mail visée(s) par plusieurs fiches",
         nb_concernes=nb,
         details=details,
         action_suggeree=(
-            "Google refusera la création du doublon. Choisis une adresse "
-            "distincte pour la personne « à créer » (les homonymes existants "
-            "portent un suffixe numérique : prenom.nom2@…) et saisis-la comme "
-            "adresse constatée avant de générer l'export."
+            "Souvent une seule personne inscrite deux fois — un passage de "
+            "NDE à NDK ou SU, une réinscription : réunis ses deux fiches. "
+            "Sinon, deux homonymes : Google refusera la création du doublon, "
+            "choisis une adresse distincte pour la personne « à créer » "
+            "(prenom.nom2@…) avant de générer l'export."
         ),
     )
 

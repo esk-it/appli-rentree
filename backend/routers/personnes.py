@@ -1,9 +1,10 @@
 """Endpoints de consultation du référentiel Personne.
 
 La création se fait via l'ingestion (Lot 3) et l'amorçage (Lot 9) — pas
-ici. Seule écriture exposée : figer l'adresse mail d'une personne, pour
-les cas que le programme refuse de trancher seul (homonymes visant la
-même adresse, adresse historique hors convention).
+ici. Deux écritures exposées, pour les cas que le programme refuse de
+trancher seul : figer l'adresse mail d'une personne (homonymes visant la
+même adresse, adresse historique hors convention), et réunir deux fiches
+d'une même personne (un passage de NDE à NDK, une réinscription).
 """
 from __future__ import annotations
 
@@ -202,6 +203,12 @@ def lister_mouvements(
     )
 
 
+class AnneeFicheOut(BaseModel):
+    annee: str
+    classe: str | None
+    site: str | None
+
+
 class VisantOut(BaseModel):
     personne_id: int
     cle_pivot: str
@@ -216,6 +223,10 @@ class VisantOut(BaseModel):
     """Vrai si c'est à cette personne de prendre une adresse distincte."""
     adresse_proposee: str
     """Une suggestion à suffixe, jamais appliquée seule."""
+    inscrit: bool = False
+    """Vrai si la fiche est inscrite l'année la plus récente."""
+    annees: list[AnneeFicheOut] = []
+    """Les années de la fiche, de la plus récente à la plus ancienne."""
 
 
 class CollisionOut(BaseModel):
@@ -225,9 +236,22 @@ class CollisionOut(BaseModel):
     """Vrai quand **plusieurs** détiennent déjà l'adresse.
 
     Cas rencontré sur la base réelle — trois groupes sur vingt-neuf : deux
-    fiches portent le même `email_constate`, venues d'un amorçage. Personne
-    ne peut alors être présumé la garder, et l'écran ouvre la saisie sur
-    toutes plutôt que de désigner un titulaire au hasard."""
+    fiches portent le même `email_constate`. Personne ne peut alors être
+    présumé la garder, et l'écran ouvre la saisie sur toutes plutôt que de
+    désigner un titulaire au hasard. Les trois étaient en fait une seule
+    personne en deux fiches — d'où `meme_personne_probable`."""
+    meme_personne_probable: bool = False
+    """Deux fiches qui ont tout d'une seule personne inscrite deux fois.
+
+    Sur la base réelle, en septembre 2026, les vingt-neuf adresses
+    disputées étaient toutes dans ce cas : vingt-huit élèves passés de NDE
+    à NDK ou SU, avec une seconde fiche Charlemagne, et une réinscription.
+    Leur proposer une adresse suffixée aurait créé un second compte à des
+    élèves qui ont déjà le leur."""
+    garde_id: int | None = None
+    """La fiche qui resterait si on les réunissait."""
+    motif: str | None = None
+    """Ce qui fait penser à une seule personne, en une phrase."""
 
 
 @router.get("/collisions", response_model=list[CollisionOut])
@@ -243,12 +267,36 @@ def lister_collisions(session: Session = Depends(db_session)) -> list[CollisionO
     déductible. Choisir à la place de quelqu'un reviendrait à créer un
     compte sous une adresse que personne n'a validée.
     """
+    from backend.models import Snapshot
     from backend.services.anomalies import collisions_email
+    from backend.services.fusion import (
+        annee_la_plus_recente,
+        annees_vecues,
+        choisir_garde,
+        decrire_passage,
+        meme_personne_probable,
+    )
 
     sites_par_id = {s.id: s for s in session.query(Site).all()}
     sorties: list[CollisionOut] = []
 
-    for adresse, personnes_en_conflit in sorted(collisions_email(session).items()):
+    conflits = collisions_email(session)
+    ids = [p.id for ps in conflits.values() for p in ps]
+    vecues = annees_vecues(session, ids)
+    courante = annee_la_plus_recente(session)
+    inscrits: set[int] = set()
+    if courante is not None and ids:
+        inscrits = {
+            pid
+            for (pid,) in session.query(Snapshot.personne_id)
+            .filter(
+                Snapshot.annee_scolaire_id == courante.id,
+                Snapshot.personne_id.in_(ids),
+            )
+            .distinct()
+        }
+
+    for adresse, personnes_en_conflit in sorted(conflits.items()):
         locale, _, domaine = adresse.partition("@")
         titulaires = [p for p in personnes_en_conflit if p.email_constate]
         # Un seul titulaire garde l'adresse nue : la lui retirer casserait
@@ -278,17 +326,92 @@ def lister_collisions(session: Session = Depends(db_session)) -> list[CollisionO
                     a_un_compte=bool(p.email_constate),
                     a_trancher=a_trancher,
                     adresse_proposee=proposee,
+                    inscrit=p.id in inscrits,
+                    annees=[
+                        AnneeFicheOut(annee=v.annee, classe=v.classe, site=v.site)
+                        for v in vecues.get(p.id, [])
+                    ],
                 )
             )
+
+        probable, garde_id, motif = False, None, None
+        if len(personnes_en_conflit) == 2:
+            a, b = personnes_en_conflit
+            if meme_personne_probable(a, b, inscrits):
+                garde, absorbee, _ = choisir_garde(session, a, b)
+                probable, garde_id = True, garde.id
+                motif = decrire_passage(
+                    garde, vecues.get(garde.id, []),
+                    absorbee, vecues.get(absorbee.id, []),
+                )
         sorties.append(
             CollisionOut(
                 adresse=adresse,
                 visants=visants,
                 plusieurs_comptes=plusieurs_comptes,
+                meme_personne_probable=probable,
+                garde_id=garde_id,
+                motif=motif,
             )
         )
 
     return sorties
+
+
+class FusionPayload(BaseModel):
+    ids: list[int] = Field(..., min_length=2, max_length=2)
+    """Les deux fiches. Le programme choisit laquelle reste : l'inscription
+    la plus récente."""
+    mode: str = "simulation"
+
+
+class FicheResumeeOut(BaseModel):
+    personne_id: int
+    cle_pivot: str
+    nom: str
+    prenom: str
+    login: str
+    badge: int
+    site: str | None
+    classe: str | None
+    email_constate: str | None
+    annees: list[AnneeFicheOut]
+
+
+class FusionOut(BaseModel):
+    mode: str
+    garde: FicheResumeeOut
+    absorbee: FicheResumeeOut
+    motif_du_choix: str
+    annees_rattachees: list[str]
+    annees_ecartees: list[str]
+    repris: list[str]
+    abandonnes: list[str]
+    avertissements: list[str]
+
+
+@router.post("/fusion", response_model=FusionOut)
+def reunir_deux_fiches(
+    payload: FusionPayload, session: Session = Depends(db_session)
+) -> FusionOut:
+    """Réunit deux fiches d'une même personne.
+
+    Un élève passé de NDE à NDK a deux fiches Charlemagne : les deux bases
+    ne se parlent pas. En `simulation`, rien n'est écrit — la réponse dit
+    quelle fiche reste, quelles années la rejoignent, et ce qui est repris
+    ou abandonné. Rien n'est touché dans Google ni dans KoXo.
+    """
+    from dataclasses import asdict
+
+    from backend.services.fusion import FusionImpossible, fusionner
+
+    try:
+        r = fusionner(session, *payload.ids, mode=payload.mode)
+    except FusionImpossible as e:
+        raise HTTPException(409, str(e)) from None
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    return FusionOut(**asdict(r))
 
 
 @router.get("/{personne_id}", response_model=PersonneOut)
@@ -315,11 +438,10 @@ def obtenir_par_cle_pivot(
     except ValueError:
         raise HTTPException(400, f"Clé pivot invalide : {cle}") from None
     type_p = "eleve" if cle[0] == "E" else "adulte"
-    p = (
-        session.query(Personne)
-        .filter_by(type=type_p, id_charlemagne=id_ch)
-        .one_or_none()
-    )
+    # Un ancien numéro, réuni à une autre fiche, mène à la personne.
+    from backend.services.fusion import personne_par_cle
+
+    p, _ = personne_par_cle(session, type_p, id_ch)
     if p is None:
         raise HTTPException(404, f"Personne introuvable : {cle}")
     sites_par_id = {s.id: s for s in session.query(Site).all()}
@@ -407,6 +529,9 @@ class FicheOut(BaseModel):
     parcours: list[AnneeVecueOut]
     """Une ligne par année vécue, de la plus récente à la plus ancienne."""
     comptes: list[CompteOut]
+    anciennes_fiches: list[str] = []
+    """Les fiches réunies à celle-ci : `E717 (NDE)`. Sans elles, le
+    parcours montrerait une année à NDE sans dire d'où elle vient."""
 
 
 class IdentitePayload(BaseModel):
@@ -512,6 +637,8 @@ def fiche(personne_id: int, session: Session = Depends(db_session)) -> FicheOut:
         for c in session.query(CompteCible).filter_by(personne_id=personne_id).all()
     ]
 
+    from backend.models import FicheFusionnee
+
     sites_par_id = {s_.id: s_ for s_ in session.query(Site).all()}
     return FicheOut(
         personne=_serialiser(
@@ -519,6 +646,12 @@ def fiche(personne_id: int, session: Session = Depends(db_session)) -> FicheOut:
         ),
         parcours=parcours,
         comptes=comptes,
+        anciennes_fiches=[
+            f.cle_pivot + (f" ({f.site})" if f.site else "")
+            for f in session.query(FicheFusionnee)
+            .filter_by(personne_id=personne_id)
+            .order_by(FicheFusionnee.fusionnee_le)
+        ],
     )
 
 

@@ -522,13 +522,11 @@ def _noter_vu(session: Session, id_charlemagne: int, ids_vus: set[int]) -> None:
     qui ne correspond à personne — un entrant que l'ingestion va créer —
     n'a rien à noter : elle ne peut pas être portée disparue.
     """
-    p = (
-        session.query(Personne.id)
-        .filter(Personne.id_charlemagne == id_charlemagne, Personne.type == "eleve")
-        .first()
-    )
+    from backend.services.fusion import personne_par_cle
+
+    p, _ = personne_par_cle(session, "eleve", id_charlemagne)
     if p is not None:
-        ids_vus.add(p[0])
+        ids_vus.add(p.id)
 
 
 def _relever_disparus(
@@ -601,11 +599,9 @@ def _traiter_ligne_eleve(
     maj_etat_courant: bool = True,
 ) -> None:
     """Traite une ligne d'export élève : Personne + Snapshot."""
-    personne = (
-        session.query(Personne)
-        .filter_by(type="eleve", id_charlemagne=id_ch)
-        .one_or_none()
-    )
+    from backend.services.fusion import personne_par_cle
+
+    personne, par_ancienne_fiche = personne_par_cle(session, "eleve", id_ch)
     est_nouveau = personne is None
 
     if est_nouveau:
@@ -673,25 +669,48 @@ def _traiter_ligne_eleve(
         # Mise à jour de l'état courant — le login est FIGÉ, on ne touche pas
         # Une ingestion d'année ancienne crée bien son snapshot, mais ne
         # réécrit pas la situation présente de la personne.
-        if maj_etat_courant:
+        #
+        # Un ancien numéro non plus : la fiche qu'il désignait a été réunie
+        # à celle-ci, qui décrit seule la personne. L'export NDE de l'an
+        # dernier ramènerait sinon à NDE, en 4e, un élève passé en 3e à NDK.
+        if maj_etat_courant and not par_ancienne_fiche:
             _maj_champs_courants_eleve(personne, ligne, code_classe, site_id)
         rapport.nb_personnes_mises_a_jour += 1
 
     # Adresse du compte existant — posée aussi sur une personne déjà connue,
     # qui peut avoir été amorcée depuis KoXo sans que son adresse soit relevée.
+    # Celle d'une ancienne fiche aussi : le compte suit la personne.
     _capturer_email_constate(session, personne, ligne)
 
     # Snapshot : ne crée qu'un nouveau si l'état diffère
-    _peut_etre_creer_snapshot(
-        session=session,
-        personne=personne,
-        annee=annee,
-        ligne=ligne,
-        type_personne="eleve",
-        rapport=rapport,
-    )
+    if not par_ancienne_fiche or not _inscrite_cette_annee(session, personne, annee):
+        _peut_etre_creer_snapshot(
+            session=session,
+            personne=personne,
+            annee=annee,
+            ligne=ligne,
+            type_personne="eleve",
+            rapport=rapport,
+        )
 
     rapport.nb_lignes_ingerees += 1
+
+
+def _inscrite_cette_annee(
+    session: Session, personne: Personne, annee: AnneeScolaire
+) -> bool:
+    """La personne a-t-elle déjà une classe pour cette année ?
+
+    Sert aux anciens numéros : ils complètent le parcours d'une année
+    qu'il ne connaît pas, jamais une année que la fiche gardée décrit — sa
+    classe fait foi, comme lors de la fusion.
+    """
+    return (
+        session.query(Snapshot.id)
+        .filter_by(personne_id=personne.id, annee_scolaire_id=annee.id)
+        .first()
+        is not None
+    )
 
 
 def _maj_champs_courants_eleve(
@@ -852,11 +871,9 @@ def _traiter_ligne_adulte(
     rapport: RapportIngestion,
     maj_etat_courant: bool = True,
 ) -> None:
-    personne = (
-        session.query(Personne)
-        .filter_by(type="adulte", id_charlemagne=id_ch)
-        .one_or_none()
-    )
+    from backend.services.fusion import personne_par_cle
+
+    personne, par_ancienne_fiche = personne_par_cle(session, "adulte", id_ch)
     est_nouveau = personne is None
 
     if est_nouveau:
@@ -920,20 +937,21 @@ def _traiter_ligne_adulte(
         session.flush()
         rapport.nb_personnes_creees += 1
     else:
-        if maj_etat_courant:
+        if maj_etat_courant and not par_ancienne_fiche:
             _maj_champs_courants_adulte(personne, ligne)
         rapport.nb_personnes_mises_a_jour += 1
 
     _capturer_email_constate(session, personne, ligne, ("email", "email_professionnel"))
 
-    _peut_etre_creer_snapshot(
-        session=session,
-        personne=personne,
-        annee=annee,
-        ligne=ligne,
-        type_personne="adulte",
-        rapport=rapport,
-    )
+    if not par_ancienne_fiche or not _inscrite_cette_annee(session, personne, annee):
+        _peut_etre_creer_snapshot(
+            session=session,
+            personne=personne,
+            annee=annee,
+            ligne=ligne,
+            type_personne="adulte",
+            rapport=rapport,
+        )
     rapport.nb_lignes_ingerees += 1
 
 

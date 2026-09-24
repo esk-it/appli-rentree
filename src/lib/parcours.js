@@ -95,7 +95,7 @@ export const ETAPES = [
     phase: "preparation",
     page: "arbitrage",
     titre: "Trancher les cas ambigus",
-    role: "Collisions de login, homonymies, adresses visées par plusieurs personnes. Le programme ne tranche jamais seul : il présente et attend.",
+    role: "Collisions de login, homonymies, adresses visées par plusieurs fiches — deux homonymes, ou une seule personne inscrite deux fois. Le programme ne tranche jamais seul : il présente et attend.",
     reperer: "Plus aucune décision en attente.",
     pieges: [
       "Le programme ne tranche jamais seul, et il a raison : une homonymie mal résolue donne à un élève l'adresse d'un autre.",

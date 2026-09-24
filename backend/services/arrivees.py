@@ -131,11 +131,9 @@ def proposer_arrivee(
     # Déjà là ? Une réinscription, ou une saisie faite deux fois.
     existante = None
     if id_charlemagne is not None:
-        existante = (
-            session.query(Personne)
-            .filter_by(type=type_personne, id_charlemagne=id_charlemagne)
-            .one_or_none()
-        )
+        from backend.services.fusion import personne_par_cle
+
+        existante, _ = personne_par_cle(session, type_personne, id_charlemagne)
     if existante is None:
         from backend.services.regles_metier import normaliser_nom
 

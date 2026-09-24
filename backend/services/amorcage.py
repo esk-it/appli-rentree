@@ -287,12 +287,12 @@ def _traiter_ligne(
         rapport.nb_rejets += 1
         return
 
-    # Vérifie si une Personne existe déjà avec cette clé pivot
-    existante = (
-        session.query(Personne)
-        .filter_by(type=type_personne, id_charlemagne=id_ch)
-        .one_or_none()
-    )
+    # Vérifie si une Personne existe déjà avec cette clé pivot — ou avec
+    # une ancienne clé, réunie à une autre fiche : la recréer rouvrirait le
+    # doublon que la fusion a fermé.
+    from backend.services.fusion import personne_par_cle
+
+    existante, _ = personne_par_cle(session, type_personne, id_ch)
 
     if existante is not None:
         _relever_email(existante, ligne, domaines)
