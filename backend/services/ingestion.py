@@ -69,6 +69,10 @@ class HomonymeDansExport:
     nom_normalise: str
     prenom_normalise: str
     ids_charlemagne: list[int]
+    distincts_par: str | None = None
+    """`l'INE` ou `la date de naissance` quand elle suffit à les départager :
+    chacun porte la sienne, et aucune ne se répète. Deux homonymes ainsi
+    distingués n'ont rien à demander à personne."""
 
 
 @dataclass
@@ -164,24 +168,23 @@ class RapportIngestion:
 def detecter_type_export(df: pd.DataFrame) -> str | None:
     """Détermine si l'export ressemble à un fichier élèves ou adultes.
 
-    Heuristique : la présence des colonnes spécifiques adultes (poste_occupe,
-    matieres, civilite, adresse_1) l'emporte. Sinon, code_classe/code_regime
-    → élève.
+    Ce qui n'existe que chez les adultes — le poste, les matières —
+    l'emporte. Puis ce qui n'existe que chez les élèves — la classe, le
+    régime, le badge. Ce que les deux peuvent porter ne tranche qu'en
+    dernier.
+
+    La date de naissance a longtemps compté parmi les indices « adultes » :
+    seul leur export la portait. Un export élèves qui l'ajoute pour KoXo
+    aurait été ingéré comme un export de professeurs — deux mille élèves
+    créés en adultes. Elle ne tranche plus rien.
     """
     cols = set(df.columns)
-    indices_adultes = {
-        "poste_occupe",
-        "matieres",
-        "civilite",
-        "adresse_1",
-        "email_personnel",
-        "date_naissance",
-    }
-    if cols & indices_adultes:
+    if cols & {"poste_occupe", "matieres", "classes_prof_principal"}:
         return "adulte"
-    indices_eleves = {"code_classe", "code_regime", "num_badge"}
-    if cols & indices_eleves:
+    if cols & {"code_classe", "code_regime", "num_badge"}:
         return "eleve"
+    if cols & {"civilite", "adresse_1", "email_personnel"}:
+        return "adulte"
     return None
 
 
@@ -413,6 +416,7 @@ def _ingerer_eleves(
                     for l in grp.lignes
                     if _int(l.get("id_charlemagne")) is not None
                 ],
+                distincts_par=_ce_qui_les_distingue(grp.lignes),
             )
         )
 
@@ -536,6 +540,7 @@ def _ingerer_eleves(
     # d'entrée, photos — et les mots de passe, si le coffre est ouvert.
     codes.conclure(df, lignes, rapport)
     _ranger_mots_de_passe(session, comptes, cle_coffre, mode, rapport)
+    _signaler_autres_fiches(session, ids_vus, rapport)
 
     # h. Commit ou rollback selon le mode
     if mode == "reel" and not rapport.est_bloquee:
@@ -698,6 +703,8 @@ def _traiter_ligne_eleve(
             code_etablissement=_s(ligne.get("code_etablissement")),
             date_entree=_date(ligne.get("date_entree")),
             chemin_photo_constate=_s(ligne.get("photo_chemin")),
+            ine=_ine(ligne.get("ine")),
+            date_naissance=_date(ligne.get("date_naissance")),
         )
         session.add(personne)
         session.flush()  # pour obtenir personne.id
@@ -712,6 +719,9 @@ def _traiter_ligne_eleve(
         # dernier ramènerait sinon à NDE, en 4e, un élève passé en 3e à NDK.
         if maj_etat_courant and not par_ancienne_fiche:
             _maj_champs_courants_eleve(personne, ligne, code_classe, site_id)
+        _relever_identite(
+            personne, ligne, ecraser=maj_etat_courant and not par_ancienne_fiche
+        )
         rapport.nb_personnes_mises_a_jour += 1
 
     # Adresse du compte existant — posée aussi sur une personne déjà connue,
@@ -825,6 +835,79 @@ class _CodesDeClasse:
                     if _s(l.get("code_classe")) and not _vide(l.get(colonne))
                 )
                 rapport.appris.append(f"{libelle} : {n} élève(s).")
+
+
+def _ine(v: Any) -> str | None:
+    """L'INE sans espace, en capitales : `1234567890A`. Tel quel sinon."""
+    s = _s(v)
+    return "".join(s.split()).upper() if s else None
+
+
+def _relever_identite(personne: Personne, ligne: dict, *, ecraser: bool) -> None:
+    """L'INE et la date de naissance, complétés toujours, réécrits rarement.
+
+    Ce sont des attributs de la personne, pas de l'année. Un export d'une
+    année passée — ou l'ancien numéro d'une fiche réunie — les complète
+    quand ils manquent ; seul l'export de l'année la plus récente les
+    réécrit, pour ne pas défaire une correction faite depuis dans
+    Charlemagne.
+    """
+    ine = _ine(ligne.get("ine"))
+    if ine and (ecraser or not personne.ine):
+        personne.ine = ine
+    naissance = _date(ligne.get("date_naissance"))
+    if naissance and (ecraser or not personne.date_naissance):
+        personne.date_naissance = naissance
+
+
+def _ce_qui_les_distingue(lignes: list[dict]) -> str | None:
+    """Ce qui suffit à départager des homonymes du même export, s'il y a.
+
+    Il faut que **chacun** porte la valeur et qu'aucune ne se répète : une
+    seule date manquante, et rien ne dit que cette ligne n'est pas le
+    double d'une autre.
+    """
+    for champ, lecture, libelle in (
+        ("ine", _ine, "l'INE"),
+        ("date_naissance", _date, "la date de naissance"),
+    ):
+        valeurs = [lecture(l.get(champ)) for l in lignes]
+        if all(valeurs) and len(set(valeurs)) == len(valeurs):
+            return libelle
+    return None
+
+
+def _signaler_autres_fiches(
+    session: Session, ids_vus: set[int], rapport: RapportIngestion
+) -> None:
+    """Les élèves de cet export que le référentiel connaît sous un autre numéro.
+
+    Même INE, deux fiches : un seul élève, que l'autre base Charlemagne a
+    numéroté à sa façon — le passage de NDE à NDK. L'ingestion ne les
+    réunit pas, le programme ne tranche jamais seul ; mais elle le dit
+    tout de suite, plutôt qu'au jour où les deux fiches se disputent une
+    adresse.
+    """
+    if not ids_vus:
+        return
+    par_ine: dict[str, list[Personne]] = {}
+    for p in session.query(Personne).filter(Personne.ine.isnot(None)):
+        par_ine.setdefault(p.ine, []).append(p)
+    doubles = [
+        ps for ps in par_ine.values()
+        if len(ps) > 1 and any(p.id in ids_vus for p in ps)
+    ]
+    if not doubles:
+        return
+    exemples = ", ".join(
+        " = ".join(p.cle_pivot for p in ps) + f" ({ps[0].prenom} {ps[0].nom})"
+        for ps in doubles[:5]
+    )
+    rapport.avertissements.append(
+        f"{len(doubles)} élève(s) de cet export ont déjà une autre fiche sous "
+        f"le même INE — {exemples}{', …' if len(doubles) > 5 else ''}. Un "
+        "seul élève à chaque fois : réunis ses fiches dans « Départager »."
+    )
 
 
 def _vide(v: Any) -> bool:
@@ -1144,6 +1227,8 @@ def _traiter_ligne_adulte(
             classes_prof_principal=_s(ligne.get("classes_prof_principal")),
             email_professionnel=_s(ligne.get("email_professionnel")),
             email_personnel=_s(ligne.get("email_personnel")),
+            ine=_ine(ligne.get("ine")),
+            date_naissance=_date(ligne.get("date_naissance")),
         )
         session.add(personne)
         session.flush()
@@ -1151,6 +1236,9 @@ def _traiter_ligne_adulte(
     else:
         if maj_etat_courant and not par_ancienne_fiche:
             _maj_champs_courants_adulte(personne, ligne)
+        _relever_identite(
+            personne, ligne, ecraser=maj_etat_courant and not par_ancienne_fiche
+        )
         rapport.nb_personnes_mises_a_jour += 1
 
     _capturer_email_constate(session, personne, ligne, ("email", "email_professionnel"))
@@ -1229,10 +1317,12 @@ def _persister_arbitrages_homonymies(
     Idempotent via cle_cas — un même trio (nom, prénom, IDs) ne créera
     qu'un seul arbitrage même si l'ingestion est rejouée.
     """
+    from backend.services.arbitrage import trancher
+
     prefixe = "E" if type_personne == "eleve" else "A"
     for h in rapport.homonymes_intra_export:
         cles = [f"{prefixe}{i}" for i in h.ids_charlemagne]
-        creer_arbitrage(
+        arbitrage = creer_arbitrage(
             session,
             type_cas="homonymie_ingestion",
             cle_cas=cle_homonymie_ingestion(h.nom_normalise, h.prenom_normalise, cles),
@@ -1244,6 +1334,14 @@ def _persister_arbitrages_homonymies(
                 "annee_libelle": rapport.annee_libelle,
             },
         )
+        # Chacun sa date de naissance, ou son INE : deux personnes, et
+        # c'est un fait, pas une présomption. Demander à un humain de le
+        # confirmer serait lui faire recopier ce que l'export dit déjà.
+        if h.distincts_par:
+            trancher(
+                session, arbitrage.id, "personnes_distinctes",
+                note=f"Départagés par {h.distincts_par}, relevé dans l'export.",
+            )
 
 
 def _persister_arbitrage_collision(

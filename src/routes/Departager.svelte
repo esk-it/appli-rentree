@@ -38,9 +38,17 @@
    * à NDK, se voyait proposer `aaron.saillour2@` : un second compte pour un
    * élève qui a déjà le sien.
    *
-   * Quand tout l'indique — même nom, une seule des deux fiches inscrite
-   * cette année — la réunion est donc proposée en premier. L'autre issue
-   * reste à un clic : c'est à toi de dire que ce sont deux personnes.
+   * Quand tout l'indique — même INE, ou même nom et même date de
+   * naissance, ou même nom et une seule des deux fiches inscrite cette
+   * année — la réunion est donc proposée en premier. L'autre issue reste à
+   * un clic : c'est à toi de dire que ce sont deux personnes. Deux INE ou
+   * deux dates différentes le disent à ta place.
+   *
+   * ## Les doublons qui ne se disputent rien
+   *
+   * Un élève passé de NDE à NDK sous une adresse neuve n'a pas d'adresse
+   * disputée : ses deux fiches cohabitaient sans bruit. L'INE et la date de
+   * naissance les retrouvent, et ils ont leur section, sous les adresses.
    *
    * ## Ce que le programme refuse de faire seul
    *
@@ -65,6 +73,8 @@
   const libelleErreur = (e) => String(e).replace(/^Error:\s*/, "");
 
   let groupes = $state(/** @type {any[]} */ ([]));
+  /** Les personnes en deux fiches, prouvées sans adresse disputée. */
+  let doublons = $state(/** @type {any[]} */ ([]));
   let chargement = $state(true);
   let erreur = $state("");
   /** La ligne ou la paire en cours : un id de personne, ou une adresse. */
@@ -89,7 +99,10 @@
     chargement = true;
     erreur = "";
     try {
-      groupes = await personnes.collisions();
+      [groupes, doublons] = await Promise.all([
+        personnes.collisions(),
+        personnes.doublons(),
+      ]);
       // La suggestion pré-remplit le champ : on la relit, on la corrige si
       // besoin, on valide. Un champ vide obligerait à retaper une adresse
       // que le programme sait déjà écrire.
@@ -112,6 +125,15 @@
   const enFusion = (g) => g.meme_personne_probable && !distinctes[g.adresse];
 
   let aReunir = $derived(groupes.filter(enFusion));
+
+  /** Tout ce qu'un seul geste peut réunir : adresses et doublons prouvés. */
+  let lot = $derived([...aReunir, ...doublons]);
+
+  /** Une paire se désigne par l'adresse qu'elle dispute, ou par sa clé. */
+  const cleDeGroupe = (g) => g.adresse ?? g.cle;
+
+  /** « 12/03/2012 », depuis « 2012-03-12 ». */
+  const jour = (iso) => (iso ? iso.split("-").reverse().join("/") : "");
   let aDepartager = $derived(
     groupes
       .filter((g) => !enFusion(g))
@@ -121,15 +143,17 @@
     groupes.filter((g) => g.plusieurs_comptes && !enFusion(g)).length,
   );
 
-  /** « 3_PM à NDK en 2026-2027 · 4J à NDE en 2025-2026 » */
+  /** « 3_PM à NDK en 2026-2027 · naissance 12/03/2012 » */
   function parcours(v) {
-    return (v.annees ?? [])
-      .slice(0, 2)
-      .map(
-        (a) =>
-          `${a.classe ?? "sans classe"}${a.site ? ` à ${a.site}` : ""} en ${a.annee}`,
-      )
-      .join(" · ");
+    return [
+      ...(v.annees ?? [])
+        .slice(0, 2)
+        .map(
+          (a) =>
+            `${a.classe ?? "sans classe"}${a.site ? ` à ${a.site}` : ""} en ${a.annee}`,
+        ),
+      ...(v.date_naissance ? [`naissance ${jour(v.date_naissance)}`] : []),
+    ].join(" · ");
   }
 
   const cleDe = (g, id) => g.visants.find((v) => v.personne_id === id)?.cle_pivot;
@@ -149,7 +173,7 @@
   }
 
   async function reunir(g) {
-    enCours = g.adresse;
+    enCours = cleDeGroupe(g);
     try {
       const r = await personnes.fusionner(
         g.visants.map((v) => v.personne_id),
@@ -172,7 +196,7 @@
 
   /** Une réunion que rien n'a suggérée : on regarde avant d'écrire. */
   async function examiner(g) {
-    enCours = g.adresse;
+    enCours = cleDeGroupe(g);
     try {
       apercu = {
         groupe: g,
@@ -195,14 +219,15 @@
   async function reunirTout() {
     demandeTout = false;
     let n = 0;
-    for (const g of [...aReunir]) {
-      enCours = g.adresse;
+    for (const g of [...lot]) {
+      enCours = cleDeGroupe(g);
       try {
         retenir(await personnes.fusionner(g.visants.map((v) => v.personne_id), "reel"));
         n++;
       } catch (e) {
+        const qui = g.visants.find((v) => v.personne_id === g.garde_id) ?? g.visants[0];
         notify.erreur(
-          `${g.adresse} : ${libelleErreur(e)} — la suite n'a pas été réunie.`,
+          `${qui.prenom} ${qui.nom} : ${libelleErreur(e)} — la suite n'a pas été réunie.`,
           { duree: 14000 },
         );
         break;
@@ -268,7 +293,9 @@
     chemin={["Départager"]}
     titre={groupes.length
       ? `${groupes.length} adresse${groupes.length > 1 ? "s" : ""} mail visée${groupes.length > 1 ? "s" : ""} par plusieurs fiches`
-      : "Adresses mail disputées"}
+      : doublons.length
+        ? `${doublons.length} personne${doublons.length > 1 ? "s" : ""} en deux fiches`
+        : "Adresses mail disputées"}
     description="Souvent, c'est une seule personne inscrite deux fois — un passage de NDE à NDK ou SU, une réinscription : on réunit ses fiches, et son compte reste le sien. Sinon, ce sont deux homonymes, et celui qui n'a pas de compte prend une adresse suffixée : prenom.nom2@…"
   >
     {#snippet actions()}
@@ -303,9 +330,9 @@
     </div>
   {/if}
 
-  {#if chargement && !groupes.length}
+  {#if chargement && !groupes.length && !doublons.length}
     <Squelette variante="ligne-tableau" nb={6} colonnes={4} />
-  {:else if !groupes.length}
+  {:else if !groupes.length && !doublons.length}
     <EtatVide
       icon={CheckCircle2}
       ton="succes"
@@ -313,16 +340,17 @@
       message="Chaque fiche vise une adresse qui n'appartient qu'à elle. L'export Google ne butera pas sur un doublon."
     />
   {:else}
-    {#if aReunir.length}
+    {#if lot.length}
       <div class="flex flex-wrap items-center gap-3 rounded-xl bg-emerald-50 px-4 py-3 text-sm dark:bg-emerald-500/10">
         <GitMerge class="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-300" />
         <span class="min-w-0 flex-1 text-stone-800 dark:text-stone-200">
-          <b>{aReunir.length} paire{aReunir.length > 1 ? "s" : ""}</b>
-          {aReunir.length > 1 ? "ont" : "a"} tout d'une seule personne inscrite
-          deux fois : même nom, et une seule des deux fiches inscrite cette
-          année. Réunir garde la fiche de cette année et y rattache
-          l'ancienne — son année rejoint le parcours, son numéro reste
-          reconnu. Aucune adresse à créer, rien ne change dans Google ni dans KoXo.
+          <b>{lot.length} paire{lot.length > 1 ? "s" : ""}</b>
+          {lot.length > 1 ? "ont" : "a"} tout d'une seule personne inscrite
+          deux fois : même INE, même date de naissance, ou même nom et une
+          seule des deux fiches inscrite cette année. Réunir garde la fiche
+          la plus récente et y rattache l'ancienne — son année rejoint le
+          parcours, son numéro reste reconnu. Aucune adresse à créer, rien ne
+          change dans Google ni dans KoXo.
         </span>
       </div>
     {/if}
@@ -343,19 +371,21 @@
     <div class="max-w-md">
       <Progression
         valeur={faits.length}
-        total={faits.length + groupes.length}
-        libelle="{groupes.length} adresse{groupes.length > 1 ? 's' : ''} reste{groupes.length > 1 ? 'nt' : ''} à trancher"
+        total={faits.length + groupes.length + doublons.length}
+        libelle="{groupes.length + doublons.length} cas reste{groupes.length + doublons.length > 1 ? 'nt' : ''} à trancher"
         teinte={TEINTES.annee}
       />
     </div>
 
     <div class="min-h-0 flex-1 overflow-y-auto">
+      {#if groupes.length}
       <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_140px_300px] items-center gap-3 border-b border-stone-200 py-2 dark:border-stone-800">
         <span class="libelle-champ">Adresse visée</span>
         <span class="libelle-champ">Fiche</span>
         <span class="libelle-champ">Compte</span>
         <span class="libelle-champ">Décision</span>
       </div>
+      {/if}
 
       {#each groupes as g (g.adresse)}
         {@const fusion = enFusion(g)}
@@ -401,7 +431,7 @@
               {#if fusion}
                 {#if v.personne_id === g.garde_id}
                   <span class="text-xs font-semibold text-stone-800 dark:text-stone-200">
-                    reste — inscrite cette année
+                    reste — {v.inscrit ? "inscrite cette année" : "la plus récente"}
                   </span>
                 {:else}
                   <span class="text-xs text-stone-500 dark:text-stone-400">
@@ -465,6 +495,13 @@
                 </button>
               {/if}
             </div>
+          {:else if g.contradiction}
+            <!-- Deux INE, deux dates de naissance : deux personnes, et
+                 l'export le dit. Proposer de les réunir serait inviter à
+                 l'erreur que l'écran existe pour éviter. -->
+            <p class="mt-1 text-right text-xs text-stone-500 dark:text-stone-400">
+              {g.contradiction}
+            </p>
           {:else if g.visants.length === 2}
             <div class="mt-1 flex justify-end">
               <button
@@ -478,6 +515,75 @@
           {/if}
         </div>
       {/each}
+
+      {#if doublons.length}
+        <div class="{groupes.length ? 'mt-8' : ''} border-b border-stone-200 pb-2 dark:border-stone-800">
+          <p class="libelle-champ">Même personne, deux fiches — sans adresse disputée</p>
+          <p class="mt-1 max-w-3xl text-xs text-stone-500 dark:text-stone-400">
+            Retrouvées par l'INE, ou par le nom et la date de naissance.
+            Elles ne se disputent aucune adresse, mais le parcours est coupé
+            en deux, et la personne compte parmi les sortants d'un site et
+            les entrants de l'autre.
+          </p>
+        </div>
+        {#each doublons as d (d.cle)}
+          <div class="border-b border-stone-200 py-2.5 dark:border-stone-800">
+            {#each d.visants as v, i (v.personne_id)}
+              <div class="grid grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_140px_300px] items-center gap-3 py-1.5 text-sm">
+                <span>
+                  {#if i === 0}
+                    <Pastille
+                      etat="reference"
+                      texte={d.preuve === "ine" ? "même INE" : "même naissance"}
+                    />
+                  {/if}
+                </span>
+                <span class="min-w-0">
+                  <span class="block truncate">
+                    <span class="font-mono text-xs text-stone-500 dark:text-stone-400">
+                      {v.cle_pivot}
+                    </span>
+                    <strong class="ml-1.5 font-semibold">{v.nom}</strong>
+                    <span class="text-stone-600 dark:text-stone-300">{v.prenom}</span>
+                  </span>
+                  <span class="block truncate text-xs text-stone-500 dark:text-stone-400">
+                    {parcours(v)}
+                  </span>
+                </span>
+                <span>
+                  <Pastille
+                    etat="inconnu"
+                    texte={v.a_un_compte ? "compte existant" : "sans compte"}
+                  />
+                </span>
+                {#if v.personne_id === d.garde_id}
+                  <span class="text-xs font-semibold text-stone-800 dark:text-stone-200">
+                    reste — {v.inscrit ? "inscrite cette année" : "la plus récente"}
+                  </span>
+                {:else}
+                  <span class="text-xs text-stone-500 dark:text-stone-400">
+                    rejoint {cleDe(d, d.garde_id)}
+                  </span>
+                {/if}
+              </div>
+            {/each}
+            <div class="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-emerald-50/70 px-3 py-2 dark:bg-emerald-500/10">
+              <GitMerge class="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-300" />
+              <p class="min-w-0 flex-1 text-xs text-stone-700 dark:text-stone-300">{d.motif}</p>
+              <Bouton
+                taille="sm"
+                variante="primary"
+                icon={GitMerge}
+                occupe={enCours === d.cle}
+                disabled={enCours !== null && enCours !== d.cle}
+                onclick={() => reunir(d)}
+              >
+                Réunir les fiches
+              </Bouton>
+            </div>
+          </div>
+        {/each}
+      {/if}
     </div>
 
     <BarreAction
@@ -486,7 +592,7 @@
       <Bouton onclick={() => onNaviguer?.("ou_ca_coince")}>Retour aux constats</Bouton>
       {#if aDepartager.length}
         <Bouton
-          variante={aReunir.length ? "secondary" : "primary"}
+          variante={lot.length ? "secondary" : "primary"}
           icon={Check}
           occupe={typeof enCours === "number"}
           disabled={enCours !== null && typeof enCours !== "number"}
@@ -495,7 +601,7 @@
           {aDepartager.length > 1 ? `Valider les ${aDepartager.length} adresses` : "Valider l'adresse"}
         </Bouton>
       {/if}
-      {#if aReunir.length}
+      {#if lot.length}
         <Bouton
           variante="primary"
           icon={GitMerge}
@@ -503,7 +609,7 @@
           disabled={enCours !== null}
           onclick={() => (demandeTout = true)}
         >
-          Réunir les {aReunir.length} paire{aReunir.length > 1 ? "s" : ""}
+          {lot.length > 1 ? `Réunir les ${lot.length} paires` : "Réunir la paire"}
         </Bouton>
       {/if}
     </BarreAction>
@@ -512,7 +618,7 @@
 
 {#if demandeTout}
   <Modale
-    titre="Réunir {aReunir.length} paire{aReunir.length > 1 ? 's' : ''} de fiches"
+    titre="Réunir {lot.length} paire{lot.length > 1 ? 's' : ''} de fiches"
     largeur="lg"
     onFermer={() => (demandeTout = false)}
   >
@@ -529,7 +635,7 @@
         toujours là. Le récapitulatif le dira, paire par paire.
       </p>
       <ul class="max-h-56 space-y-0.5 overflow-y-auto rounded-lg bg-stone-50 px-3 py-2 text-xs dark:bg-stone-900">
-        {#each aReunir as g (g.adresse)}
+        {#each lot as g (cleDeGroupe(g))}
           {@const garde = g.visants.find((v) => v.personne_id === g.garde_id)}
           <li class="truncate">
             <b class="text-stone-800 dark:text-stone-200">{garde?.nom} {garde?.prenom}</b>
@@ -542,7 +648,7 @@
     {#snippet actions()}
       <Bouton onclick={() => (demandeTout = false)}>Annuler</Bouton>
       <Bouton variante="primary" icon={GitMerge} onclick={reunirTout}>
-        Réunir les {aReunir.length}
+        {lot.length > 1 ? `Réunir les ${lot.length}` : "Réunir"}
       </Bouton>
     {/snippet}
   </Modale>

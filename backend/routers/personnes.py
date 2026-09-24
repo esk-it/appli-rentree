@@ -48,6 +48,8 @@ class PersonneOut(BaseModel):
     regime: str | None
     site: str | None
     date_entree: date | None
+    ine: str | None = None
+    date_naissance: date | None = None
     civilite: str | None
     poste_occupe: str | None
     matieres: str | None
@@ -100,6 +102,8 @@ def _serialiser(
         regime=p.regime,
         site=site.nom if site else None,
         date_entree=p.date_entree,
+        ine=p.ine,
+        date_naissance=p.date_naissance,
         civilite=p.civilite,
         poste_occupe=p.poste_occupe,
         matieres=p.matieres,
@@ -227,6 +231,8 @@ class VisantOut(BaseModel):
     """Vrai si la fiche est inscrite l'année la plus récente."""
     annees: list[AnneeFicheOut] = []
     """Les années de la fiche, de la plus récente à la plus ancienne."""
+    ine: str | None = None
+    date_naissance: date | None = None
 
 
 class CollisionOut(BaseModel):
@@ -252,6 +258,10 @@ class CollisionOut(BaseModel):
     """La fiche qui resterait si on les réunissait."""
     motif: str | None = None
     """Ce qui fait penser à une seule personne, en une phrase."""
+    preuve: str | None = None
+    """`ine`, `naissance` ou `passage`."""
+    contradiction: str | None = None
+    """Ce qui prouve deux personnes : deux INE, deux dates de naissance."""
 
 
 @router.get("/collisions", response_model=list[CollisionOut])
@@ -274,7 +284,7 @@ def lister_collisions(session: Session = Depends(db_session)) -> list[CollisionO
         annees_vecues,
         choisir_garde,
         decrire_passage,
-        meme_personne_probable,
+        evaluer_lien,
     )
 
     sites_par_id = {s.id: s for s in session.query(Site).all()}
@@ -331,18 +341,24 @@ def lister_collisions(session: Session = Depends(db_session)) -> list[CollisionO
                         AnneeFicheOut(annee=v.annee, classe=v.classe, site=v.site)
                         for v in vecues.get(p.id, [])
                     ],
+                    ine=p.ine,
+                    date_naissance=p.date_naissance,
                 )
             )
 
         probable, garde_id, motif = False, None, None
+        preuve = contradiction = None
         if len(personnes_en_conflit) == 2:
             a, b = personnes_en_conflit
-            if meme_personne_probable(a, b, inscrits):
+            lien = evaluer_lien(a, b, inscrits)
+            contradiction = lien.contradiction
+            if lien.probable:
                 garde, absorbee, _ = choisir_garde(session, a, b)
-                probable, garde_id = True, garde.id
+                probable, garde_id, preuve = True, garde.id, lien.preuve
                 motif = decrire_passage(
                     garde, vecues.get(garde.id, []),
                     absorbee, vecues.get(absorbee.id, []),
+                    preuve=lien.preuve,
                 )
         sorties.append(
             CollisionOut(
@@ -352,10 +368,85 @@ def lister_collisions(session: Session = Depends(db_session)) -> list[CollisionO
                 meme_personne_probable=probable,
                 garde_id=garde_id,
                 motif=motif,
+                preuve=preuve,
+                contradiction=contradiction,
             )
         )
 
     return sorties
+
+
+class DoublonOut(BaseModel):
+    cle: str
+    visants: list[VisantOut]
+    """La fiche qui reste d'abord, puis celle qui la rejoindrait."""
+    garde_id: int
+    preuve: str
+    """`ine` ou `naissance` : jamais le seul nom, ici."""
+    motif: str
+
+
+@router.get("/doublons", response_model=list[DoublonOut])
+def lister_doublons(session: Session = Depends(db_session)) -> list[DoublonOut]:
+    """Les personnes en deux fiches que l'INE ou la naissance prouve.
+
+    Seulement celles qui ne se disputent pas déjà une adresse : celles-là,
+    `/collisions` les présente, et deux fois la même paire ferait réunir
+    deux fois. Un élève passé de NDE à NDK sous une adresse neuve n'avait
+    jusqu'ici aucun écran pour le montrer.
+    """
+    from backend.models import Snapshot
+    from backend.services.fusion import (
+        annee_la_plus_recente,
+        annees_vecues,
+        doublons_sans_adresse_disputee,
+    )
+
+    trouves = doublons_sans_adresse_disputee(session)
+    if not trouves:
+        return []
+
+    sites_par_id = {s.id: s for s in session.query(Site).all()}
+    ids = [x for d in trouves for x in (d.garde.id, d.absorbee.id)]
+    vecues = annees_vecues(session, ids)
+    courante = annee_la_plus_recente(session)
+    inscrits = set()
+    if courante is not None:
+        inscrits = {
+            pid
+            for (pid,) in session.query(Snapshot.personne_id)
+            .filter(
+                Snapshot.annee_scolaire_id == courante.id,
+                Snapshot.personne_id.in_(ids),
+            )
+            .distinct()
+        }
+
+    def visant(p: Personne) -> VisantOut:
+        return VisantOut(
+            personne_id=p.id, cle_pivot=p.cle_pivot, nom=p.nom, prenom=p.prenom,
+            type=p.type,
+            site=sites_par_id[p.site_id].nom if p.site_id in sites_par_id else None,
+            classe=p.classe, a_un_compte=bool(p.email_constate), a_trancher=False,
+            adresse_proposee=p.email_constate or "",
+            inscrit=p.id in inscrits,
+            annees=[
+                AnneeFicheOut(annee=v.annee, classe=v.classe, site=v.site)
+                for v in vecues.get(p.id, [])
+            ],
+            ine=p.ine, date_naissance=p.date_naissance,
+        )
+
+    return [
+        DoublonOut(
+            cle=f"{d.garde.id}-{d.absorbee.id}",
+            visants=[visant(d.garde), visant(d.absorbee)],
+            garde_id=d.garde.id,
+            preuve=d.preuve,
+            motif=d.motif,
+        )
+        for d in trouves
+    ]
 
 
 class FusionPayload(BaseModel):

@@ -87,6 +87,24 @@ class Personne(Base):
     date_entree: Mapped[date | None] = mapped_column(Date, nullable=True)
     """Date d'entrée réelle dans l'établissement (CardStudio `Date Entrée pour tri`)."""
 
+    ine: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    """Identifiant national élève, tel que Charlemagne le porte.
+
+    Il ne fait **pas** l'identité — la clé pivot la fait, et une nouvelle
+    fiche reste une nouvelle personne. Mais il suit l'élève d'un
+    établissement à l'autre, là où le numéro Charlemagne change : deux
+    fiches du même INE sont un seul élève, inscrit dans les deux bases.
+    C'est ce qui repère, sans rien deviner du nom, le passage de NDE à NDK
+    que la seconde base renumérote."""
+
+    date_naissance: Mapped[date | None] = mapped_column(Date, nullable=True)
+    """Relevée dans Charlemagne. Deux usages, et pas d'autre :
+
+    - départager deux fiches du même nom — même date, même personne ;
+      dates différentes, deux homonymes ;
+    - la donner à KoXo, dont la synchronisation se replie sur
+      `Nom + Prénom + Date de naissance` quand l'ID unique ne suffit pas."""
+
     google_user_id: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
     """Identifiant interne immuable Google Workspace. Capturé à l'amorçage/création via API."""
 

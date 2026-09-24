@@ -376,12 +376,27 @@ def controler_export_koxo(
         )
 
     if rapport.date_naissance_renseignee == 0:
+        connues = (
+            session.query(Personne)
+            .filter(
+                Personne.type == type_personne,
+                Personne.date_naissance.isnot(None),
+            )
+            .count()
+        )
         rapport.avertissements.append(
             "Aucune date de naissance n'est renseignée dans cet export. La "
             "reconnaissance ne peut donc reposer que sur l'ID unique : un "
             "compte dont l'ID unique est absent, erroné ou en double ne sera "
             "pas reconnu, et une synchronisation en mode destructif le "
             "supprimerait."
+            + (
+                f" Le référentiel en connaît {connues} : les fichiers KoXo du "
+                "programme les portent, et la prochaine synchronisation les "
+                "donnera à KoXo."
+                if connues
+                else ""
+            )
         )
 
     # --- La population du référentiel à laquelle on compare -----------------

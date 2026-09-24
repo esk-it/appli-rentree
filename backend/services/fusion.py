@@ -89,6 +89,8 @@ NOMS_CIBLES = {
 }
 
 CHAMPS_REPRIS = (
+    ("ine", "l'INE"),
+    ("date_naissance", "la date de naissance"),
     ("email_constate", "l'adresse du compte Google"),
     ("google_user_id", "l'identifiant interne du compte Google"),
     ("email_professionnel", "l'adresse professionnelle"),
@@ -348,6 +350,9 @@ def fusionner(
             f"Les noms diffèrent : {garde.prenom} {garde.nom} et "
             f"{absorbee.prenom} {absorbee.nom}."
         )
+    contradiction = _contradiction(garde, absorbee)
+    if contradiction:
+        rapport.avertissements.append(contradiction)
     if (
         garde.email_constate
         and absorbee.email_constate
@@ -404,7 +409,9 @@ def fusionner(
         if ancienne and not actuelle:
             setattr(garde, champ, ancienne)
             rapport.repris.append(
-                f"{libelle} : {ancienne}" if champ != "google_user_id" else libelle
+                libelle
+                if champ == "google_user_id"
+                else f"{libelle} : {_afficher(ancienne)}"
             )
     if garde.email_constate and garde.email_attribuee:
         # Un constat remplace une attribution, comme à la saisie : garder
@@ -518,11 +525,14 @@ def fusionner(
                             "email_attribuee", "google_user_id",
                             "chemin_photo_constate", "civilite", "poste_occupe",
                             "matieres", "classes_prof_principal",
-                            "email_professionnel", "email_personnel",
+                            "email_professionnel", "email_personnel", "ine",
                         )
                     }
                     | {
                         "site": noms_sites.get(absorbee.site_id),
+                        "date_naissance": absorbee.date_naissance.isoformat()
+                        if absorbee.date_naissance
+                        else None,
                         "date_entree": absorbee.date_entree.isoformat()
                         if absorbee.date_entree
                         else None,
@@ -578,28 +588,189 @@ def fusionner(
 # ---------------------------------------------------------------------------
 
 
-def meme_personne_probable(
-    a: Personne, b: Personne, inscrits_courante: set[int]
-) -> bool:
-    """Deux fiches qui ont tout d'une seule personne inscrite deux fois.
+@dataclass
+class Lien:
+    """Ce que deux fiches ont à se dire."""
 
-    Même type, même nom et même prénom — à l'accent près : `QUÉMÉNEUR` et
-    `QUEMENEUR` sont la même élève, écrite par deux secrétariats — et une
-    seule des deux inscrite cette année. L'autre est partie l'année où
-    celle-ci est arrivée : c'est un passage, pas une rencontre.
+    probable: bool
+    """Tout indique une seule personne."""
+    preuve: str | None = None
+    """`ine`, `naissance` ou `passage` — ce qui le fait penser."""
+    contradiction: str | None = None
+    """Ce qui prouve deux personnes, en une phrase. Jamais avec `probable`."""
 
-    Deux fiches inscrites toutes les deux sont deux personnes jusqu'à
-    preuve du contraire : c'est exactement la situation de deux homonymes.
+
+PREUVES = {
+    "ine": "Même INE",
+    "naissance": "Même nom, même date de naissance",
+}
+
+
+def evaluer_lien(a: Personne, b: Personne, inscrits_courante: set[int]) -> Lien:
+    """Deux fiches : une seule personne inscrite deux fois, ou deux personnes ?
+
+    Par ordre de force :
+
+    1. **L'INE.** Il suit l'élève d'un établissement à l'autre : le même,
+       c'est le même élève — quel que soit le nom, quelle que soit l'année.
+       Deux INE différents, ce sont deux élèves.
+    2. **La date de naissance**, avec le même nom — à l'accent près :
+       `QUÉMÉNEUR` et `QUEMENEUR` sont la même élève, écrite par deux
+       secrétariats. Même date, même personne ; dates différentes, deux
+       homonymes.
+    3. **Le passage**, faute de mieux : même nom, et une seule des deux
+       fiches inscrite cette année. L'autre est partie l'année où
+       celle-ci est arrivée.
+
+    Deux fiches inscrites toutes les deux, sans rien pour les rapprocher,
+    sont deux personnes jusqu'à preuve du contraire : c'est exactement la
+    situation de deux homonymes.
     """
     from backend.services.regles_metier import normaliser_nom
 
     if a.type != b.type:
-        return False
+        return Lien(False)
+    if a.ine and b.ine:
+        if a.ine == b.ine:
+            return Lien(True, "ine")
+        return Lien(False, contradiction=_contradiction(a, b))
     if (normaliser_nom(a.nom), normaliser_nom(a.prenom)) != (
         normaliser_nom(b.nom), normaliser_nom(b.prenom)
     ):
-        return False
-    return (a.id in inscrits_courante) != (b.id in inscrits_courante)
+        return Lien(False)
+    if a.date_naissance and b.date_naissance:
+        if a.date_naissance == b.date_naissance:
+            return Lien(True, "naissance")
+        return Lien(False, contradiction=_contradiction(a, b))
+    if (a.id in inscrits_courante) != (b.id in inscrits_courante):
+        return Lien(True, "passage")
+    return Lien(False)
+
+
+def meme_personne_probable(
+    a: Personne, b: Personne, inscrits_courante: set[int]
+) -> bool:
+    """Deux fiches qui ont tout d'une seule personne. Voir `evaluer_lien`."""
+    return evaluer_lien(a, b, inscrits_courante).probable
+
+
+def _contradiction(a: Personne, b: Personne) -> str | None:
+    """Ce qui prouve deux personnes — un INE, une date de naissance."""
+    if a.ine and b.ine and a.ine != b.ine:
+        return (
+            f"Deux INE différents ({a.ine}, {b.ine}) : ce sont deux élèves. "
+            "L'INE suit l'élève d'un établissement à l'autre."
+        )
+    if (
+        a.date_naissance
+        and b.date_naissance
+        and a.date_naissance != b.date_naissance
+    ):
+        return (
+            f"Nés à deux dates différentes ({_afficher(a.date_naissance)}, "
+            f"{_afficher(b.date_naissance)}) : ce sont deux homonymes."
+        )
+    return None
+
+
+def _afficher(v) -> str:
+    """Une date comme on l'écrit ici : `12/03/2012`. Le reste tel quel."""
+    return v.strftime("%d/%m/%Y") if hasattr(v, "strftime") else str(v)
+
+
+@dataclass
+class Doublon:
+    """Deux fiches d'une même personne, repérées sans adresse disputée."""
+
+    garde: Personne
+    absorbee: Personne
+    preuve: str
+    motif: str
+
+
+def doublons(session: Session) -> list[Doublon]:
+    """Les personnes en deux fiches, prouvées par l'INE ou la naissance.
+
+    L'écran « Départager » les trouvait par l'adresse qu'elles se
+    disputaient. Un élève passé de NDE à NDK sous une adresse neuve ne se
+    dispute rien : ses deux fiches cohabitent sans bruit, son parcours
+    coupé en deux, et il compte parmi les sortants d'un site et les
+    entrants de l'autre. L'INE le retrouve ; la date de naissance, avec le
+    nom, quand l'INE manque.
+
+    Rien n'est réuni ici : c'est une liste, que l'écran présente.
+    """
+    from backend.services.regles_metier import normaliser_nom
+
+    gens = session.query(Personne).all()
+    courante = annee_la_plus_recente(session)
+    inscrits: set[int] = set()
+    if courante is not None:
+        inscrits = {
+            pid
+            for (pid,) in session.query(Snapshot.personne_id)
+            .filter(Snapshot.annee_scolaire_id == courante.id)
+            .distinct()
+        }
+
+    groupes: dict[tuple, list[Personne]] = {}
+    for p in gens:
+        if p.ine:
+            groupes.setdefault(("ine", p.type, p.ine), []).append(p)
+        if p.date_naissance:
+            groupes.setdefault(
+                (
+                    "naissance", p.type, normaliser_nom(p.nom),
+                    normaliser_nom(p.prenom), p.date_naissance,
+                ),
+                [],
+            ).append(p)
+
+    vus: set[frozenset[int]] = set()
+    trouves: list[Doublon] = []
+    for cle, ps in groupes.items():
+        for i, a in enumerate(ps):
+            for b in ps[i + 1:]:
+                paire = frozenset((a.id, b.id))
+                if paire in vus:
+                    continue
+                lien = evaluer_lien(a, b, inscrits)
+                if not lien.probable or lien.preuve not in ("ine", "naissance"):
+                    continue
+                vus.add(paire)
+                garde, absorbee, _ = choisir_garde(session, a, b)
+                vecues = annees_vecues(session, [garde.id, absorbee.id])
+                trouves.append(
+                    Doublon(
+                        garde=garde,
+                        absorbee=absorbee,
+                        preuve=lien.preuve,
+                        motif=decrire_passage(
+                            garde, vecues.get(garde.id, []),
+                            absorbee, vecues.get(absorbee.id, []),
+                            preuve=lien.preuve,
+                        ),
+                    )
+                )
+    trouves.sort(key=lambda d: (d.garde.nom, d.garde.prenom))
+    return trouves
+
+
+def doublons_sans_adresse_disputee(session: Session) -> list[Doublon]:
+    """Les doublons que les adresses disputées ne montrent pas déjà.
+
+    Une paire qui se dispute une adresse est présentée avec elle ; la
+    présenter deux fois ferait réunir deux fois. Une seule source pour
+    l'écran et pour le compteur des constats : deux calculs finiraient
+    par diverger.
+    """
+    from backend.services.anomalies import collisions_email
+
+    deja = [{p.id for p in ps} for ps in collisions_email(session).values()]
+    return [
+        d for d in doublons(session)
+        if not any({d.garde.id, d.absorbee.id} <= g for g in deja)
+    ]
 
 
 def decrire_passage(
@@ -607,6 +778,8 @@ def decrire_passage(
     annees_garde: list[AnneeVecue],
     absorbee: Personne,
     annees_absorbee: list[AnneeVecue],
+    *,
+    preuve: str | None = None,
 ) -> str:
     """Ce qui fait penser à une seule personne, en une phrase.
 
@@ -615,8 +788,13 @@ def decrire_passage(
     côte : c'est ce qu'on regarde pour décider, et il faudrait sinon ouvrir
     les deux fiches.
     """
+    entree = f"{PREUVES[preuve]}. " if preuve in PREUVES else ""
     if not annees_garde or not annees_absorbee:
-        return "Même nom, et une seule des deux fiches est inscrite cette année."
+        return entree + (
+            "Une seule des deux fiches a une année connue."
+            if entree
+            else "Même nom, et une seule des deux fiches est inscrite cette année."
+        )
 
     def situer(v: AnneeVecue, p: Personne) -> tuple[str, str | None]:
         site = v.site or (p.site.nom if p.site else None)
@@ -630,11 +808,11 @@ def decrire_passage(
     avant, site_avant = situer(annees_absorbee[0], absorbee)
     apres, site_apres = situer(annees_garde[0], garde)
     if site_avant and site_apres and site_avant != site_apres:
-        return (
+        return entree + (
             f"{avant}, puis {apres} : un passage de {site_avant} à "
             f"{site_apres}, pas deux homonymes."
         )
-    return (
+    return entree + (
         f"{avant} sous {absorbee.cle_pivot}, puis {apres} sous "
         f"{garde.cle_pivot} : une réinscription sous un nouveau numéro."
     )

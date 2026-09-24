@@ -111,6 +111,7 @@ def detecter_anomalies(
         _personnes_sans_site,
         _personnes_sans_email,
         _collisions_email,
+        _doublons_de_fiche,
         _comptes_purge_echue,
         _classes_sans_groupe,
     ):
@@ -285,6 +286,36 @@ def _collisions_email(session: Session, annee_id: int | None) -> Anomalie | None
             "Sinon, deux homonymes : Google refusera la création du doublon, "
             "choisis une adresse distincte pour la personne « à créer » "
             "(prenom.nom2@…) avant de générer l'export."
+        ),
+    )
+
+
+def _doublons_de_fiche(session: Session, annee_id: int | None) -> Anomalie | None:
+    """Une même personne en deux fiches, que l'INE ou la naissance prouve.
+
+    Pas bloquant : rien ne casse à l'export. Mais le parcours est coupé en
+    deux, l'élève compte parmi les sortants d'un site et les entrants de
+    l'autre, et la fiche ancienne peut porter une sortie prévue pour un
+    compte toujours en service.
+    """
+    from backend.services.fusion import doublons_sans_adresse_disputee
+
+    trouves = doublons_sans_adresse_disputee(session)
+    if not trouves:
+        return None
+    return Anomalie(
+        type="doublon_fiche",
+        gravite="attention",
+        libelle=f"{len(trouves)} personne(s) en deux fiches (même INE ou même naissance)",
+        nb_concernes=len(trouves),
+        details=[
+            f"{d.absorbee.cle_pivot} = {d.garde.cle_pivot} — "
+            f"{d.garde.prenom} {d.garde.nom}"
+            for d in trouves[:_MAX_DETAILS]
+        ],
+        action_suggeree=(
+            "Réunis les deux fiches dans « Départager » : celle de cette "
+            "année reste, l'ancienne la rejoint."
         ),
     )
 

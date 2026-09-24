@@ -616,6 +616,18 @@
                         {/if}
                       </dd>
                     </div>
+                    {#if fiche.personne.date_naissance}
+                      <div class="flex gap-2">
+                        <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Naissance</dt>
+                        <dd class="tabular-nums">{jour(fiche.personne.date_naissance)}</dd>
+                      </div>
+                    {/if}
+                    {#if fiche.personne.ine}
+                      <div class="flex gap-2">
+                        <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">INE</dt>
+                        <dd class="font-mono">{fiche.personne.ine}</dd>
+                      </div>
+                    {/if}
                     {#if fiche.personne.date_entree}
                       <div class="flex gap-2">
                         <dt class="w-24 shrink-0 text-stone-500 dark:text-stone-400">Entrée</dt>

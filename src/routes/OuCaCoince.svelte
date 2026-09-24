@@ -74,6 +74,7 @@
     personne_sans_site: { page: "personnes", geste: "Voir les fiches" },
     personne_sans_email: { page: "personnes", geste: "Voir les fiches" },
     collision_email: { page: "departager", geste: "Départager" },
+    doublon_fiche: { page: "departager", geste: "Réunir" },
     compte_purge_echue: { page: "sortants", geste: "Décider" },
     photo_orpheline: { page: "exports", geste: "Voir les photos" },
   };

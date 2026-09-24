@@ -148,6 +148,10 @@ export const personnes = {
   async collisions() {
     return jsonOrThrow(await fetch(`${BASE}/personnes/collisions`));
   },
+  /** Les personnes en deux fiches que l'INE ou la naissance prouve. */
+  async doublons() {
+    return jsonOrThrow(await fetch(`${BASE}/personnes/doublons`));
+  },
   async definirEmail(id, email) {
     return jsonOrThrow(
       await fetch(`${BASE}/personnes/${id}/email`, {

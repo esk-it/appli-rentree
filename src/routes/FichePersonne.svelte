@@ -198,6 +198,20 @@
             {/if}
             <span>·</span>
             <span>{p.site ? `Site ${p.site}` : "Sans site"}</span>
+            {#if p.date_naissance}
+              <span>·</span>
+              <span class="tabular-nums">né·e le {p.date_naissance.split("-").reverse().join("/")}</span>
+            {/if}
+            {#if p.ine}
+              <span>·</span>
+              <span class="font-mono" title="Identifiant national élève">INE {p.ine}</span>
+            {/if}
+            {#if fiche?.anciennes_fiches?.length}
+              <span>·</span>
+              <span title="Fiche réunie à celle-ci">
+                ancienne fiche <span class="font-mono">{fiche.anciennes_fiches.join(", ")}</span>
+              </span>
+            {/if}
           </p>
         </div>
       </div>

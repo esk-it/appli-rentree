@@ -8,6 +8,7 @@ L'encodage des HTM Charlemagne est cp1252 (Windows-1252).
 """
 from __future__ import annotations
 
+from datetime import date, datetime
 from pathlib import Path
 
 import pandas as pd
@@ -50,6 +51,18 @@ COLONNES_NORMALISEES = {
     "mdp reseau peda": "mdp_charlemagne",
     "mdp reseau pedagogique": "mdp_charlemagne",
     "mot de passe reseau peda": "mdp_charlemagne",
+    # -- L'identifiant national élève, sous les noms qu'on lui voit --
+    "ine": "ine",
+    "no ine": "ine",
+    "n ine": "ine",
+    "ndeg ine": "ine",  # « N° INE » : unidecode écrit le degré en lettres
+    "ndegine": "ine",
+    "num ine": "ine",
+    "numero ine": "ine",
+    "code ine": "ine",
+    "ine eleve": "ine",
+    "identifiant national": "ine",
+    "identifiant national eleve": "ine",
     # -- Adultes (export "Import Adultes Charlemagne N") --
     "identifiant": "id_charlemagne",
     "poste occupe": "poste_occupe",
@@ -69,13 +82,51 @@ COLONNES_NORMALISEES = {
 }
 
 
-COLONNES_TEXTE = frozenset({"login_charlemagne", "mdp_charlemagne"})
+COLONNES_TEXTE = frozenset({"login_charlemagne", "mdp_charlemagne", "ine"})
 """Les colonnes à lire telles qu'elles sont écrites, jamais comme des nombres.
 
 Laissé à lui-même, pandas lit une colonne de chiffres comme des nombres :
 le mot de passe `0123` devient `123.0`. Un mot de passe faux est pire qu'un
 mot de passe absent — on le croit bon, et il n'ouvre rien.
 """
+
+
+FORMATS_DATE = ("%d/%m/%Y", "%Y-%m-%d", "%Y%m%d", "%d-%m-%Y", "%d.%m.%Y", "%d/%m/%y")
+
+
+def date_francaise(v) -> date | None:
+    """Une date telle que Charlemagne l'écrit : `12/03/2012`, le jour d'abord.
+
+    Laissé à lui-même, pandas devine le format sur la première valeur de
+    la colonne. `12/03/2012` lui fait choisir mois/jour : le 3 avril
+    devient le 4 mars, et `25/12/2011` devient illisible. Une date de
+    naissance fausse est pire qu'absente — elle ferait prendre un élève
+    pour un autre.
+
+    Une année à deux chiffres qui tomberait dans le futur recule d'un
+    siècle : `01/02/65` est un professeur né en 1965, pas en 2065.
+    """
+    if v is None:
+        return None
+    if isinstance(v, (pd.Timestamp, datetime)):
+        return None if pd.isna(v) else v.date()
+    if isinstance(v, date):
+        return v
+    if isinstance(v, float) and pd.isna(v):
+        return None
+    texte = str(v).strip()
+    if not texte:
+        return None
+    texte = texte.split(" ")[0]  # « 2012-03-12 00:00:00 » : l'heure ne dit rien
+    for fmt in FORMATS_DATE:
+        try:
+            lue = datetime.strptime(texte, fmt).date()
+        except ValueError:
+            continue
+        if fmt.endswith("%y") and lue > date.today():
+            lue = lue.replace(year=lue.year - 100)
+        return lue
+    return None
 
 
 def _libelles_texte(colonnes) -> dict:
@@ -187,9 +238,7 @@ def _normaliser_colonnes(df: pd.DataFrame) -> pd.DataFrame:
             errors="coerce",
         )
     if "date_naissance" in df.columns:
-        df["date_naissance"] = pd.to_datetime(
-            df["date_naissance"], errors="coerce"
-        )
+        df["date_naissance"] = df["date_naissance"].map(date_francaise)
     if "nouvel_eleve" in df.columns:
         # "O" → True, vide / NaN → False
         df["nouvel_eleve"] = df["nouvel_eleve"].fillna("").astype(str).str.strip() == "O"

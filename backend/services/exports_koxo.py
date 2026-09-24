@@ -693,7 +693,7 @@ def _lignes_conservees(
                 "Identifiant": c.login or "",
                 "ID unique": str(c.badge),
                 "Mot de passe": "",
-                "Date de naissance": "",
+                "Date de naissance": _date_pour_koxo(personne),
                 "Email": email,
             }
         )
@@ -1021,9 +1021,23 @@ def _formatter_ligne(
         "Identifiant": _login_pour(session, personne, site),
         "ID unique": str(personne.badge) if personne.badge else "",
         "Mot de passe": "",  # KoXo génère
-        "Date de naissance": "",
+        "Date de naissance": _date_pour_koxo(personne),
         "Email": email,
     }
+
+
+def _date_pour_koxo(personne: Personne | None) -> str:
+    """`12/03/2012`, toujours ce format-là, ou rien.
+
+    KoXo reconnaît un compte par son ID unique, que ces fichiers portent
+    toujours ; la date ne change donc rien à la reconnaissance. Elle remplit
+    le champ du repli `Nom + Prénom + Date de naissance`, que l'établissement
+    laissait vide. Ce repli compare des **chaînes** : `01/02/12` n'est pas
+    `01/02/2012`. Un seul format, jour d'abord, année sur quatre chiffres.
+    """
+    if personne is None or not personne.date_naissance:
+        return ""
+    return personne.date_naissance.strftime("%d/%m/%Y")
 
 
 # ---------------------------------------------------------------------------
