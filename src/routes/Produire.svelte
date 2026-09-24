@@ -53,10 +53,15 @@
   let chargement = $state(true);
 
   /**
-   * Les cinq destinataires, dans l'ordre où la rentrée les sert.
+   * Ce qu'on produit, dans l'ordre où la rentrée le sert.
    *
    * KoXo d'abord parce que rien n'ouvre une session sans lui ; Google
-   * ensuite ; puis ce qui se voit — le CDI, la carte, le self.
+   * ensuite ; puis ce qui se voit — le CDI, la carte, le self, la porte ;
+   * et en dernier ce qui s'imprime pour les classes.
+   *
+   * Deux lignes ne suivent pas de « dernier envoi », chacune pour sa
+   * raison : la centrale d'accès est elle-même la mémoire de ce qu'elle a
+   * reçu, et des listes imprimées ne sont transmises à aucun système.
    */
   const SYSTEMES = [
     {
@@ -107,6 +112,40 @@
       sansBouton:
         "Le fichier naît du classeur Google, pas du programme. L'écran Sodexo porte la procédure et dit ce qui a changé depuis le dernier envoi.",
     },
+    {
+      // Vers « Badges et accès », pas vers l'onglet JPM des exports.
+      //
+      // L'onglet compare deux années du référentiel et laisse le CardId
+      // vide sur les modifications : il ignore ce que la centrale contient
+      // vraiment. Le différentiel TS1000 part de l'état réel de la
+      // centrale, reprend le CardId, et ne sort personne d'un groupe
+      // d'accès sans preuve. Une porte d'entrée doit mener au geste sûr.
+      id: "jpm",
+      nom: "Badges",
+      teinte: TEINTES.materiel,
+      contenu:
+        "Ajouts, déplacements et retraits pour la centrale d'accès, en quatre lots numérotés.",
+      demande: "l'export Users.xls de la centrale TS1000",
+      vers: "ts1000",
+      // Chaque calcul part de l'état réel de la centrale : un lot déjà
+      // joué n'y réapparaît pas. Il n'y a pas d'envoi à retenir — la
+      // centrale est elle-même la mémoire.
+      nonSuivi: "La centrale fait foi",
+    },
+    {
+      // Des documents qu'on imprime, pas un envoi à un système : rien à
+      // comparer à un « dernier envoi ». La colonne le dit plutôt que
+      // d'afficher un « jamais envoyé » qui ferait croire à un oubli.
+      id: "listes",
+      nom: "Listes & étiquettes",
+      teinte: TEINTES.fichiers,
+      contenu:
+        "Liste de tous les élèves, liste des entrants, et étiquettes des entrants — une planche par classe.",
+      demande: "l'export KoXo du site, mots de passe inclus",
+      vers: "exports",
+      cible: "listes",
+      nonSuivi: "Documents imprimés",
+    },
   ];
 
   /** « il y a trois jours », plutôt qu'un horodatage à déchiffrer. */
@@ -137,7 +176,7 @@
     // Chaque état est lu à part : un système muet ne doit pas emporter
     // les quatre autres.
     const lus = await Promise.all(
-      SYSTEMES.map(async (s) => {
+      SYSTEMES.filter((s) => !s.nonSuivi).map(async (s) => {
         try {
           return [s.id, await envoisApi.etat(s.id, anneeId)];
         } catch {
@@ -219,7 +258,9 @@
           </span>
 
           <span class="text-stone-600 dark:text-stone-400">
-            {#if !e}
+            {#if s.nonSuivi}
+              <span class="text-xs text-stone-500 dark:text-stone-400">{s.nonSuivi}</span>
+            {:else if !e}
               <span class="text-stone-400">—</span>
             {:else if !e.envoye_le}
               Jamais envoyé
