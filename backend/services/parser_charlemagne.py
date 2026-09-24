@@ -41,6 +41,15 @@ COLONNES_NORMALISEES = {
     "date entree pour tri": "date_entree",
     "nomfichierphoto": "nom_fichier_photo",
     "chambres": "chambre",
+    # -- Le compte réseau, tel que Charlemagne le garde --
+    # « ID Réseau Péda » et « MDP Réseau Péda » : les deux champs que le
+    # programme remplit lui-même par import, et que la direction lit.
+    "id reseau peda": "login_charlemagne",
+    "id reseau pedagogique": "login_charlemagne",
+    "identifiant reseau peda": "login_charlemagne",
+    "mdp reseau peda": "mdp_charlemagne",
+    "mdp reseau pedagogique": "mdp_charlemagne",
+    "mot de passe reseau peda": "mdp_charlemagne",
     # -- Adultes (export "Import Adultes Charlemagne N") --
     "identifiant": "id_charlemagne",
     "poste occupe": "poste_occupe",
@@ -58,6 +67,24 @@ COLONNES_NORMALISEES = {
     "email professionnel": "email_professionnel",
     "email personnel": "email_personnel",
 }
+
+
+COLONNES_TEXTE = frozenset({"login_charlemagne", "mdp_charlemagne"})
+"""Les colonnes à lire telles qu'elles sont écrites, jamais comme des nombres.
+
+Laissé à lui-même, pandas lit une colonne de chiffres comme des nombres :
+le mot de passe `0123` devient `123.0`. Un mot de passe faux est pire qu'un
+mot de passe absent — on le croit bon, et il n'ouvre rien.
+"""
+
+
+def _libelles_texte(colonnes) -> dict:
+    """Les libellés bruts des colonnes à lire en texte, pour pandas."""
+    return {
+        c: str
+        for c in colonnes
+        if COLONNES_NORMALISEES.get(_normaliser_libelle(c)) in COLONNES_TEXTE
+    }
 
 
 def _normaliser_libelle(libelle: str) -> str:
@@ -84,6 +111,9 @@ def lire_htm(chemin: str | Path) -> pd.DataFrame:
         raise ValueError(f"Aucun tableau trouvé dans {chemin}")
     # Charlemagne met tout dans une seule grande table.
     df = max(tables, key=len)
+    if texte := _libelles_texte(df.columns):
+        # Relu en texte : voir COLONNES_TEXTE.
+        df = max(pd.read_html(chemin, encoding="cp1252", converters=texte), key=len)
     return _normaliser_colonnes(df)
 
 
@@ -127,7 +157,10 @@ def lire_xlsx(chemin: str | Path, feuille: str | int = 0) -> pd.DataFrame:
 
     brut = pd.read_excel(chemin, sheet_name=feuille, engine=moteur, header=None)
     entete = _ligne_entete(brut)
-    df = pd.read_excel(chemin, sheet_name=feuille, engine=moteur, header=entete)
+    texte = _libelles_texte(v for v in brut.iloc[entete] if pd.notna(v)) if len(brut) else {}
+    df = pd.read_excel(
+        chemin, sheet_name=feuille, engine=moteur, header=entete, dtype=texte or None
+    )
     return _normaliser_colonnes(df)
 
 

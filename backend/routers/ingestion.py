@@ -56,6 +56,12 @@ class RapportOut(BaseModel):
     erreurs: list[str]
     avertissements: list[str] = []
     est_bloquee: bool
+    appris: list[str] = []
+    """Codes de classe, dates d'entrée, photos, mots de passe : ce que
+    l'export a enseigné au-delà de l'identité."""
+    nb_mots_de_passe_lus: int = 0
+    nb_mots_de_passe_ranges: int = 0
+    coffre_ferme: bool = False
 
 
 def _rapport_vers_out(r: RapportIngestion) -> RapportOut:
@@ -96,12 +102,17 @@ def _executer_ingestion(
     if type_personne not in TYPES_PERSONNE:
         raise HTTPException(400, f"type_personne invalide : {type_personne}")
 
+    # Les mots de passe que l'export porte ne se rangent que coffre ouvert.
+    # Fermé, l'ingestion se fait quand même : elle le dit, c'est tout.
+    from backend.routers.coffre import cle_si_ouverte
+
     rapport = ingerer_export(
         session=session,
         chemin_fichier=chemin,
         type_personne=type_personne,
         libelle_annee=libelle_annee,
         mode=mode,
+        cle_coffre=cle_si_ouverte(),
     )
 
     # Trace l'ingestion — jamais bloquant pour le résultat rendu à l'appelant.
@@ -125,6 +136,8 @@ def _executer_ingestion(
                 "nb_classes_inconnues": len(rapport.classes_inconnues),
                 "nb_collisions_login": len(rapport.collisions_login),
                 "nb_homonymes": len(rapport.homonymes_intra_export),
+                # Un compte, jamais un mot de passe : le journal n'en voit pas.
+                "nb_mots_de_passe_ranges": rapport.nb_mots_de_passe_ranges,
             },
         )
         session.commit()

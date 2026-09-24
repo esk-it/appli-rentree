@@ -45,8 +45,14 @@ class SecretConserve(Base):
     )
 
     cible: Mapped[str] = mapped_column(String(20), default="koxo")
-    """`koxo` ou `google`. Le mot de passe est le même aujourd'hui ; le
-    distinguer coûte une colonne et évite d'avoir à démêler plus tard."""
+    """`koxo`, `google` ou `charlemagne`. Le mot de passe est le même
+    aujourd'hui ; le distinguer coûte une colonne et évite d'avoir à
+    démêler plus tard.
+
+    `charlemagne` est ce que Charlemagne garde dans « MDP Réseau Péda » :
+    rangé à côté de celui de KoXo, jamais à sa place. KoXo tient le compte,
+    c'est lui qui fait foi quand les deux diffèrent — et qu'ils diffèrent
+    est une information."""
 
     site: Mapped[str | None] = mapped_column(String(20), nullable=True)
     """La base dont vient ce mot de passe, quand il y en a plusieurs."""
@@ -59,10 +65,19 @@ class SecretConserve(Base):
     chiffre: Mapped[bytes] = mapped_column(LargeBinary)
 
     origine: Mapped[str] = mapped_column(String(20), default="koxo")
-    """`koxo` — relevé dans un export — ou `genere` — fabriqué par le
+    """`koxo` — relevé dans un export KoXo —, `charlemagne` — relevé dans
+    l'export Charlemagne à l'ingestion — ou `genere` — fabriqué par le
     programme pour un site qui n'a pas de KoXo. La distinction compte : un
     mot de passe généré n'existe nulle part ailleurs, et le perdre oblige à
     réinitialiser le compte."""
+
+    identifiant: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    """L'identifiant que ce mot de passe ouvre, tel que la source l'écrit.
+
+    Vide pour les secrets relevés dans KoXo : l'identifiant est alors celui
+    de la personne. Renseigné pour Charlemagne, dont « ID Réseau Péda » est
+    saisi à la main et peut différer du référentiel — afficher l'un avec le
+    mot de passe de l'autre ferait croire à un couple qui n'ouvre rien."""
 
     date_maj: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow

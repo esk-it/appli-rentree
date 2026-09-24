@@ -62,6 +62,19 @@ def _cle_courante() -> bytes:
     return _CLE
 
 
+def cle_si_ouverte() -> bytes | None:
+    """La clé si le coffre est ouvert, `None` sinon — sans rien refuser.
+
+    Pour un geste dont le coffre n'est qu'une partie : une ingestion
+    Charlemagne se fait coffre fermé, elle range simplement les mots de
+    passe qu'elle lit quand il est ouvert.
+    """
+    try:
+        return _cle_courante()
+    except HTTPException:
+        return None
+
+
 def _ouvrir_en_memoire(cle: bytes) -> None:
     global _CLE, _EXPIRE_A
     _CLE = cle
@@ -145,6 +158,7 @@ class SecretOut(BaseModel):
     site: str | None
     origine: str
     mot_de_passe: str
+    identifiant: str | None = None
 
 
 @router.get("/chercher", response_model=list[SecretOut])

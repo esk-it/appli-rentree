@@ -84,6 +84,9 @@ class SecretLu:
     site: str | None
     origine: str
     mot_de_passe: str
+    identifiant: str | None = None
+    """L'identifiant que la source associe à ce mot de passe, s'il diffère
+    de celui de la personne. Voir `SecretConserve.identifiant`."""
 
 
 # ---------------------------------------------------------------------------
@@ -198,6 +201,7 @@ def deposer(
     cible: str = "koxo",
     site: str | None = None,
     origine: str = "koxo",
+    identifiant: str | None = None,
 ) -> SecretConserve:
     """Range un mot de passe. Remplace celui qui s'y trouvait déjà."""
     if not mot_de_passe:
@@ -217,6 +221,7 @@ def deposer(
     secret.nonce = nonce
     secret.chiffre = chiffre
     secret.origine = origine
+    secret.identifiant = identifiant
     session.flush()
     return secret
 
@@ -257,7 +262,8 @@ def chercher(
     trouves: list[SecretLu] = []
     for secret, personne in lignes:
         foin = _normaliser(
-            f"{personne.nom} {personne.prenom} {personne.login} {personne.badge}"
+            f"{personne.nom} {personne.prenom} {personne.login} {personne.badge} "
+            f"{secret.identifiant or ''}"
         )
         if q not in foin:
             continue
@@ -272,11 +278,13 @@ def chercher(
                 site=secret.site,
                 origine=secret.origine,
                 mot_de_passe=_dechiffrer(cle, secret),
+                identifiant=secret.identifiant,
             )
         )
         if len(trouves) >= limite:
             break
-    trouves.sort(key=lambda s: (s.nom, s.prenom))
+    # KoXo avant Charlemagne : c'est lui qui tient le compte.
+    trouves.sort(key=lambda s: (s.nom, s.prenom, s.cible == "charlemagne"))
     return trouves
 
 

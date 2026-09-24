@@ -142,6 +142,19 @@ class RapportIngestion:
     inconnues (mode `reel`). En simulation, `est_bloquee` reste False mais
     `classes_inconnues` est renseignée."""
 
+    appris: list[str] = field(default_factory=list)
+    """Ce que l'export a enseigné au-delà de l'identité et de la classe.
+
+    Les codes de classe que CardStudio réclame, les dates d'entrée, les
+    photos, les mots de passe. Tout cela s'apprenait d'un second export,
+    déposé ailleurs : un export de base qui porte les colonnes suffit."""
+
+    nb_mots_de_passe_lus: int = 0
+    nb_mots_de_passe_ranges: int = 0
+    coffre_ferme: bool = False
+    """Vrai quand l'export porte des mots de passe et que le coffre est
+    fermé : ils ne sont pas rangés. L'écran propose de l'ouvrir."""
+
 
 # ---------------------------------------------------------------------------
 # Détection du type d'export
@@ -315,6 +328,7 @@ def ingerer_export(
     type_personne: str,
     libelle_annee: str,
     mode: str = "simulation",
+    cle_coffre: bytes | None = None,
 ) -> RapportIngestion:
     """Ingère un export Charlemagne dans le référentiel.
 
@@ -324,6 +338,8 @@ def ingerer_export(
         type_personne: `eleve` ou `adulte`.
         libelle_annee: année scolaire cible, ex. `2025-2026`.
         mode: `simulation` (défaut, ne commit rien) ou `reel`.
+        cle_coffre: la clé du coffre s'il est ouvert. Les mots de passe
+            que l'export porte n'y sont rangés qu'à cette condition.
 
     Returns:
         Un `RapportIngestion` détaillé, sans aucun secret persisté.
@@ -352,8 +368,12 @@ def ingerer_export(
     rapport.nb_lignes_lues = int(len(df))
 
     if type_personne == "eleve":
-        return _ingerer_eleves(session, df, libelle_annee, mode, rapport)
-    return _ingerer_adultes(session, df, libelle_annee, mode, rapport)
+        return _ingerer_eleves(
+            session, df, libelle_annee, mode, rapport, cle_coffre=cle_coffre
+        )
+    return _ingerer_adultes(
+        session, df, libelle_annee, mode, rapport, cle_coffre=cle_coffre
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -367,6 +387,7 @@ def _ingerer_eleves(
     libelle_annee: str,
     mode: str,
     rapport: RapportIngestion,
+    cle_coffre: bytes | None = None,
 ) -> RapportIngestion:
     # Initialisation du compteur (aussi appelé par la fonction publique mais
     # utile quand _ingerer_eleves est appelé directement — cf. tests unitaires).
@@ -445,6 +466,9 @@ def _ingerer_eleves(
     # de la boucle, l'export ne le connaît plus.
     ids_vus: set[int] = set()
     sites_vus: set[int] = set()
+    table_par_classe = {(c.site_id, c.classe_code_court): c for c in correspondances}
+    codes = _CodesDeClasse(ecraser=maj_etat_courant)
+    comptes: list[tuple[int, str | None, str]] = []
     for ligne in lignes:
         id_ch = _int(ligne.get("id_charlemagne"))
         nom = _s(ligne.get("nom"))
@@ -482,7 +506,7 @@ def _ingerer_eleves(
 
         sites_vus.add(site_id)
 
-        _traiter_ligne_eleve(
+        traitee = _traiter_ligne_eleve(
             session=session,
             ligne=ligne,
             id_ch=id_ch,
@@ -494,6 +518,9 @@ def _ingerer_eleves(
             rapport=rapport,
             maj_etat_courant=maj_etat_courant,
         )
+        codes.apprendre(ligne, table_par_classe.get((site_id, code_classe)))
+        if traitee is not None:
+            _noter_compte(ligne, *traitee, comptes)
         # Après le traitement, pas avant : un entrant que cette ligne vient
         # de créer n'existait pas encore, et serait sorti porté disparu de
         # l'export qui l'amène.
@@ -504,6 +531,11 @@ def _ingerer_eleves(
         session, annee=annee, type_personne="eleve",
         ids_vus=ids_vus, sites_vus=sites_vus,
     )
+
+    # g-bis. Ce que l'export enseigne en plus : codes de classe, dates
+    # d'entrée, photos — et les mots de passe, si le coffre est ouvert.
+    codes.conclure(df, lignes, rapport)
+    _ranger_mots_de_passe(session, comptes, cle_coffre, mode, rapport)
 
     # h. Commit ou rollback selon le mode
     if mode == "reel" and not rapport.est_bloquee:
@@ -597,8 +629,12 @@ def _traiter_ligne_eleve(
     annee: AnneeScolaire,
     rapport: RapportIngestion,
     maj_etat_courant: bool = True,
-) -> None:
-    """Traite une ligne d'export élève : Personne + Snapshot."""
+) -> tuple[Personne, bool] | None:
+    """Traite une ligne d'export élève : Personne + Snapshot.
+
+    Rend la personne et si elle a été reconnue par un ancien numéro, ou
+    `None` quand la ligne n'a pu être traitée.
+    """
     from backend.services.fusion import personne_par_cle
 
     personne, par_ancienne_fiche = personne_par_cle(session, "eleve", id_ch)
@@ -656,6 +692,7 @@ def _traiter_ligne_eleve(
             nom=nom,
             prenom=prenom,
             classe=code_classe,
+            niveau=_s(ligne.get("code_niveau")),
             site_id=site_id,
             regime=_s(ligne.get("code_regime")),
             code_etablissement=_s(ligne.get("code_etablissement")),
@@ -694,6 +731,174 @@ def _traiter_ligne_eleve(
         )
 
     rapport.nb_lignes_ingerees += 1
+    return personne, par_ancienne_fiche
+
+
+class _CodesDeClasse:
+    """Le code niveau et le code établissement, appris au fil des lignes.
+
+    Ce sont des attributs de la **classe** : `2_1` est en `1-2NDES-LY` et
+    `03-LY` pour tous ses élèves. CardStudio les réclame, et rien d'autre
+    ne les donne : ils s'apprenaient d'un export CardStudio déposé sur
+    l'écran des cartes. Un export de base qui porte les deux colonnes les
+    enseigne maintenant au passage, et l'écran des cartes n'a plus rien à
+    demander.
+
+    Un export d'une année passée complète ce qui manque sans rien réécrire :
+    une classe peut changer de niveau d'une année à l'autre. Deux élèves
+    d'une même classe qui disent deux codes différents ne tranchent rien —
+    le premier lu est gardé, et le désaccord est dit.
+    """
+
+    CHAMPS = (("code_niveau", "code_niveau"), ("code_etablissement", "code_etablissement"))
+
+    def __init__(self, *, ecraser: bool) -> None:
+        self.ecraser = ecraser
+        self.premiers: dict[tuple[int, str], str] = {}
+        self.apprises: set[str] = set()
+        self.desaccords: set[str] = set()
+        self.vues: dict[int, TableCorrespondance] = {}
+
+    def apprendre(self, ligne: dict, correspondance) -> None:
+        if correspondance is None:
+            return
+        self.vues[correspondance.id] = correspondance
+        for champ, colonne in self.CHAMPS:
+            valeur = _s(ligne.get(colonne))
+            if not valeur:
+                continue
+            premier = self.premiers.setdefault((correspondance.id, champ), valeur)
+            if premier != valeur:
+                self.desaccords.add(correspondance.classe_code_court)
+                continue
+            actuelle = getattr(correspondance, champ)
+            if actuelle == valeur or (actuelle and not self.ecraser):
+                continue
+            setattr(correspondance, champ, valeur)
+            self.apprises.add(correspondance.classe_code_court)
+
+    def conclure(self, df: pd.DataFrame, lignes: list[dict], rapport) -> None:
+        colonnes = set(df.columns)
+        if {"code_niveau", "code_etablissement"} & colonnes:
+            completes = sum(
+                1 for t in self.vues.values() if t.code_niveau and t.code_etablissement
+            )
+            texte = (
+                f"Codes niveau et établissement : {len(self.apprises)} classe(s) "
+                "apprise(s)"
+                if self.apprises
+                else "Codes niveau et établissement : rien de nouveau"
+            )
+            rapport.appris.append(
+                f"{texte} — {completes} classe(s) sur {len(self.vues)} les ont "
+                "tous les deux, CardStudio n'a rien à redemander pour elles."
+            )
+        else:
+            sans = sorted(
+                t.classe_code_court
+                for t in self.vues.values()
+                if not (t.code_niveau and t.code_etablissement)
+            )
+            # Dit parmi ce que l'export apprend, pas en avertissement : rien
+            # n'est faux dans cette ingestion, il manque juste deux colonnes.
+            if sans:
+                rapport.appris.append(
+                    f"Codes niveau et établissement : absents de l'export, et "
+                    f"{len(sans)} classe(s) n'en ont pas encore. Ajoute « Code "
+                    "niveau » et « Code établissement » à l'export Charlemagne "
+                    "pour que les cartes CardStudio les trouvent."
+                )
+        if self.desaccords:
+            rapport.avertissements.append(
+                "Deux codes différents pour une même classe dans l'export : "
+                + ", ".join(sorted(self.desaccords))
+                + ". Le premier lu est gardé."
+            )
+        for colonne, libelle in (
+            ("date_entree", "Date d'entrée"),
+            ("photo_chemin", "Chemin de photo"),
+        ):
+            if colonne in colonnes:
+                n = sum(
+                    1
+                    for l in lignes
+                    if _s(l.get("code_classe")) and not _vide(l.get(colonne))
+                )
+                rapport.appris.append(f"{libelle} : {n} élève(s).")
+
+
+def _vide(v: Any) -> bool:
+    return v is None or (not isinstance(v, str) and pd.isna(v)) or not str(v).strip()
+
+
+def _noter_compte(
+    ligne: dict,
+    personne: Personne,
+    par_ancienne_fiche: bool,
+    comptes: list[tuple[int, str | None, str]],
+) -> None:
+    """Retient le compte réseau que Charlemagne garde pour cette personne.
+
+    Pas celui d'un ancien numéro : c'était le compte de l'ancienne fiche,
+    et il ne doit pas remplacer celui que porte la fiche gardée.
+    """
+    if par_ancienne_fiche:
+        return
+    mdp = _s(ligne.get("mdp_charlemagne"))
+    if mdp:
+        comptes.append((personne.id, _s(ligne.get("login_charlemagne")), mdp))
+
+
+def _ranger_mots_de_passe(
+    session: Session,
+    comptes: list[tuple[int, str | None, str]],
+    cle: bytes | None,
+    mode: str,
+    rapport: RapportIngestion,
+) -> None:
+    """Range au coffre les mots de passe que Charlemagne garde.
+
+    Ce sont ceux de « MDP Réseau Péda », que la direction lit dans
+    Charlemagne. Ils vont au coffre à côté de ceux relevés dans KoXo, sous
+    la cible `charlemagne` : jamais à leur place — KoXo tient le compte et
+    fait foi —, et avec l'identifiant que Charlemagne leur associe.
+
+    Coffre fermé, rien n'est rangé, et le rapport le dit : réappliquer
+    l'ingestion coffre ouvert suffit, elle ne refait que ce qui manque.
+    Aucun mot de passe ne quitte cette fonction — le rapport ne porte que
+    des comptes.
+    """
+    rapport.nb_mots_de_passe_lus = len(comptes)
+    if not comptes:
+        return
+    if cle is None:
+        # L'écran propose d'ouvrir le coffre sur la foi de `coffre_ferme` :
+        # un avertissement de plus redirait la même chose deux fois.
+        rapport.coffre_ferme = True
+        rapport.appris.append(
+            f"Mots de passe réseau : {len(comptes)} dans l'export, coffre "
+            "fermé — rien n'est rangé."
+        )
+        return
+    if mode != "reel":
+        rapport.appris.append(
+            f"Mots de passe réseau : {len(comptes)} seront rangés au coffre."
+        )
+        return
+
+    from backend.services.coffre import deposer
+
+    for personne_id, identifiant, mdp in comptes:
+        deposer(
+            session, cle, personne_id=personne_id, mot_de_passe=mdp,
+            cible="charlemagne", site=None, origine="charlemagne",
+            identifiant=identifiant,
+        )
+    rapport.nb_mots_de_passe_ranges = len(comptes)
+    rapport.appris.append(
+        f"Mots de passe réseau : {len(comptes)} rangés au coffre, avec "
+        "l'identifiant que Charlemagne leur associe."
+    )
 
 
 def _inscrite_cette_annee(
@@ -721,6 +926,7 @@ def _maj_champs_courants_eleve(
     personne.prenom = _s(ligne.get("prenom")) or personne.prenom
     personne.classe = code_classe
     personne.site_id = site_id
+    personne.niveau = _s(ligne.get("code_niveau")) or personne.niveau
     personne.regime = _s(ligne.get("code_regime")) or personne.regime
     personne.code_etablissement = _s(ligne.get("code_etablissement")) or personne.code_etablissement
     de = _date(ligne.get("date_entree"))
@@ -799,6 +1005,7 @@ def _ingerer_adultes(
     libelle_annee: str,
     mode: str,
     rapport: RapportIngestion,
+    cle_coffre: bytes | None = None,
 ) -> RapportIngestion:
     rapport.nb_lignes_lues = int(len(df))
     for col in ("id_charlemagne", "nom", "prenom"):
@@ -835,6 +1042,7 @@ def _ingerer_adultes(
             "sont créés, mais la situation courante des personnes n'est pas réécrite."
         )
 
+    comptes: list[tuple[int, str | None, str]] = []
     for ligne in lignes:
         id_ch = _int(ligne.get("id_charlemagne"))
         nom = _s(ligne.get("nom"))
@@ -842,7 +1050,7 @@ def _ingerer_adultes(
         if id_ch is None or not nom or not prenom:
             rapport.nb_lignes_ignorees += 1
             continue
-        _traiter_ligne_adulte(
+        traitee = _traiter_ligne_adulte(
             session=session,
             ligne=ligne,
             id_ch=id_ch,
@@ -852,6 +1060,10 @@ def _ingerer_adultes(
             rapport=rapport,
             maj_etat_courant=maj_etat_courant,
         )
+        if traitee is not None:
+            _noter_compte(ligne, *traitee, comptes)
+
+    _ranger_mots_de_passe(session, comptes, cle_coffre, mode, rapport)
 
     if mode == "reel":
         session.commit()
@@ -953,6 +1165,7 @@ def _traiter_ligne_adulte(
             rapport=rapport,
         )
     rapport.nb_lignes_ingerees += 1
+    return personne, par_ancienne_fiche
 
 
 def _maj_champs_courants_adulte(personne: Personne, ligne: dict) -> None:

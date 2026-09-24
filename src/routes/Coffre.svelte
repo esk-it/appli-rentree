@@ -155,7 +155,7 @@
   <EnTetePage
     icon={KeyRound}
     titre="Coffre"
-    description="Retrouver le mot de passe d'une personne sans ouvrir KoXo. Les mots de passe sont chiffrés : sans le mot de passe maître, le fichier de base ne vaut rien."
+    description="Retrouver le mot de passe d'une personne sans ouvrir KoXo. Ceux de KoXo, ceux que Charlemagne garde — rangés à chaque ingestion coffre ouvert —, ceux fabriqués pour NDE. Chiffrés : sans le mot de passe maître, le fichier de base ne vaut rien."
   />
 
   {#if !etat}
@@ -284,9 +284,25 @@
                       <span class="ml-1 text-xs text-stone-500 dark:text-stone-400">{s.classe}</span>
                     {/if}
                   </td>
-                  <td class="py-1.5 pr-3 font-mono text-xs">{s.login ?? "—"}</td>
+                  <td class="py-1.5 pr-3 font-mono text-xs">
+                    {s.identifiant ?? s.login ?? "—"}
+                    {#if s.identifiant && s.login && s.identifiant !== s.login}
+                      <!-- Saisi à la main dans Charlemagne : il peut différer
+                           du référentiel, et c'est avec lui que ce mot de
+                           passe va. -->
+                      <span class="ml-1 font-sans text-stone-400" title="L'identifiant du référentiel">
+                        (référentiel : {s.login})
+                      </span>
+                    {/if}
+                  </td>
                   <td class="py-1.5 pr-3 text-xs text-stone-500 dark:text-stone-400">
-                    {s.site ?? "—"}
+                    {#if s.cible === "charlemagne"}
+                      <span title="Tel que Charlemagne le garde. KoXo tient le compte : s'ils diffèrent, c'est lui qui fait foi.">
+                        Charlemagne
+                      </span>
+                    {:else}
+                      {s.site ?? "—"}
+                    {/if}
                     {#if s.origine === "genere"}
                       <span class="ml-1" title="Fabriqué par le programme : il n'existe nulle part ailleurs">·&nbsp;généré</span>
                     {/if}

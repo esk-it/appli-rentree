@@ -215,6 +215,26 @@ def _codes_par_classe(session: Session) -> dict[str, TableCorrespondance]:
     }
 
 
+def _codes(correspondance, sn) -> tuple[str, str]:
+    """`(code établissement, code niveau)` pour la carte d'un élève.
+
+    Ceux de la classe d'abord : l'ingestion d'un export de base qui porte
+    les deux colonnes les y range. Sinon ceux que l'élève portait lui-même
+    dans l'export — un snapshot les garde, et ils disent la même chose.
+    """
+    etablissement = (
+        (correspondance.code_etablissement if correspondance else None)
+        or (sn.code_etablissement if sn else None)
+        or ""
+    )
+    niveau = (
+        (correspondance.code_niveau if correspondance else None)
+        or (sn.niveau if sn else None)
+        or ""
+    )
+    return etablissement, niveau
+
+
 def lister_candidats(
     session: Session,
     *,
@@ -289,11 +309,7 @@ def lister_candidats(
             site=site,
             regime=(sn.regime or p.regime or "").strip() or None,
             a_une_photo=p.id in photos,
-            codes_connus=bool(
-                correspondance
-                and correspondance.code_niveau
-                and correspondance.code_etablissement
-            ),
+            codes_connus=all(_codes(correspondance, sn)),
             faite_le=deja.get(p.id, (None, None))[0],
             faite_pour=deja.get(p.id, (None, None))[1],
         ))
@@ -392,10 +408,7 @@ def construire_fichier(
         classe = ((sn.classe if sn else None) or p.classe or "").strip()
         correspondance = codes.get(classe)
 
-        code_etablissement = (
-            correspondance.code_etablissement if correspondance else None
-        ) or ""
-        code_niveau = (correspondance.code_niveau if correspondance else None) or ""
+        code_etablissement, code_niveau = _codes(correspondance, sn)
         if not code_etablissement or not code_niveau:
             classes_sans_codes.add(classe or "(sans classe)")
 

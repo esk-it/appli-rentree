@@ -7,7 +7,7 @@
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
   import { SvelteSet } from "svelte/reactivity";
   import Bouton from "$lib/components/Bouton.svelte";
-  import { annees, ingestion, sites } from "$lib/api.js";
+  import { annees, coffreApi, ingestion, sites } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
   let { onNaviguer = null } = $props();
@@ -21,6 +21,32 @@
   let rapport = $state(/** @type {null | any} */ (null));
   let chargement = $state(false);
   let erreur = $state("");
+
+  /** Le mot de passe maître, le temps d'ouvrir le coffre depuis ici. */
+  let motMaitre = $state("");
+  let ouverture = $state(false);
+
+  /**
+   * Ouvre le coffre sans quitter l'écran.
+   *
+   * Un export qui porte « MDP Réseau Péda » ne range ses mots de passe
+   * que coffre ouvert. Envoyer l'utilisateur sur l'écran du coffre puis
+   * le faire revenir lui ferait perdre le fichier choisi.
+   */
+  async function ouvrirCoffre() {
+    if (!motMaitre) return;
+    ouverture = true;
+    try {
+      await coffreApi.ouvrir(motMaitre);
+      motMaitre = "";
+      if (rapport) rapport.coffre_ferme = false;
+      notify.succes("Coffre ouvert : l'ingestion réelle rangera les mots de passe.");
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      ouverture = false;
+    }
+  }
 
   /**
    * Les disparus qu'on a décidé de retirer.
@@ -293,6 +319,48 @@
           </p>
         </div>
       </div>
+
+      {#if rapport.appris?.length > 0}
+        <!-- Ce qui s'apprenait d'un second export, déposé ailleurs : les
+             codes de classe de CardStudio, les dates d'entrée, les photos,
+             les mots de passe. -->
+        <div class="rounded-lg border border-stone-200 bg-stone-50 p-3 text-sm dark:border-stone-700 dark:bg-stone-800/60">
+          <p class="font-medium text-stone-800 dark:text-stone-200">
+            Ce que l'export apprend en plus
+          </p>
+          <ul class="mt-1.5 space-y-1 text-xs text-stone-600 dark:text-stone-300">
+            {#each rapport.appris as a (a)}
+              <li>{a}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+
+      {#if rapport.coffre_ferme && rapport.nb_mots_de_passe_lus > 0}
+        <div class="rounded-lg border-l-4 border-amber-500 bg-amber-50 p-3 text-sm dark:bg-amber-900/20">
+          <p class="font-medium text-amber-900 dark:text-amber-200">
+            {rapport.nb_mots_de_passe_lus} mot(s) de passe réseau dans cet export — le coffre est fermé
+          </p>
+          <p class="mt-1 text-xs text-stone-700 dark:text-stone-300">
+            Ils se rangent au coffre, à côté de ceux relevés dans KoXo. Ouvre-le
+            ici, puis {rapport.mode === "reel" ? "relance l'ingestion réelle — elle ne refait que ce qui manque" : "lance l'ingestion réelle"}.
+          </p>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              type="password"
+              class="champ w-64"
+              placeholder="Mot de passe maître"
+              autocomplete="current-password"
+              aria-label="Mot de passe maître du coffre"
+              bind:value={motMaitre}
+              onkeydown={(e) => e.key === "Enter" && ouvrirCoffre()}
+            />
+            <Bouton taille="sm" variante="primary" occupe={ouverture} disabled={!motMaitre} onclick={ouvrirCoffre}>
+              Ouvrir le coffre
+            </Bouton>
+          </div>
+        </div>
+      {/if}
 
       {#if rapport.classes_inconnues?.length > 0}
         <div class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-900/20">

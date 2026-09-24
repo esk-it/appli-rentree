@@ -552,8 +552,10 @@
           <p class="mt-1 text-sm text-amber-900 dark:text-amber-200">
             <span class="font-mono">{selectionSansCodes.join(", ")}</span> — le code
             niveau et le code établissement sont des attributs de la classe, que
-            seul Charlemagne connaît. Ils se renseignent dans le Référentiel, ou
-            s'apprennent d'un export ci-dessous.
+            seul Charlemagne connaît. Ajoute les colonnes « Code niveau » et
+            « Code établissement » à ton export Charlemagne habituel : la
+            prochaine ingestion les apprend. Un export CardStudio, ci-dessous,
+            fait aussi l'affaire.
           </p>
         </div>
       {/if}
@@ -600,15 +602,18 @@
          ---------------------------------------------------------------- -->
     <details class="card p-4 text-sm">
       <summary class="cursor-pointer font-medium">
-        Apprendre les codes de classe depuis un export Charlemagne
+        Apprendre les codes de classe depuis un export CardStudio
       </summary>
       <p class="mt-2 text-stone-600 dark:text-stone-300">
-        Trois choses ne viennent pas du référentiel : le <strong>code niveau</strong>
+        Trois choses ne viennent que de Charlemagne : le <strong>code niveau</strong>
         et le <strong>code établissement</strong> de chaque classe, et la
         <strong>date d'entrée</strong> de chaque élève — parfois sept ans en
-        arrière. Un export CardStudio de Charlemagne passé <strong>une fois</strong>
-        les enseigne au programme, qui n'en a plus besoin ensuite. À refaire
-        seulement quand des classes apparaissent.
+        arrière. Le plus simple est de les ajouter à l'export Charlemagne
+        habituel : colonnes « Code niveau », « Code établissement » et « Date
+        Entrée pour tri ». Chaque ingestion les apprend alors d'elle-même.
+      </p>
+      <p class="mt-1.5 text-stone-600 dark:text-stone-300">
+        Un export CardStudio déjà en main les enseigne aussi, ici, en une fois.
       </p>
       <label class="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
         <Upload class="h-3.5 w-3.5" />
