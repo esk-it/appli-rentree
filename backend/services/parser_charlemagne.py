@@ -63,6 +63,13 @@ COLONNES_NORMALISEES = {
     "ine eleve": "ine",
     "identifiant national": "ine",
     "identifiant national eleve": "ine",
+    # Le nom du champ dans Charlemagne (Situation scolaire → « Id. National ») :
+    # l'INE, que SIECLE appelle ID_NATIONAL. « Ancien INE ou INA » n'y est
+    # pas rattaché, exprès : c'est l'ancien numéro, ou celui d'un apprenti,
+    # et deux INE différents font conclure à deux personnes.
+    "id. national": "ine",
+    "id national": "ine",
+    "id.national": "ine",
     # -- Adultes (export "Import Adultes Charlemagne N") --
     "identifiant": "id_charlemagne",
     "poste occupe": "poste_occupe",

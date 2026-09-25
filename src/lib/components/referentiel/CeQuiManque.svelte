@@ -88,7 +88,9 @@
   let mesures = $derived.by(() => {
     if (!releve) return [];
     const r = releve;
-    const aAjouter = "colonne à ajouter à l'export Charlemagne";
+    // Le nom du champ tel que Charlemagne le montre dans son choix de
+    // colonnes : l'INE s'y appelle « Id. National » (Situation scolaire).
+    const aAjouter = (champ) => `« ${champ} » à ajouter à l'export Charlemagne`;
     return [
       {
         // « Constatée » : relevée dans Google ou dans un export. Une adresse
@@ -120,13 +122,13 @@
         titre: "INE (élèves)",
         valeur: pct(r.avec_ine, r.eleves),
         chiffre: `${pct(r.avec_ine, r.eleves)} %`,
-        detail: r.avec_ine ? `${r.avec_ine.toLocaleString("fr-FR")} relevés` : aAjouter,
+        detail: r.avec_ine ? `${r.avec_ine.toLocaleString("fr-FR")} relevés` : aAjouter("Id. National"),
       },
       {
         titre: "Date de naissance",
         valeur: pct(r.avec_naissance, r.effectif),
         chiffre: `${pct(r.avec_naissance, r.effectif)} %`,
-        detail: r.avec_naissance ? `${r.avec_naissance.toLocaleString("fr-FR")} relevées` : aAjouter,
+        detail: r.avec_naissance ? `${r.avec_naissance.toLocaleString("fr-FR")} relevées` : aAjouter("Date de naissance"),
       },
       {
         titre: "Codes CardStudio",

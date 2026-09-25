@@ -51,6 +51,25 @@ def test_l_export_porte_l_ine_et_la_naissance(tmp_path):
     assert list(df["date_naissance"]) == [date(2011, 4, 3), date(2010, 12, 25)]
 
 
+def test_l_ine_se_lit_sous_le_nom_que_charlemagne_lui_donne(tmp_path):
+    """Dans Charlemagne, l'INE s'appelle « Id. National ». « Ancien INE ou
+    INA » est un autre numéro : le prendre pour l'INE ferait conclure à deux
+    personnes là où il n'y en a qu'une."""
+    from backend.services.parser_charlemagne import lire_htm
+
+    f = tmp_path / "export.htm"
+    f.write_text(
+        "<table><tr><th>Identifiant élève</th><th>Nom</th><th>Prénom</th>"
+        "<th>Code classe</th><th>Id. National</th><th>Ancien INE ou INA</th></tr>"
+        "<tr><td>8761</td><td>SAILLOUR</td><td>Aaron</td><td>3_PM</td>"
+        "<td>0123456789A</td><td>0999999999Z</td></tr></table>",
+        encoding="cp1252",
+    )
+    df = lire_htm(f)
+    assert list(df["ine"]) == ["0123456789A"]
+    assert list(df["ancien_ine_ou_ina"]) == ["0999999999Z"], "gardé à part, jamais pris pour l'INE"
+
+
 def test_un_export_eleves_avec_la_naissance_reste_un_export_eleves():
     """La date de naissance comptait parmi les indices « adultes » : l'ajouter
     pour KoXo faisait ingérer deux mille élèves comme des professeurs."""
