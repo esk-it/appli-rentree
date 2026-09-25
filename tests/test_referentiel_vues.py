@@ -261,3 +261,21 @@ def test_une_photo_se_garde_une_absence_moins_longtemps(client, session, ecole, 
     r = client.get(f"/api/photos/{ecole['mat'].id}")
     assert r.status_code == 404
     assert r.headers["cache-control"] == "private, max-age=600"
+
+
+def test_la_vignette_trouve_la_photo_que_l_inventaire_attribue(client, session, ecole, tmp_path):
+    """Une photo nommée avant qu'un accent soit corrigé dans Charlemagne :
+    l'inventaire et les cartes la trouvaient, la vignette cherchait
+    `NOM Prénom.jpg` à la lettre et montrait les initiales."""
+    import json
+
+    from backend.models import Parametre
+
+    session.add(Parametre(cle="chemin_dossier_photos", valeur_json=json.dumps(str(tmp_path))))
+    session.commit()
+    (tmp_path / "TANGUY Leane.jpg").write_bytes(b"\xff\xd8\xff")
+    (tmp_path / "LE BRIS Mathis (1_G4).jpg").write_bytes(b"\xff\xd8\xff")
+
+    assert client.get(f"/api/photos/{ecole['lea'].id}").status_code == 200
+    assert client.get(f"/api/photos/{ecole['mat'].id}").status_code == 200, "la parenthèse aussi"
+    assert client.get(f"/api/photos/{ecole['cam'].id}").status_code == 404

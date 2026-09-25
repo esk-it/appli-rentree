@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -197,23 +198,41 @@ def _candidats(racine: Path, personne: Personne) -> list[Path]:
     return [racine / f"{b}{ext}" for b in _bases(personne) for ext in EXTENSIONS]
 
 
+def _plier(texte: str) -> str:
+    """Sans accent ni casse : `ROUÉ Léa` et `ROUE Léa` se replient pareil."""
+    t = unicodedata.normalize("NFKD", texte or "")
+    return "".join(c for c in t if not unicodedata.combining(c)).casefold()
+
+
 class Noms(set):
-    """Les noms d'un dossier, repliés — et ceux à parenthèse, rangés par nom.
+    """Les noms d'un dossier, repliés — et rangés pour qu'on les retrouve.
 
     Chercher les homonymes d'un élève parcourait tout le dossier : deux
     mille élèves, deux mille fichiers, quatre écritures du nom chacun —
     quinze millions de comparaisons, une seconde et demie du relevé. Rangés
     une fois par ce qui précède la parenthèse, ils se retrouvent d'un coup.
+
+    Rangés aussi **sans leurs accents**. La photo est nommée le jour où
+    elle est déposée ; Charlemagne corrige le nom ensuite — `ROUÉ` devient
+    `ROUE`, `Raphael` devient `Raphaël` — et ne renomme pas le fichier.
+    Relevé le 25 septembre 2026 : neuf élèves de NDK dont la photo était
+    sur le partage passaient pour n'en avoir aucune.
     """
 
     def __init__(self, noms=()):
         super().__init__(noms)
         self.parentheses: dict[str, list[str]] = defaultdict(list)
+        self.plies: dict[str, list[str]] = defaultdict(list)
         for n in self:
+            self.plies[_plier(n)].append(n)
             i = n.find(" (")
             while i >= 0:
-                self.parentheses[n[:i]].append(n)
+                self.parentheses[_plier(n[:i])].append(n)
                 i = n.find(" (", i + 1)
+
+
+def _en_noms(presents: set[str]) -> Noms:
+    return presents if isinstance(presents, Noms) else Noms(presents)
 
 
 def _homonymes(presents: set[str], base: str) -> list[str]:
@@ -224,16 +243,22 @@ def _homonymes(presents: set[str], base: str) -> list[str]:
     et `SAOUT Marie (BTS2)`. Sans les chercher, les deux sont déclarées
     sans photo alors qu'elles en ont chacune une.
     """
-    cle = base.casefold()
-    candidats = (
-        presents.parentheses.get(cle, ()) if isinstance(presents, Noms) else presents
-    )
-    prefixe = f"{cle} ("
     return sorted(
         n
-        for n in candidats
-        if n.startswith(prefixe) and Path(n).suffix.casefold() in EXTENSIONS
+        for n in _en_noms(presents).parentheses.get(_plier(base), ())
+        if Path(n).suffix.casefold() in EXTENSIONS
     )
+
+
+def _suffixe(fichier: str, base: str) -> str:
+    """Ce que porte la parenthèse qui suit ce nom, accents du nom ignorés."""
+    cle = _plier(base)
+    i = fichier.find(" (")
+    while i >= 0:
+        if _plier(fichier[:i]) == cle:
+            return fichier[i + 2 : fichier.rfind(")")]
+        i = fichier.find(" (", i + 1)
+    return ""
 
 
 def _trouver(presents: set[str], personne: Personne, classe: str) -> str | None:
@@ -245,20 +270,30 @@ def _trouver(presents: set[str], personne: Personne, classe: str) -> str | None:
     attribuer au jugé mettrait le visage d'une élève sur la carte de son
     homonyme.
     """
+    presents = _en_noms(presents)
     # La parenthèse d'abord : elle désigne quelqu'un exprès, quand le nom
     # nu ne désigne que « la personne qui s'appelle ainsi ».
     classe_normalisee = _sans_separateurs(classe)
     if classe_normalisee:
         for base in _bases(personne):
             for fichier in _homonymes(presents, base):
-                suffixe = fichier[len(base) + 2 : fichier.rfind(")")]
-                if _sans_separateurs(suffixe) == classe_normalisee:
+                if _sans_separateurs(_suffixe(fichier, base)) == classe_normalisee:
                     return fichier
 
     for base in _bases(personne):
         for ext in EXTENSIONS:
             if f"{base}{ext}".casefold() in presents:
                 return f"{base}{ext}"
+
+    # Puis à l'accent près, quand l'écriture exacte n'est nulle part. Un seul
+    # fichier qui se replie pareil : c'est le sien. Deux — `CHEVRE Inaya` et
+    # `CHEVRÉ Inaya` existent côte à côte — et on ne choisit pas : c'est une
+    # piste, pas une photo.
+    for base in _bases(personne):
+        for ext in EXTENSIONS:
+            memes = presents.plies.get(_plier(f"{base}{ext}"), [])
+            if len(memes) == 1:
+                return memes[0]
     return None
 
 
@@ -270,8 +305,9 @@ def _pistes(
 ) -> list[str]:
     """Les fichiers portant ce nom qui restent à rattacher.
 
-    Deux sortes : les parenthésés dont le suffixe n'a pas été reconnu, et
-    le fichier au nom nu que plusieurs personnes revendiquaient. Les deux
+    Trois sortes : les parenthésés dont le suffixe n'a pas été reconnu, le
+    fichier au nom nu que plusieurs personnes revendiquaient, et ceux qui ne
+    diffèrent du nom que par un accent quand ils sont plusieurs. Tous
     méritent d'être nommés — un fichier retiré du compte sans être montré
     laisse croire qu'il n'existe pas.
 
@@ -279,6 +315,7 @@ def _pistes(
     proposé à un autre : ce serait inviter précisément l'erreur que la
     parenthèse existe pour éviter.
     """
+    presents = _en_noms(presents)
     vus: list[str] = []
     for base in _bases(personne):
         vus += [f for f in _homonymes(presents, base) if f not in pris]
@@ -286,6 +323,12 @@ def _pistes(
             f"{base}{ext}".casefold()
             for ext in EXTENSIONS
             if f"{base}{ext}".casefold() in disputes
+        ]
+        vus += [
+            f
+            for ext in EXTENSIONS
+            for f in presents.plies.get(_plier(f"{base}{ext}"), [])
+            if f not in pris
         ]
     return sorted(set(vus))
 
@@ -479,7 +522,7 @@ def chemins_attribues(
     """
     parcours = _parcourir(session, annee_id=annee_id, type_personne=type_personne)
     # `_trouver` rend tantôt le nom tel que la personne s'écrit (branche du
-    # nom nu), tantôt une entrée déjà repliée (branche des homonymes). C'est
+    # nom exact), tantôt une entrée déjà repliée (homonymes, accents). C'est
     # la forme repliée qui indexe le partage, ici comme dans les revendications.
     attribues: dict[int, str] = {}
     for p, _classe, trouve, lecture in parcours.retenus:

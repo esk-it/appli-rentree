@@ -498,3 +498,66 @@ def test_le_dossier_commun_n_est_lu_qu_une_fois_par_releve(session, contexte, mo
     r = _relever(session, contexte)
     assert r.nb_eleves == 5
     assert len(appels) <= 2, appels
+
+
+# ---------------------------------------------------------------------------
+# À l'accent près — relevé sur le partage réel le 25 septembre 2026
+# ---------------------------------------------------------------------------
+
+
+def _chemins(session, contexte):
+    from backend.services.inventaire_photos import chemins_attribues
+
+    return chemins_attribues(session, annee_id=contexte["annee"].id)
+
+
+def test_une_photo_nommee_avant_la_correction_du_nom_se_retrouve(session, contexte):
+    """La photo garde le nom du jour où elle a été déposée ; Charlemagne
+    corrige ensuite `ROUÉ` en `ROUE`, `Raphael` en `Raphaël`."""
+    lea = contexte["eleve"]("ROUE", "Léa", classe="2_6")
+    raphael = contexte["eleve"]("DUIGOU", "Raphaël", classe="2_8")
+    (contexte["dossier"] / "ROUÉ Léa.jpg").write_bytes(b"x")
+    (contexte["dossier"] / "DUIGOU Raphael.jpg").write_bytes(b"x")
+
+    chemins = _chemins(session, contexte)
+    assert chemins[lea.id].endswith("ROUÉ Léa.jpg"), "le vrai nom du fichier, pas le nôtre"
+    assert chemins[raphael.id].endswith("DUIGOU Raphael.jpg")
+    assert _relever(session, contexte).nb_sans == 0
+
+
+def test_l_ecriture_exacte_passe_avant_l_accent(session, contexte):
+    """`CHEVRE Inaya` et `CHEVRÉ Inaya` existent côte à côte sur le partage."""
+    p = contexte["eleve"]("CHEVRE", "Inaya")
+    (contexte["dossier"] / "CHEVRE Inaya.jpg").write_bytes(b"x")
+    (contexte["dossier"] / "CHEVRÉ Inaya.jpg").write_bytes(b"x")
+
+    assert _chemins(session, contexte)[p.id].endswith("CHEVRE Inaya.jpg")
+
+
+def test_deux_fichiers_a_l_accent_pres_ne_se_departagent_pas_au_juge(session, contexte):
+    """Sans écriture exacte, deux candidats : ni l'un ni l'autre — mais les
+    deux sont montrés comme pistes."""
+    p = contexte["eleve"]("CHEVRE", "Inaya")
+    (contexte["dossier"] / "CHEVRÉ Inaya.jpg").write_bytes(b"x")
+    (contexte["dossier"] / "CHÈVRE Inaya.jpg").write_bytes(b"x")
+
+    assert p.id not in _chemins(session, contexte)
+    manquante = _relever(session, contexte).manquantes[0]
+    assert manquante.pistes == ["chevré inaya.jpg", "chèvre inaya.jpg"]
+
+
+def test_la_parenthese_se_lit_aussi_a_l_accent_pres(session, contexte):
+    p = contexte["eleve"]("ROUE", "Léa", classe="2_6", login="lroue")
+    contexte["eleve"]("ROUE", "Léa", classe="T_G1", login="lroue2")
+    (contexte["dossier"] / "ROUÉ Léa (2_6).jpg").write_bytes(b"x")
+
+    assert _chemins(session, contexte)[p.id].endswith("ROUÉ Léa (2_6).jpg")
+
+
+def test_un_autre_prenom_n_est_pas_une_photo(session, contexte):
+    """`GUIVARCH Maëlys.jpg` n'est pas la photo de Maëline : l'accent se
+    pardonne, pas le prénom."""
+    p = contexte["eleve"]("GUIVARCH", "Maëline")
+    (contexte["dossier"] / "GUIVARCH Maëlys.jpg").write_bytes(b"x")
+
+    assert p.id not in _chemins(session, contexte)

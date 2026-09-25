@@ -11,6 +11,8 @@ tombe alors sur l'avatar initiales.
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,7 +21,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from backend.database import db_session
-from backend.models import Parametre, Personne, Snapshot
+from backend.models import AnneeScolaire, Parametre, Personne, Snapshot
 
 router = APIRouter(prefix="/api/photos", tags=["photos"])
 
@@ -171,12 +173,80 @@ CACHE_ABSENCE = {"Cache-Control": "private, max-age=600"}
 partage les mêmes centaines de photos qu'il n'a pas."""
 
 
+DUREE_ATTRIBUTIONS = 120.0
+"""Deux minutes. Un relevé du partage coûte un dixième de seconde ; une page
+du Référentiel demande quarante vignettes."""
+
+_attributions: dict[str, tuple[tuple, float, dict[int, str]]] = {}
+"""Par population : (ce qui a servi au relevé, quand, le relevé)."""
+_verrou_attributions = threading.Lock()
+
+
+def _photo_attribuee(session: Session, personne: Personne) -> Path | None:
+    """Le fichier que l'inventaire attribue à cette personne cette année.
+
+    Les vignettes cherchaient `NOM Prénom.jpg` à l'orthographe près. Une
+    photo nommée avant qu'un accent soit corrigé dans Charlemagne
+    (`ROUÉ Léa.jpg` pour ROUE Léa), ou marquée de sa classe (`SAOUT Marie
+    (44).jpg`), restait sans visage dans le Référentiel alors que
+    l'inventaire et les cartes la trouvaient. Elles lisent donc la même
+    attribution — celle qui refuse aussi un fichier que deux personnes se
+    disputent.
+
+    Le relevé est gardé deux minutes, sous verrou : quarante vignettes qui
+    arrivent ensemble n'en déclenchent qu'un. Il est refait aussitôt si un
+    dossier change — régler celui de NDE doit montrer ses photos tout de
+    suite, pas dans deux minutes.
+    """
+    from backend.models import Site
+    from backend.services.inventaire_photos import (
+        InventaireImpossible,
+        chemins_attribues,
+        dossier_photos,
+    )
+
+    annee = session.query(AnneeScolaire).order_by(AnneeScolaire.libelle.desc()).first()
+    if annee is None:
+        return None
+    cle = (
+        annee.id,
+        dossier_photos(session, type_personne=personne.type),
+        tuple(sorted(
+            (s.id, s.dossier_photos_eleves or "", s.dossier_photos_adultes or "")
+            for s in session.query(Site)
+        )),
+    )
+    with _verrou_attributions:
+        garde = _attributions.get(personne.type)
+        if (
+            garde is None
+            or garde[0] != cle
+            or time.monotonic() - garde[1] > DUREE_ATTRIBUTIONS
+        ):
+            try:
+                attribues = chemins_attribues(
+                    session, annee_id=annee.id, type_personne=personne.type
+                )
+            except InventaireImpossible:
+                attribues = {}
+            garde = _attributions[personne.type] = (cle, time.monotonic(), attribues)
+    chemin = garde[2].get(personne.id)
+    return Path(chemin) if chemin else None
+
+
 @router.get("/{personne_id}")
 def obtenir_photo(personne_id: int, session: Session = Depends(db_session)):
     """Renvoie l'image de la personne. 404 si absente ou dossier non configuré."""
     personne = session.query(Personne).filter_by(id=personne_id).one_or_none()
     if personne is None:
         raise HTTPException(404, "Personne introuvable", headers=CACHE_ABSENCE)
+
+    # Ce que l'inventaire a trouvé d'abord : c'est la même photo que celle
+    # des cartes et du trombinoscope. Les chemins mémorisés ne servent
+    # qu'aux personnes hors de l'année — un ancien élève qu'on consulte.
+    attribuee = _photo_attribuee(session, personne)
+    if attribuee is not None and attribuee.is_file():
+        return FileResponse(attribuee, headers=CACHE_PHOTO)
 
     dossier = _dossier_pour(session, personne)
     if not dossier:
