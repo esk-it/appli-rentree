@@ -68,6 +68,10 @@ class Completude:
     au_coffre: int = 0
     classes: int = 0
     classes_avec_codes: int = 0
+    photos_lues: bool = False
+    """Faux quand le relevé a été demandé sans les photos : `avec_photo`
+    vaut alors `None` parce qu'on n'a pas regardé, pas parce qu'il n'y en a
+    pas."""
     photos_injoignables: str | None = None
     par_classe: list[CompletudeClasse] = field(default_factory=list)
 
@@ -77,8 +81,16 @@ def _cle_naturelle(texte: str) -> list:
     return [int(x) if x.isdigit() else x for x in re.split(r"(\d+)", texte)]
 
 
-def relever(session: Session, *, annee_id: int | None = None) -> Completude:
+def relever(
+    session: Session, *, annee_id: int | None = None, photos: bool = True
+) -> Completude:
     """Le relevé de l'année demandée — la plus récente par défaut.
+
+    Args:
+        photos: lire le partage des photos. C'est de loin le plus lent — huit
+            secondes sur le partage réel, contre un dixième pour tout le
+            reste. L'écran demande donc d'abord le relevé sans elles, puis
+            les photos en second.
 
     Raises:
         ValueError: l'année demandée n'existe pas.
@@ -122,12 +134,13 @@ def relever(session: Session, *, annee_id: int | None = None) -> Completude:
     }
     noms_sites = {s.id: s.nom for s in session.query(Site)}
 
-    releve = Completude(annee=annee.libelle)
-    try:
-        photos: dict[int, str] | None = chemins_attribues(session, annee_id=annee.id)
-    except InventaireImpossible as e:
-        photos = None
-        releve.photos_injoignables = str(e)
+    releve = Completude(annee=annee.libelle, photos_lues=photos)
+    chemins: dict[int, str] | None = None
+    if photos:
+        try:
+            chemins = chemins_attribues(session, annee_id=annee.id)
+        except InventaireImpossible as e:
+            releve.photos_injoignables = str(e)
 
     par_classe: dict[str, CompletudeClasse] = {}
     for pid, sn in derniers.items():
@@ -153,7 +166,7 @@ def relever(session: Session, *, annee_id: int | None = None) -> Completude:
             k = par_classe[classe] = CompletudeClasse(
                 classe=classe,
                 site=noms_sites.get(t.site_id) if t else noms_sites.get(p.site_id),
-                avec_photo=0 if photos is not None else None,
+                avec_photo=0 if chemins is not None else None,
                 codes_carte=bool(t and t.code_niveau and t.code_etablissement),
             )
         k.effectif += 1
@@ -161,7 +174,7 @@ def relever(session: Session, *, annee_id: int | None = None) -> Completude:
         k.au_coffre += coffre
         k.avec_ine += bool(p.ine)
         k.avec_naissance += bool(p.date_naissance)
-        if photos is not None and pid in photos:
+        if chemins is not None and pid in chemins:
             k.avec_photo += 1
         v = verdicts.get(pid)
         if v is not None:
@@ -174,6 +187,6 @@ def relever(session: Session, *, annee_id: int | None = None) -> Completude:
     releve.classes = len(releve.par_classe)
     releve.classes_avec_codes = sum(k.codes_carte for k in releve.par_classe)
     releve.avec_photo = (
-        None if photos is None else sum(k.avec_photo or 0 for k in releve.par_classe)
+        None if chemins is None else sum(k.avec_photo or 0 for k in releve.par_classe)
     )
     return releve

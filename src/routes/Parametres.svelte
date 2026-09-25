@@ -6,6 +6,7 @@
   import Squelette from "$lib/components/Squelette.svelte";
   import Cloud from "@lucide/svelte/icons/cloud";
   import Bouton from "$lib/components/Bouton.svelte";
+  import DossiersPhotosSites from "$lib/components/DossiersPhotosSites.svelte";
   import { googleApi, parametres } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
@@ -174,6 +175,9 @@
             </div>
           {/each}
         </div>
+        {#if categorie === "Photos"}
+          <DossiersPhotosSites />
+        {/if}
       </div>
     {/each}
   {/if}

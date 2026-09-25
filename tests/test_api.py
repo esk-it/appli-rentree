@@ -375,3 +375,34 @@ def test_un_formulaire_qui_ignore_le_dossier_ne_l_efface_pas(client):
     r = client.put(f"/api/sites/{site_id}", json={**_site_nde(), "nom_complet": "NDE"})
     assert r.status_code == 200
     assert r.json()["dossier_photos_eleves"] == r"\\ESK-APP01\Photos\NDE"
+
+
+def test_les_dossiers_photos_d_un_site_se_reglent_depuis_les_parametres(client, tmp_path):
+    """L'écran des Paramètres règle les deux dossiers d'un site, et rien
+    d'autre : le reste du site ne bouge pas."""
+    site_id = client.post("/api/sites", json=_site_nde()).json()["id"]
+
+    r = client.patch(
+        f"/api/sites/{site_id}/photos",
+        json={"dossier_photos_eleves": f"  {tmp_path}" + "\\  "},
+    )
+    assert r.status_code == 200
+    corps = r.json()
+    assert corps["site"]["dossier_photos_eleves"] == str(tmp_path)
+    assert corps["site"]["dossier_photos_adultes"] is None
+    assert corps["site"]["nom_complet"] == "Notre-Dame d'Espérance"
+    assert corps["injoignables"] == []
+
+    # Un dossier que ce poste ne voit pas s'enregistre quand même — le
+    # partage peut être absent un instant — mais la réponse le dit.
+    absent = r"\\serveur-absent\photos\NDE"
+    r = client.patch(f"/api/sites/{site_id}/photos", json={"dossier_photos_adultes": absent})
+    assert r.json()["site"]["dossier_photos_adultes"] == absent
+    assert r.json()["site"]["dossier_photos_eleves"] == str(tmp_path), "champ non envoyé : inchangé"
+    assert r.json()["injoignables"] == [absent]
+
+    # Vide : le site revient au dossier commun.
+    r = client.patch(f"/api/sites/{site_id}/photos", json={"dossier_photos_eleves": ""})
+    assert r.json()["site"]["dossier_photos_eleves"] is None
+
+    assert client.patch("/api/sites/9999/photos", json={}).status_code == 404

@@ -5,6 +5,7 @@
   import FolderTree from "@lucide/svelte/icons/folder-tree";
   import Download from "@lucide/svelte/icons/download";
   import RotateCcw from "@lucide/svelte/icons/rotate-ccw";
+  import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Info from "@lucide/svelte/icons/info";
   import Avatar from "$lib/components/Avatar.svelte";
   import Bouton from "$lib/components/Bouton.svelte";
@@ -65,13 +66,27 @@
   const libelle = (e) => String(e).replace(/^Error:\s*/, "");
 
   // --- Les données -------------------------------------------------------
-  let liste = $state(/** @type {any[]} */ ([]));
-  let verdicts = $state(/** @type {Record<number, any>} */ ({}));
-  let listeAnnees = $state(/** @type {any[]} */ ([]));
-  let mouvements = $state(/** @type {{eleve: any, adulte: any}} */ ({ eleve: null, adulte: null }));
+  // Gardées d'une visite à l'autre. On revient ici dix fois par jour, et
+  // relire deux mille fiches à chaque retour faisait attendre une seconde
+  // un écran qu'on venait de quitter. Ce qui a été gardé s'affiche tout de
+  // suite et se relit derrière ; « mise à jour » le dit le temps que ça
+  // arrive. Rien n'est gardé d'un lancement à l'autre (voir memoire.svelte.js).
+  //
+  // `$state.raw` : ces données ne se modifient jamais en place, on les
+  // remplace. Un proxy profond sur deux mille fiches se payait à chaque
+  // lecture de champ, pour rien.
+  const VIDE = { eleve: null, adulte: null };
+  let liste = $state.raw(lire("referentiel.donnees.liste", /** @type {any[]} */ ([])));
+  let verdicts = $state.raw(lire("referentiel.donnees.verdicts", /** @type {Record<number, any>} */ ({})));
+  let listeAnnees = $state.raw(lire("referentiel.donnees.annees", /** @type {any[]} */ ([])));
   let chargement = $state(true);
   let chargementAnnee = $state(false);
+  let actualisation = $state(false);
+  let actualisationAnnee = $state(false);
   let erreur = $state("");
+  $effect(() => ecrire("referentiel.donnees.liste", liste));
+  $effect(() => ecrire("referentiel.donnees.verdicts", verdicts));
+  $effect(() => ecrire("referentiel.donnees.annees", listeAnnees));
 
   // --- Ce qui survit à la navigation : aller voir une fiche et revenir ne
   // doit pas défaire les filtres ni perdre la personne choisie. ------------
@@ -81,6 +96,9 @@
   // récente ait pu être choisie.
   const anneeRetenue = lire("referentiel.annee", /** @type {number|null|undefined} */ (undefined));
   let anneeId = $state(/** @type {number|null} */ (anneeRetenue ?? null));
+  let mouvements = $state.raw(
+    /** @type {{eleve: any, adulte: any}} */ (lire(`referentiel.donnees.mouvements.${anneeRetenue}`, VIDE)),
+  );
   let recherche = $state(lire("referentiel.recherche", ""));
   let choix = $state(lire("referentiel.choix", /** @type {Record<string, string[]>} */ ({})));
   let filtreClasse = $state(lire("referentiel.classe", ""));
@@ -99,57 +117,70 @@
   let champRecherche = $state(/** @type {HTMLInputElement|null} */ (null));
   let apercu = $state(/** @type {any} */ (null));
 
-  onMount(async () => {
-    try {
-      listeAnnees = (await anneesApi.lister()).slice().sort((a, b) => a.libelle.localeCompare(b.libelle));
-    } catch {
-      listeAnnees = [];
-    }
-    if (anneeRetenue === undefined) anneeId = listeAnnees.at(-1)?.id ?? null;
-    await rafraichir();
+  // Tout part en même temps : les années, les fiches, les verdicts. Seuls
+  // les mouvements attendent — il leur faut l'année, et l'année par défaut
+  // est la plus récente de la liste.
+  onMount(() => {
+    anneesApi
+      .lister()
+      .then((a) => (listeAnnees = a.slice().sort((x, y) => x.libelle.localeCompare(y.libelle))))
+      .catch(() => {})
+      .finally(() => {
+        if (anneeRetenue === undefined) anneeId = listeAnnees.at(-1)?.id ?? null;
+      });
+    rafraichir();
   });
 
   async function rafraichir() {
-    chargement = true;
+    const deja = liste.length > 0;
+    chargement = !deja;
+    actualisation = deja;
     erreur = "";
-    try {
-      liste = await personnes.lister();
-    } catch (e) {
-      erreur = libelle(e);
-    } finally {
-      chargement = false;
-    }
-    try {
-      verdicts = await concordanceApi.verdicts();
-    } catch {
-      verdicts = {};
-    }
+    const [p, v] = await Promise.allSettled([personnes.lister(), concordanceApi.verdicts()]);
+    if (p.status === "fulfilled") liste = p.value;
+    else erreur = libelle(p.reason);
+    // Pas de verdicts, ce n'est pas une panne : la Concordance n'a peut-être
+    // jamais été lancée. On garde alors ce qu'on avait.
+    if (v.status === "fulfilled") verdicts = v.value;
+    chargement = false;
+    actualisation = false;
   }
 
   // Les mouvements de l'année se lisent dans deux sources : les photographies
   // annuelles pour les élèves, le tableau des professeurs pour les adultes.
+  // Gardés par année : revenir sur une année déjà vue la montre aussitôt.
   $effect(() => {
     const id = anneeId;
     if (id === null || id === undefined) {
-      mouvements = { eleve: null, adulte: null };
+      mouvements = VIDE;
       return;
     }
+    const cle = `referentiel.donnees.mouvements.${id}`;
+    const garde = untrack(() => lire(cle, null));
+    // Une année qu'on n'a pas encore vue ne montre pas la précédente sous
+    // son nom : la liste attend, « Lecture de l'année… ».
+    mouvements = garde ?? VIDE;
     let annule = false;
-    chargementAnnee = true;
+    chargementAnnee = !garde;
+    actualisationAnnee = !!garde;
     Promise.allSettled([
       personnes.mouvements({ anneeId: id, type: "eleve" }),
       personnes.mouvements({ anneeId: id, type: "adulte" }),
     ])
       .then(([e, a]) => {
         if (annule) return;
-        mouvements = {
-          eleve: e.status === "fulfilled" ? e.value : null,
-          adulte: a.status === "fulfilled" ? a.value : null,
+        const m = {
+          eleve: e.status === "fulfilled" ? e.value : (garde?.eleve ?? null),
+          adulte: a.status === "fulfilled" ? a.value : (garde?.adulte ?? null),
         };
+        mouvements = m;
+        ecrire(cle, m);
         if (e.status === "rejected") notify.erreur(libelle(e.reason));
       })
       .finally(() => {
-        if (!annule) chargementAnnee = false;
+        if (annule) return;
+        chargementAnnee = false;
+        actualisationAnnee = false;
       });
     return () => (annule = true);
   });
@@ -203,6 +234,10 @@
   const sansAccents = (s) =>
     String(s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
+  // Un seul comparateur pour tout le tri : `localeCompare(…, "fr")` en
+  // refabrique un à chaque appel, et trier deux mille noms en fait vingt mille.
+  const ORDRE = new Intl.Collator("fr");
+
   const aDeja = {
     adresse: (p) => !!p.email_est_constate,
     coffre: (p) => !!p.au_coffre,
@@ -251,16 +286,24 @@
 
   let q = $derived(sansAccents(recherche.trim()));
 
+  // Le texte où l'on cherche, préparé une fois par fiche plutôt qu'à chaque
+  // lettre tapée : chaque filtre relit toute la liste pour compter ce qu'il
+  // ramènerait, et ôter les accents de deux mille lignes cinq fois par
+  // touche se sentait.
+  let texteDe = $derived(
+    new Map(
+      lignes.map((p) => [
+        p,
+        sansAccents(
+          `${p.nom} ${p.prenom} ${p.login ?? ""} ${p.login_constate ?? ""} ${p.cle_pivot ?? ""} ${p.badge ?? ""} ${p.email ?? ""}`,
+        ),
+      ]),
+    ),
+  );
+
   function passeBase(p) {
     if (filtreClasse && p.classe !== filtreClasse) return false;
-    if (
-      q &&
-      !sansAccents(
-        `${p.nom} ${p.prenom} ${p.login ?? ""} ${p.login_constate ?? ""} ${p.cle_pivot ?? ""} ${p.badge ?? ""} ${p.email ?? ""}`,
-      ).includes(q)
-    ) {
-      return false;
-    }
+    if (q && !texteDe.get(p)?.includes(q)) return false;
     return true;
   }
 
@@ -334,15 +377,84 @@
     });
     for (const g of gs) {
       g.personnes.sort(
-        (a, b) =>
-          (a.nom ?? "").localeCompare(b.nom ?? "", "fr") ||
-          (a.prenom ?? "").localeCompare(b.prenom ?? "", "fr"),
+        (a, b) => ORDRE.compare(a.nom ?? "", b.nom ?? "") || ORDRE.compare(a.prenom ?? "", b.prenom ?? ""),
       );
     }
     return gs;
   });
 
   let affichees = $derived(groupes.flatMap((g) => g.personnes));
+
+  // --- La liste ne dessine que ce qui se voit ---------------------------------
+  // Deux mille lignes, chacune avec sa photo, sa pastille et sa case : les
+  // poser toutes dans la page coûtait plus que de les charger. Une ligne et
+  // un titre de classe ont une hauteur fixe, la place de chacun se calcule ;
+  // on ne dessine que ce qui est à l'écran, plus une marge pour le défilement.
+  const H_TITRE = 36;
+  const H_LIGNE = 48;
+  const MARGE = 720;
+
+  let defileur = $state(/** @type {HTMLDivElement|null} */ (null));
+  let defilement = $state(lire("referentiel.defilement", 0));
+  let hauteurVue = $state(800);
+  $effect(() => ecrire("referentiel.defilement", defilement));
+
+  let plan = $derived.by(() => {
+    let y = 0;
+    const blocs = [];
+    for (const g of groupes) {
+      const h = H_TITRE + g.personnes.length * H_LIGNE;
+      blocs.push({ g, haut: y, h });
+      y += h;
+    }
+    return { blocs, total: y };
+  });
+
+  let visibles = $derived.by(() => {
+    const debut = defilement - MARGE;
+    const fin = defilement + hauteurVue + MARGE;
+    const r = [];
+    for (const b of plan.blocs) {
+      if (b.haut + b.h <= debut) continue;
+      if (b.haut >= fin) break;
+      const i0 = Math.max(0, Math.floor((debut - b.haut - H_TITRE) / H_LIGNE));
+      const i1 = Math.min(b.g.personnes.length, Math.ceil((fin - b.haut - H_TITRE) / H_LIGNE));
+      r.push({ ...b, i0, personnes: b.g.personnes.slice(i0, i1) });
+    }
+    return r;
+  });
+
+  // Revenir sur l'écran, ou sur l'onglet, retrouve la liste où on l'avait
+  // laissée. Le défileur est neuf à chaque fois : on lui rend sa position,
+  // puis on relit celle qu'il a vraiment prise — plus courte, la liste a pu
+  // l'obliger à remonter.
+  $effect(() => {
+    const el = defileur;
+    const total = plan.total;
+    if (!el || !total) return;
+    untrack(() => {
+      if (Math.abs(el.scrollTop - defilement) > 1) el.scrollTop = defilement;
+      defilement = el.scrollTop;
+    });
+  });
+
+  // Changer de filtre repart du haut : la liste raccourcie laisserait sinon
+  // l'écran au milieu de nulle part, loin du premier résultat.
+  let premierFiltre = true;
+  $effect(() => {
+    recherche;
+    filtreClasse;
+    choix;
+    anneeId;
+    if (premierFiltre) {
+      premierFiltre = false;
+      return;
+    }
+    untrack(() => {
+      defilement = 0;
+      if (defileur) defileur.scrollTop = 0;
+    });
+  });
 
   let personneChoisie = $derived(
     selectionne == null ? null : (lignes.find((p) => p.id === selectionne) ?? parId.get(selectionne) ?? null),
@@ -371,10 +483,23 @@
     });
   });
 
+  /** Amène la ligne à l'écran, sans la glisser sous le titre de sa classe. */
   function montrer(id) {
-    tick().then(() =>
-      document.querySelector(`[data-ligne="${id}"]`)?.scrollIntoView({ block: "nearest" }),
-    );
+    tick().then(() => {
+      const el = defileur;
+      if (!el) return;
+      for (const b of plan.blocs) {
+        const i = b.g.personnes.findIndex((p) => p.id === id);
+        if (i < 0) continue;
+        const haut = b.haut + H_TITRE + i * H_LIGNE;
+        if (haut - H_TITRE < el.scrollTop) el.scrollTop = haut - H_TITRE;
+        else if (haut + H_LIGNE > el.scrollTop + el.clientHeight) el.scrollTop = haut + H_LIGNE - el.clientHeight;
+        // Sans attendre l'événement de défilement : la ligne doit être
+        // dessinée dans ce tour-ci, pas au prochain rafraîchissement.
+        defilement = el.scrollTop;
+        return;
+      }
+    });
   }
 
   function deplacer(sens) {
@@ -562,6 +687,11 @@
   >
     {#snippet actions()}
       <span class="text-sm text-stone-600 tabular-nums dark:text-stone-400">
+        {#if actualisation || actualisationAnnee}
+          <span class="mr-2 inline-flex items-center gap-1.5 text-xs text-stone-400 dark:text-stone-500" title="Ce qui s'affiche est la dernière lecture ; la nouvelle arrive.">
+            <RefreshCw class="h-3 w-3 animate-spin" /> mise à jour
+          </span>
+        {/if}
         <b class="text-stone-900 dark:text-stone-100">{liste.length.toLocaleString("fr-FR")}</b> personnes
         {#if parAnnee && inscrites}
           · <b class="text-stone-900 dark:text-stone-100">{inscrites.toLocaleString("fr-FR")}</b> inscrites en {libelleAnnee}
@@ -657,7 +787,14 @@
             </div>
           </div>
 
-          <div class="min-h-0 flex-1 overflow-y-auto px-2 pb-3" role="listbox" aria-label="Personnes">
+          <div
+            bind:this={defileur}
+            bind:clientHeight={hauteurVue}
+            onscroll={() => (defilement = defileur?.scrollTop ?? 0)}
+            class="min-h-0 flex-1 overflow-y-auto px-2 pb-3"
+            role="listbox"
+            aria-label="Personnes"
+          >
             {#if chargementAnnee && !lignes.length}
               <p class="px-2 py-3 text-sm text-stone-500">Lecture de l'année…</p>
             {:else if !filtrees.length}
@@ -669,9 +806,15 @@
                 {/if}
               </div>
             {:else}
-              {#each groupes as g (g.cle)}
+              <!-- Toute la hauteur de la liste, pour que la barre de défilement
+                   dise vrai ; dedans, seuls les blocs à l'écran. Le titre de
+                   classe colle en haut de son bloc tant qu'on y est. -->
+              <div class="relative" style="height: {plan.total}px">
+              {#each visibles as b (b.g.cle)}
+                {@const g = b.g}
                 {@const tous = g.personnes.every((p) => p.sans_compte || coches.has(p.id))}
-                <div class="group/g sticky top-0 z-10 flex items-center gap-2 bg-stone-50 px-2.5 pt-3 pb-1.5 dark:bg-stone-950">
+                <div class="absolute inset-x-0" style="top: {b.haut}px; height: {b.h}px">
+                <div class="group/g sticky top-0 z-10 flex h-9 items-end gap-2 bg-stone-50 px-2.5 pb-1.5 dark:bg-stone-950">
                   <input
                     type="checkbox"
                     class="h-3.5 w-3.5 cursor-pointer accent-emerald-600 {coches.size ? '' : 'opacity-0 group-hover/g:opacity-100 focus:opacity-100'}"
@@ -684,12 +827,13 @@
                   </span>
                   <span class="text-xs tabular-nums text-stone-500">{g.personnes.length}</span>
                 </div>
-                {#each g.personnes as p (p.id)}
+                {#each b.personnes as p, k (p.id)}
                   {@const choisi = p.id === selectionne}
                   {@const e = etatDe(p, verdicts)}
                   <div
                     data-ligne={p.id}
-                    class="group flex h-12 items-center gap-2.5 rounded-xl px-2.5 transition-colors
+                    style="top: {H_TITRE + (b.i0 + k) * H_LIGNE}px"
+                    class="group absolute inset-x-0 flex h-12 items-center gap-2.5 rounded-xl px-2.5 transition-colors
                            {choisi
                       ? 'bg-emerald-100/80 dark:bg-emerald-500/15'
                       : 'hover:bg-stone-100 dark:hover:bg-stone-800/60'}"
@@ -727,7 +871,9 @@
                     </button>
                   </div>
                 {/each}
+                </div>
               {/each}
+              </div>
             {/if}
           </div>
 

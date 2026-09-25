@@ -461,3 +461,40 @@ def test_l_avatar_lit_la_meme_regle(session, deux_sites):
     finally:
         app.dependency_overrides.clear()
     assert reponse.status_code == 200
+
+
+def test_les_homonymes_se_retrouvent_sans_parcourir_tout_le_dossier():
+    """L'index des parenthèses rend exactement ce que rendait le parcours."""
+    from backend.services.inventaire_photos import Noms, _homonymes
+
+    fichiers = {
+        "saout marie (44).jpg",
+        "saout marie (bts2).jpg",
+        "saout marie.jpg",
+        "saout marien (1).jpg",
+        "saout marie (2).txt",
+        "le bris jean (a) (b).png",
+        "sans parenthese.jpg",
+    }
+    noms = Noms(fichiers)
+    for base in ("SAOUT Marie", "saout marien", "LE BRIS Jean", "le bris jean (a)", "Inconnu"):
+        assert _homonymes(noms, base) == _homonymes(set(fichiers), base), base
+    assert _homonymes(noms, "SAOUT Marie") == ["saout marie (44).jpg", "saout marie (bts2).jpg"]
+    assert noms == fichiers, "un Noms reste l'ensemble des fichiers"
+
+
+def test_le_dossier_commun_n_est_lu_qu_une_fois_par_releve(session, contexte, monkeypatch):
+    from backend.services import inventaire_photos
+
+    for i in range(5):
+        contexte["eleve"](f"NOM{i}", "Prénom")
+    appels = []
+    lire = inventaire_photos.dossier_photos
+    monkeypatch.setattr(
+        inventaire_photos,
+        "dossier_photos",
+        lambda *a, **kw: appels.append(kw.get("type_personne")) or lire(*a, **kw),
+    )
+    r = _relever(session, contexte)
+    assert r.nb_eleves == 5
+    assert len(appels) <= 2, appels

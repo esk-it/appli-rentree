@@ -27,6 +27,7 @@ l'attend, et on le demande.
 from __future__ import annotations
 
 import json
+import os
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -126,7 +127,11 @@ def dossier_photos(session: Session, *, type_personne: str = "eleve") -> str | N
 
 
 def dossier_de(
-    session: Session, personne: Personne, *, sites: dict | None = None
+    session: Session,
+    personne: Personne,
+    *,
+    sites: dict | None = None,
+    communs: dict[str, str | None] | None = None,
 ) -> str | None:
     """Le dossier où chercher la photo de cette personne.
 
@@ -141,6 +146,9 @@ def dossier_de(
     Args:
         sites: `{id: Site}` déjà chargé, pour ne pas relire la table à
             chaque personne d'un relevé de deux mille.
+        communs: `{population: dossier}`, rempli au fil de l'eau — même
+            raison : relire le paramètre pour chacun coûtait un tiers de
+            seconde au relevé.
     """
     from backend.models import Site
 
@@ -156,7 +164,11 @@ def dossier_de(
         )
         if (propre or "").strip():
             return propre.strip()
-    return dossier_photos(session, type_personne=personne.type)
+    if communs is None:
+        return dossier_photos(session, type_personne=personne.type)
+    if personne.type not in communs:
+        communs[personne.type] = dossier_photos(session, type_personne=personne.type)
+    return communs[personne.type]
 
 
 def _sans_separateurs(texte: str) -> str:
@@ -185,6 +197,25 @@ def _candidats(racine: Path, personne: Personne) -> list[Path]:
     return [racine / f"{b}{ext}" for b in _bases(personne) for ext in EXTENSIONS]
 
 
+class Noms(set):
+    """Les noms d'un dossier, repliés — et ceux à parenthèse, rangés par nom.
+
+    Chercher les homonymes d'un élève parcourait tout le dossier : deux
+    mille élèves, deux mille fichiers, quatre écritures du nom chacun —
+    quinze millions de comparaisons, une seconde et demie du relevé. Rangés
+    une fois par ce qui précède la parenthèse, ils se retrouvent d'un coup.
+    """
+
+    def __init__(self, noms=()):
+        super().__init__(noms)
+        self.parentheses: dict[str, list[str]] = defaultdict(list)
+        for n in self:
+            i = n.find(" (")
+            while i >= 0:
+                self.parentheses[n[:i]].append(n)
+                i = n.find(" (", i + 1)
+
+
 def _homonymes(presents: set[str], base: str) -> list[str]:
     """Les fichiers `NOM Prénom (quelque chose)` portant ce nom.
 
@@ -193,10 +224,14 @@ def _homonymes(presents: set[str], base: str) -> list[str]:
     et `SAOUT Marie (BTS2)`. Sans les chercher, les deux sont déclarées
     sans photo alors qu'elles en ont chacune une.
     """
-    prefixe = f"{base.casefold()} ("
+    cle = base.casefold()
+    candidats = (
+        presents.parentheses.get(cle, ()) if isinstance(presents, Noms) else presents
+    )
+    prefixe = f"{cle} ("
     return sorted(
         n
-        for n in presents
+        for n in candidats
         if n.startswith(prefixe) and Path(n).suffix.casefold() in EXTENSIONS
     )
 
@@ -335,8 +370,10 @@ def _parcourir(
         for p in session.query(Personne).filter(Personne.type == type_personne).all()
         if p.id in derniers
     ]
+    communs: dict[str, str | None] = {}
     dossier_par_personne = {
-        p.id: dossier_de(session, p, sites=tous_sites) for p, _ in presents_annee
+        p.id: dossier_de(session, p, sites=tous_sites, communs=communs)
+        for p, _ in presents_annee
     }
     # Le dossier commun est toujours du nombre, même si personne n'y est
     # attendu cette année : un réglage fait et un partage absent ne se
@@ -362,13 +399,19 @@ def _parcourir(
         if not racine.exists():
             injoignables[dossier] = 0
             continue
-        reels = {
-            f.name.casefold(): f.name
-            for f in racine.iterdir()
-            if f.is_file() and f.suffix.casefold() in EXTENSIONS
-        }
+        # `os.scandir` et non `Path.iterdir` : l'entrée d'un listage sait
+        # déjà si elle est un fichier, quand `Path.is_file()` le redemande
+        # au serveur. Deux mille allers-retours SMB, c'était huit secondes
+        # sur le partage réel ; le listage seul en prend quelques millièmes.
+        with os.scandir(racine) as entrees:
+            reels = {
+                e.name.casefold(): e.name
+                for e in entrees
+                if os.path.splitext(e.name)[1].casefold() in EXTENSIONS
+                and e.is_file()
+            }
         lectures[dossier] = Lecture(
-            racine=racine, dossier=dossier, reels=reels, presents=set(reels)
+            racine=racine, dossier=dossier, reels=reels, presents=Noms(reels)
         )
     if not lectures:
         raise InventaireImpossible(

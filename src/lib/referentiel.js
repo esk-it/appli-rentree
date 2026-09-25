@@ -14,6 +14,10 @@ export function cleNaturelle(texte) {
     .map((x) => (/^\d+$/.test(x) ? Number(x) : x.toLowerCase()));
 }
 
+// Un comparateur fait une fois : `localeCompare(…, "fr")` en refabrique un
+// à chaque appel, et un tri de deux mille lignes l'appelle vingt mille fois.
+const ORDRE = new Intl.Collator("fr");
+
 /** Comparaison de deux clés naturelles, morceau par morceau. */
 export function comparerNaturel(a, b) {
   const x = cleNaturelle(a);
@@ -25,7 +29,7 @@ export function comparerNaturel(a, b) {
     if (typeof x[i] === "number" && typeof y[i] === "number") {
       return /** @type {number} */ (x[i]) - /** @type {number} */ (y[i]);
     }
-    return String(x[i]).localeCompare(String(y[i]), "fr");
+    return ORDRE.compare(String(x[i]), String(y[i]));
   }
   return 0;
 }

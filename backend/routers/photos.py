@@ -97,10 +97,13 @@ def inventaire(
     type_personne: str = "eleve",
     session: Session = Depends(db_session),
 ) -> InventaireOut:
-    """Le relevé complet du partage. Lecture seule, et volontairement lente.
+    """Le relevé complet du partage. Lecture seule.
 
-    Un accès par élève sur un partage réseau : c'est le sujet de l'écran, on
-    l'attend. C'est pour cela que l'accueil ne le lance pas de lui-même.
+    Un listage par dossier, puis tout se compare en mémoire : quelques
+    millièmes sur le partage réel depuis la v0.186 (huit secondes avant,
+    quand chaque fichier se vérifiait par un aller-retour réseau). L'accueil
+    ne le lance pas pour autant de lui-même : un partage injoignable, lui,
+    reste lent à le dire.
     """
     from backend.services.inventaire_photos import InventaireImpossible, relever
 
@@ -157,12 +160,23 @@ def classeur_manquantes(
     )
 
 
+CACHE_PHOTO = {"Cache-Control": "private, max-age=3600"}
+"""Une heure. Chaque vignette du Référentiel relisait sa photo sur le partage
+réseau à chaque passage — quinze lectures SMB pour afficher une liste qu'on
+venait de quitter. Une photo change rarement ; une heure de retard sur une
+photo retouchée ne gêne personne."""
+
+CACHE_ABSENCE = {"Cache-Control": "private, max-age=600"}
+"""Dix minutes pour une photo absente : sinon chaque défilement redemande au
+partage les mêmes centaines de photos qu'il n'a pas."""
+
+
 @router.get("/{personne_id}")
 def obtenir_photo(personne_id: int, session: Session = Depends(db_session)):
     """Renvoie l'image de la personne. 404 si absente ou dossier non configuré."""
     personne = session.query(Personne).filter_by(id=personne_id).one_or_none()
     if personne is None:
-        raise HTTPException(404, "Personne introuvable")
+        raise HTTPException(404, "Personne introuvable", headers=CACHE_ABSENCE)
 
     dossier = _dossier_pour(session, personne)
     if not dossier:
@@ -170,6 +184,7 @@ def obtenir_photo(personne_id: int, session: Session = Depends(db_session)):
             404,
             "Aucun dossier de photos réglé pour "
             + ("les adultes" if personne.type == "adulte" else "les élèves"),
+            headers=CACHE_ABSENCE,
         )
 
     # Utilise chemin_photo_constate en priorité (fixé à l'ingestion),
@@ -191,7 +206,9 @@ def obtenir_photo(personne_id: int, session: Session = Depends(db_session)):
 
     chemin_complet = Path(dossier) / nom_fichier
     if not chemin_complet.exists() or not chemin_complet.is_file():
-        raise HTTPException(404, f"Photo introuvable : {nom_fichier}")
+        raise HTTPException(
+            404, f"Photo introuvable : {nom_fichier}", headers=CACHE_ABSENCE
+        )
 
     # FileResponse gère le mime type automatiquement
-    return FileResponse(chemin_complet)
+    return FileResponse(chemin_complet, headers=CACHE_PHOTO)

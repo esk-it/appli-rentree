@@ -120,6 +120,48 @@ def modifier_site(
     return _serialiser(s)
 
 
+class DossiersPhotosPayload(BaseModel):
+    dossier_photos_eleves: str | None = Field(None, max_length=300)
+    dossier_photos_adultes: str | None = Field(None, max_length=300)
+
+
+class DossiersPhotosOut(BaseModel):
+    site: SiteOut
+    injoignables: list[str]
+    """Les dossiers réglés que ce poste ne voit pas. Réglés quand même : le
+    partage peut être momentanément absent, et le refuser obligerait à
+    revenir le saisir."""
+
+
+@router.patch("/{site_id}/photos", response_model=DossiersPhotosOut)
+def regler_dossiers_photos(
+    site_id: int, payload: DossiersPhotosPayload, session: Session = Depends(db_session)
+) -> DossiersPhotosOut:
+    """Règle les dossiers de photos propres à un site, et rien d'autre.
+
+    Les photos de NDE ne sont pas rangées avec celles de NDK et de SU. Le
+    réglage vit sur le site ; l'écran des Paramètres le montre à côté du
+    dossier commun, là où on le cherche. Seuls les champs envoyés changent,
+    et un champ vide rend le site au dossier commun.
+    """
+    import os
+
+    s = session.query(Site).filter_by(id=site_id).one_or_none()
+    if s is None:
+        raise HTTPException(404, "Site introuvable")
+    if "dossier_photos_eleves" in payload.model_fields_set:
+        s.dossier_photos_eleves = _nettoyer(payload.dossier_photos_eleves)
+    if "dossier_photos_adultes" in payload.model_fields_set:
+        s.dossier_photos_adultes = _nettoyer(payload.dossier_photos_adultes)
+    session.commit()
+    session.refresh(s)
+    injoignables = [
+        d for d in (s.dossier_photos_eleves, s.dossier_photos_adultes)
+        if d and not os.path.isdir(d)
+    ]
+    return DossiersPhotosOut(site=_serialiser(s), injoignables=injoignables)
+
+
 @router.delete("/{site_id}")
 def supprimer_site(site_id: int, session: Session = Depends(db_session)) -> dict:
     s = session.query(Site).filter_by(id=site_id).one_or_none()

@@ -6,7 +6,9 @@
   import Segments from "$lib/components/Segments.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
+  import { untrack } from "svelte";
   import { personnes as personnesApi } from "$lib/api.js";
+  import { ecrire, lire } from "$lib/memoire.svelte.js";
   import { comparerNaturel } from "$lib/referentiel.js";
 
   /**
@@ -29,28 +31,57 @@
   /** @type {Props} */
   let { anneeId = null, onFiltrer, onNaviguer } = $props();
 
-  let releve = $state(/** @type {any} */ (null));
+  let releve = $state.raw(/** @type {any} */ (null));
   let chargement = $state(false);
+  let photosEnCours = $state(false);
   let erreur = $state("");
   let site = $state("");
   let tri = $state(/** @type {"classe"|"manque"} */ ("classe"));
 
+  /**
+   * Le relevé en deux temps, et le dernier gardé pour le retour.
+   *
+   * Tout se compte dans la base en un dixième de seconde — sauf les photos,
+   * qui se constatent sur le partage réseau. Injoignable, le partage ferait
+   * attendre tout le reste : on montre donc d'abord le relevé sans elles,
+   * puis on le complète. Revenir sur l'onglet montre aussitôt le dernier
+   * relevé de l'année, relu derrière.
+   */
   async function charger() {
+    const id = anneeId;
+    const cle = `referentiel.releve.${id}`;
+    const garde = lire(cle, null);
+    if (garde) releve = garde;
     chargement = true;
     erreur = "";
     try {
-      releve = await personnesApi.completude(anneeId);
+      if (!garde) {
+        const sans = await personnesApi.completude(id, { photos: false });
+        if (id !== anneeId) return;
+        releve = sans;
+      }
+      photosEnCours = true;
+      const complet = await personnesApi.completude(id, { photos: true });
+      if (id !== anneeId) return;
+      releve = complet;
+      ecrire(cle, complet);
     } catch (e) {
-      erreur = String(e).replace(/^Error:\s*/, "");
+      if (id === anneeId) erreur = String(e).replace(/^Error:\s*/, "");
     } finally {
-      chargement = false;
+      if (id === anneeId) {
+        chargement = false;
+        photosEnCours = false;
+      }
     }
   }
 
   $effect(() => {
     anneeId;
-    charger();
+    untrack(charger);
   });
+
+  /** Les photos ne sont pas encore lues : c'est en cours, pas une absence. */
+  let photosAttendues = $derived(!!releve && !releve.photos_lues);
 
   const pct = (n, total) => (n == null ? null : total ? Math.round((100 * n) / total) : 0);
 
@@ -77,8 +108,13 @@
       {
         titre: "Photo (élèves)",
         valeur: pct(r.avec_photo, r.eleves),
-        chiffre: r.avec_photo == null ? "—" : `${pct(r.avec_photo, r.eleves)} %`,
-        detail: r.avec_photo == null ? "partage des photos injoignable" : `${r.avec_photo.toLocaleString("fr-FR")} sur ${r.eleves.toLocaleString("fr-FR")}`,
+        chiffre: r.avec_photo == null ? (photosAttendues ? "…" : "—") : `${pct(r.avec_photo, r.eleves)} %`,
+        detail:
+          r.avec_photo != null
+            ? `${r.avec_photo.toLocaleString("fr-FR")} sur ${r.eleves.toLocaleString("fr-FR")}`
+            : photosAttendues
+              ? photosEnCours ? "lecture du partage…" : "partage pas encore lu"
+              : "partage des photos injoignable",
       },
       {
         titre: "INE (élèves)",
@@ -203,7 +239,7 @@
           {@render caseChiffre(pct(c.au_coffre, c.effectif), `${pct(c.au_coffre, c.effectif)} %`,
             () => onFiltrer?.({ classe: c.classe, facette: "manque", valeur: "coffre" }),
             `${c.effectif - c.au_coffre} sans mot de passe au coffre — les voir`)}
-          {@render caseChiffre(pct(c.avec_photo, c.effectif), c.avec_photo == null ? "non lu" : `${pct(c.avec_photo, c.effectif)} %`,
+          {@render caseChiffre(pct(c.avec_photo, c.effectif), c.avec_photo == null ? (photosAttendues ? "…" : "non lu") : `${pct(c.avec_photo, c.effectif)} %`,
             () => onNaviguer?.("photos"),
             "Ouvrir l'écran des photos")}
           {@render caseChiffre(pct(c.avec_ine, c.effectif), `${pct(c.avec_ine, c.effectif)} %`,

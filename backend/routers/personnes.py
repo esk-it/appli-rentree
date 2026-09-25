@@ -417,13 +417,16 @@ class CompletudeOut(BaseModel):
     au_coffre: int
     classes: int
     classes_avec_codes: int
+    photos_lues: bool = False
     photos_injoignables: str | None
     par_classe: list[ClasseCompletudeOut]
 
 
 @router.get("/completude", response_model=CompletudeOut)
 def lire_completude(
-    annee_id: int | None = None, session: Session = Depends(db_session)
+    annee_id: int | None = None,
+    photos: bool = True,
+    session: Session = Depends(db_session),
 ) -> CompletudeOut:
     """Ce que le référentiel sait des inscrits de l'année, et ce qui manque.
 
@@ -436,7 +439,9 @@ def lire_completude(
     from backend.services.completude import relever
 
     try:
-        return CompletudeOut(**asdict(relever(session, annee_id=annee_id)))
+        return CompletudeOut(
+            **asdict(relever(session, annee_id=annee_id, photos=photos))
+        )
     except ValueError as e:
         raise HTTPException(404, str(e)) from None
 

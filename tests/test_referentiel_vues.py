@@ -153,6 +153,32 @@ def test_la_planche_porte_la_classe_et_ses_eleves(session, ecole):
     assert "KERGOAT" not in t.html, "une professeure n'est pas une élève de la classe"
 
 
+def test_la_planche_porte_le_logo_du_site(session, ecole):
+    """Le logo voyage dans la page, comme les photos : la planche s'imprime
+    sans rien aller chercher."""
+    from backend.services.modeles_etiquettes import logo_du_site
+    from backend.services.trombinoscope import composer
+
+    t = composer(session, classe="1_G4")
+    assert f'<img class="logo" src="{logo_du_site("NDK")}"' in t.html
+    assert "Ensemble Scolaire Le Kreisker" in t.html
+
+
+def test_une_classe_sans_site_connu_porte_les_losanges_de_l_ensemble(session, ecole):
+    from backend.models import Snapshot
+    from backend.services.modeles_etiquettes import logo_du_site
+    from backend.services.trombinoscope import composer
+
+    # Une classe que la table de correspondance ne connaît pas encore.
+    session.query(Snapshot).filter_by(personne_id=ecole["cam"].id).update({"classe": "99"})
+    session.commit()
+
+    t = composer(session, classe="99")
+    assert t.site is None
+    assert logo_du_site("ESK"), "le logo de l'ensemble est livré avec l'application"
+    assert f'<img class="logo" src="{logo_du_site("ESK")}"' in t.html
+
+
 def test_une_photo_voyage_dans_la_page(tmp_path):
     from backend.services.trombinoscope import _photo_en_donnees
 
@@ -189,3 +215,49 @@ def test_le_trombinoscope_sort_en_pdf(client, session, ecole, monkeypatch):
     assert "TANGUY" in rendus[0]
 
     assert client.post("/api/personnes/trombinoscope", json={"classe": "2_9"}).status_code == 404
+
+
+def test_le_releve_peut_se_passer_des_photos(session, ecole, tmp_path):
+    """Sans les photos, le relevé ne regarde pas le partage — et le dit :
+    « pas regardé » n'est ni zéro ni « injoignable »."""
+    import json
+
+    from backend.models import Parametre
+    from backend.services.completude import relever
+
+    session.add(Parametre(cle="chemin_dossier_photos", valeur_json=json.dumps(str(tmp_path))))
+    session.commit()
+    (tmp_path / "TANGUY Léane.jpg").write_bytes(b"x")
+
+    sans = relever(session, photos=False)
+    assert (sans.photos_lues, sans.avec_photo, sans.photos_injoignables) == (False, None, None)
+    assert all(c.avec_photo is None for c in sans.par_classe)
+    assert sans.effectif == 4, "le reste est compté pareil"
+
+    avec = relever(session, photos=True)
+    assert (avec.photos_lues, avec.avec_photo) == (True, 1)
+
+
+def test_le_releve_sans_photos_passe_par_l_ecran(client, session, ecole):
+    r = client.get("/api/personnes/completude", params={"photos": "false"}).json()
+    assert r["photos_lues"] is False and r["avec_photo"] is None
+    assert r["photos_injoignables"] is None
+
+
+def test_une_photo_se_garde_une_absence_moins_longtemps(client, session, ecole, tmp_path):
+    """Le navigateur garde la photo une heure, et l'absence dix minutes."""
+    import json
+
+    from backend.models import Parametre
+
+    session.add(Parametre(cle="chemin_dossier_photos", valeur_json=json.dumps(str(tmp_path))))
+    session.commit()
+    (tmp_path / "TANGUY Léane.jpg").write_bytes(b"\xff\xd8\xff")
+
+    r = client.get(f"/api/photos/{ecole['lea'].id}")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "private, max-age=3600"
+
+    r = client.get(f"/api/photos/{ecole['mat'].id}")
+    assert r.status_code == 404
+    assert r.headers["cache-control"] == "private, max-age=600"

@@ -110,10 +110,14 @@ export const personnes = {
   async fiche(id) {
     return jsonOrThrow(await fetch(`${BASE}/personnes/${id}/fiche`));
   },
-  /** Ce que le référentiel sait des inscrits de l'année, classe par classe. */
-  async completude(anneeId = null) {
-    const qs = anneeId ? `?annee_id=${anneeId}` : "";
-    return jsonOrThrow(await fetch(`${BASE}/personnes/completude${qs}`));
+  /**
+   * Ce que le référentiel sait des inscrits de l'année, classe par classe.
+   * `photos: false` saute la lecture du partage — de loin la plus lente.
+   */
+  async completude(anneeId = null, { photos = true } = {}) {
+    const p = new URLSearchParams({ photos: String(photos) });
+    if (anneeId) p.set("annee_id", String(anneeId));
+    return jsonOrThrow(await fetch(`${BASE}/personnes/completude?${p}`));
   },
   /** Le trombinoscope d'une classe, en PDF (base64). */
   async trombinoscope(classe, anneeId = null) {
@@ -329,6 +333,16 @@ export const sites = {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
+      }),
+    );
+  },
+  /** Les dossiers de photos propres à un site — rien d'autre ne bouge. */
+  async reglerPhotos(id, dossiers) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/sites/${id}/photos`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(dossiers),
       }),
     );
   },

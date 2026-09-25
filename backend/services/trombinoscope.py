@@ -14,6 +14,12 @@ navigateur qui imprime n'a donc pas à rejoindre le partage lui-même — un
 chemin réseau qu'il n'ouvrirait pas donnerait une planche de cases vides,
 sans rien dire. Une photo illisible, ou absente, laisse les initiales : un
 visage qui manque se voit sur la planche, il ne la fait pas échouer.
+
+## Le logo du site
+
+La planche part au mur d'une salle ou dans le classeur d'un professeur : elle
+porte le logo du site de la classe — celui des étiquettes, où le losange du
+site domine — et, faute de site connu, les quatre losanges de l'ensemble.
 """
 from __future__ import annotations
 
@@ -74,6 +80,7 @@ def composer(
         InventaireImpossible,
         chemins_attribues,
     )
+    from backend.services.modeles_etiquettes import logo_du_site
 
     annees = session.query(AnneeScolaire).all()
     if annee_id is None:
@@ -109,9 +116,13 @@ def composer(
 
     t = session.query(TableCorrespondance).filter_by(classe_code_court=classe).first()
     site = None
-    if t is not None:
-        s = session.get(Site, t.site_id)
-        site = s.nom if s else None
+    nom_du_site = None
+    s = session.get(Site, t.site_id) if t is not None else None
+    if s is not None:
+        site = s.nom
+        nom_du_site = (s.nom_complet or "").strip() or None
+    logo = (logo_du_site(site) if site else "") or logo_du_site("ESK")
+    ensemble = " — ".join(x for x in (nom_du_site, "Ensemble Scolaire Le Kreisker") if x)
 
     cases = []
     sans_photo = 0
@@ -138,10 +149,13 @@ def composer(
 @page {{ size: A4 portrait; margin: 12mm; }}
 * {{ box-sizing: border-box; }}
 body {{ margin: 0; font-family: "Segoe UI", Arial, sans-serif; color: #1E1B3A; }}
-header {{ display: flex; align-items: baseline; justify-content: space-between;
+header {{ display: flex; align-items: center; gap: 4mm;
   border-bottom: 1.5px solid #1E1B3A; padding-bottom: 3mm; margin-bottom: 5mm; }}
-h1 {{ margin: 0; font-size: 20pt; }}
-.sous {{ font-size: 9.5pt; color: #55526B; }}
+.logo {{ height: 15mm; width: auto; flex: none; }}
+.titres {{ flex: 1; min-width: 0; }}
+h1 {{ margin: 0; font-size: 20pt; line-height: 1.1; }}
+.ensemble {{ margin-top: 0.8mm; font-size: 9pt; color: #55526B; }}
+.sous {{ align-self: flex-end; font-size: 9.5pt; color: #55526B; text-align: right; }}
 .grille {{ display: grid; grid-template-columns: repeat(6, 1fr); gap: 5mm 4mm; }}
 .case {{ break-inside: avoid; text-align: center; }}
 .visage {{ display: block; width: 100%; aspect-ratio: 3 / 4; object-fit: cover;
@@ -152,7 +166,7 @@ h1 {{ margin: 0; font-size: 20pt; }}
 .nom {{ font-size: 9pt; font-weight: 700; text-transform: uppercase; line-height: 1.15; }}
 </style></head>
 <body>
-<header><h1>{html.escape(titre)}</h1><span class="sous">{html.escape(sous_titre)}</span></header>
+<header>{f'<img class="logo" src="{logo}" alt="">' if logo else ""}<div class="titres"><h1>{html.escape(titre)}</h1><div class="ensemble">{html.escape(ensemble)}</div></div><span class="sous">{html.escape(sous_titre)}</span></header>
 <div class="grille">{"".join(cases)}</div>
 </body></html>"""
     return Trombinoscope(

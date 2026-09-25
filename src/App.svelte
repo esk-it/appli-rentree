@@ -92,6 +92,9 @@
   import { notify } from "$lib/toasts.js";
   import { theme, basculerTheme } from "$lib/theme.js";
   import { TEINTES, teinte } from "$lib/familles.js";
+  import losanges from "$lib/assets/marque/losanges.png";
+  import kreiskerClair from "$lib/assets/marque/kreisker-clair.png";
+  import kreiskerSombre from "$lib/assets/marque/kreisker-sombre.png";
   import { charger as chargerAnnees } from "$lib/annee.svelte.js";
   import { declarer as declarerEcran } from "$lib/ecran.svelte.js";
   import Sun from "@lucide/svelte/icons/sun";
@@ -572,13 +575,20 @@
 </script>
 
 {#if backendOk === null}
-  <!-- Écran de démarrage : on attend que le sidecar Python soit prêt -->
-  <div class="flex h-screen items-center justify-center bg-stone-50">
-    <div class="flex flex-col items-center gap-4 text-center">
-      <div class="h-12 w-12 animate-spin rounded-full border-4 border-stone-200 border-t-emerald-700"></div>
-      <div>
-        <p class="text-lg font-semibold text-stone-900">Appli Rentrée</p>
-        <p class="mt-1 text-sm text-stone-500">{messageDemarrage}</p>
+  <!-- Écran de démarrage : on attend que le sidecar Python soit prêt.
+       Le logo complet de l'Ensemble Scolaire, le seul endroit où il tient
+       toute sa place ; deux versions, parce que son texte change de couleur
+       avec le fond — l'établissement fournit les deux. -->
+  <div class="flex h-screen items-center justify-center bg-stone-50 dark:bg-stone-950">
+    <div class="flex flex-col items-center gap-8 text-center">
+      <img src={kreiskerClair} alt="Ensemble Scolaire Le Kreisker" class="h-20 w-auto dark:hidden" draggable="false" />
+      <img src={kreiskerSombre} alt="Ensemble Scolaire Le Kreisker" class="hidden h-20 w-auto dark:block" draggable="false" />
+      <div class="flex items-center gap-3">
+        <div class="h-5 w-5 animate-spin rounded-full border-2 border-stone-200 border-t-emerald-700 dark:border-stone-700 dark:border-t-emerald-400"></div>
+        <div class="text-left">
+          <p class="titre-affiche text-base text-stone-900 dark:text-stone-100">Appli Rentrée</p>
+          <p class="text-sm text-stone-500 dark:text-stone-400">{messageDemarrage}</p>
+        </div>
       </div>
     </div>
   </div>
@@ -678,22 +688,16 @@
         aria-current={page === "accueil" ? "page" : undefined}
         onclick={() => (page = "accueil")}
       >
-        <!-- Les quatre pastilles ne décorent pas : ce sont les couleurs des
-             familles, et donc la clé du code employé partout ailleurs. -->
-        <span
-          class="grid h-9 w-9 shrink-0 grid-cols-2 grid-rows-2 gap-1 rounded-xl bg-stone-900 p-1.5 dark:bg-stone-800"
-          aria-hidden="true"
-        >
-          <span class="rounded-full" style="background: {TEINTES.rentree}"></span>
-          <span class="rounded-full" style="background: {TEINTES.annee}"></span>
-          <span class="rounded-full" style="background: {TEINTES.materiel}"></span>
-          <span class="rounded-full" style="background: {TEINTES.repas}"></span>
-        </span>
+        <!-- Les losanges de l'Ensemble Scolaire, tels que l'établissement les
+             emploie : Sainte-Ursule, Notre-Dame d'Espérance, Notre-Dame du
+             Kreisker, et la flèche. On ne les redessine pas, on ne les
+             recolore pas — c'est le logo, pas une décoration. -->
+        <img src={losanges} alt="" class="h-10 w-auto shrink-0" draggable="false" />
         <span class="flex flex-col text-left leading-tight whitespace-nowrap">
           <span class="titre-affiche text-[17px] text-stone-900 dark:text-stone-100">
             Appli Rentrée
           </span>
-          <span class="text-[11px] text-stone-500 dark:text-stone-400">Ensemble Scolaire du Kreisker</span>
+          <span class="text-[11px] text-stone-500 dark:text-stone-400">Ensemble Scolaire Le Kreisker</span>
         </span>
       </button>
 
