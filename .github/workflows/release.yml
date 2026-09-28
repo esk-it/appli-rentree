@@ -132,10 +132,17 @@ jobs:
           }
           EOF
 
-          # Crée la release et upload les fichiers
+          # Crée la release et upload les fichiers.
+          #
+          # `--latest=false` : sans lui, la création promeut d'office la
+          # release en « Latest », avant le contrôle ci-dessous — qui lit
+          # alors cette release comme la plus récente et se compare à
+          # elle-même. Vu le 28/09/2026 : la 0.186.3, compilée plus
+          # lentement, se publiait après la 0.186.4.
           gh release create "${TAG}" \
             --title "Appli Rentrée ${TAG}" \
             --generate-notes \
+            --latest=false \
             "${NSIS_EXE}" \
             "${NSIS_ZIP}" \
             latest.json
