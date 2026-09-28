@@ -392,7 +392,9 @@
                 {:else if s.v}
                   {s.v.constate ?? s.v.attendu ?? ""}
                 {:else}
-                  <span class="text-stone-400 dark:text-stone-500">pas encore croisé — la Cohérence le dira</span>
+                  <span class="text-stone-400 dark:text-stone-500">
+                    {personne.type === "adulte" ? "la Cohérence ne croise que les élèves" : "pas encore croisé — la Cohérence le dira"}
+                  </span>
                 {/if}
               </span>
               <Pastille etat={pa.etat} texte={pa.texte} />

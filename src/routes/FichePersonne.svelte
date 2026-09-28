@@ -162,6 +162,18 @@
 
     const v = fiche?.verdict?.systemes?.find((x) => x.systeme === s.id);
     if (!v) {
+      // La Cohérence ne croise que les élèves : sur la fiche d'un adulte,
+      // y renvoyer promettrait une vérification qui n'aura jamais lieu.
+      if (p?.type === "adulte") {
+        return {
+          valeur:
+            s.id === "google"
+              ? "La Cohérence ne croise que les élèves — « Interroger les systèmes » le lit en direct"
+              : "La Cohérence ne croise que les élèves",
+          etat: "inconnu",
+          texte: "Pas vérifié",
+        };
+      }
       return { valeur: "Pas encore croisé", etat: "inconnu", texte: "Pas vérifié", vers: "coherence" };
     }
     if (v.etat === "accord") {
@@ -271,7 +283,7 @@
               </span>
             {:else}
               <span class="text-[13px] text-stone-500 dark:text-stone-400">
-                Pas encore croisé par la Cohérence
+                {p.type === "adulte" ? "La Cohérence ne croise que les élèves" : "Pas encore croisé par la Cohérence"}
               </span>
             {/if}
           </div>
