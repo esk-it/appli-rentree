@@ -14,7 +14,7 @@
   import Pastille from "$lib/components/Pastille.svelte";
   import Touche from "$lib/components/Touche.svelte";
   import { coffreApi, personnes } from "$lib/api.js";
-  import { jour, NOM_SYSTEME } from "$lib/referentiel.js";
+  import { depuisQuand, jour, NOM_SYSTEME } from "$lib/referentiel.js";
   import { notify } from "$lib/toasts.js";
   import logoCharlemagne from "$lib/assets/systemes/charlemagne.png";
   import logoGoogle from "$lib/assets/systemes/google.svg";
@@ -183,8 +183,13 @@
       nom: NOM_SYSTEME[s],
       logo: LOGOS[s],
       v: verdict?.systemes?.find((x) => x.systeme === s) ?? null,
+      // Un site sans KoXo — NDE — n'a rien à y vérifier : « pas vérifié »
+      // y dirait qu'il reste quelque chose à faire.
+      sansObjet: s === "koxo" && fiche?.site_a_koxo === false,
     })),
   );
+
+  const SANS_OBJET = /** @type {{etat: "inconnu", texte: string}} */ ({ etat: "inconnu", texte: "Sans objet" });
 
   /** @returns {{etat: "pret"|"ecart"|"attente"|"inconnu", texte: string}} */
   function pastille(v) {
@@ -195,14 +200,7 @@
   }
 
   /** Depuis quand le constat date, en clair. */
-  let dateVerdict = $derived.by(() => {
-    if (!verdict?.verifie_le) return "";
-    const h = Math.round((Date.now() - new Date(verdict.verifie_le + "Z").getTime()) / 3600000);
-    if (h < 1) return "vérifié il y a moins d'une heure";
-    if (h < 24) return `vérifié il y a ${h} h`;
-    const j = Math.round(h / 24);
-    return j === 1 ? "vérifié hier" : `vérifié il y a ${j} jours`;
-  });
+  let dateVerdict = $derived(depuisQuand(verdict?.verifie_le));
 
   let parcours = $derived((fiche?.parcours ?? []).slice(0, 4).reverse());
   let compteGoogle = $derived(fiche?.comptes?.find((c) => c.cible === "google") ?? null);
@@ -379,20 +377,22 @@
         {@render titre("Dans les systèmes", "var(--color-emerald-600)", dateVerdict)}
         <div>
           {#each systemes as s (s.systeme)}
-            {@const pa = pastille(s.v)}
+            {@const pa = s.sansObjet ? SANS_OBJET : pastille(s.v)}
             <div class="grid grid-cols-[170px_minmax(0,1fr)_auto] items-center gap-4 border-b border-stone-200 py-2.5 dark:border-stone-800">
               <span class="flex items-center gap-3 text-sm font-semibold">
                 <img src={s.logo} alt="" class="h-6 w-6 object-contain" />
                 {s.nom}
               </span>
               <span class="min-w-0 truncate text-sm text-stone-600 dark:text-stone-400">
-                {#if s.v?.etat === "ecart"}
+                {#if s.sansObjet}
+                  <span class="text-stone-400 dark:text-stone-500">pas de KoXo à {personne.site}</span>
+                {:else if s.v?.etat === "ecart"}
                   <b class="text-red-700 dark:text-red-400">{s.v.constate ?? "—"}</b>
                   <span class="text-stone-500">— le référentiel dit</span> <b class="text-stone-800 dark:text-stone-200">{s.v.attendu ?? "—"}</b>
                 {:else if s.v}
                   {s.v.constate ?? s.v.attendu ?? ""}
                 {:else}
-                  <span class="text-stone-400 dark:text-stone-500">jamais croisé — la Concordance le dira</span>
+                  <span class="text-stone-400 dark:text-stone-500">pas encore croisé — la Cohérence le dira</span>
                 {/if}
               </span>
               <Pastille etat={pa.etat} texte={pa.texte} />

@@ -29,6 +29,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
+import time
 import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -36,7 +38,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from backend.models import Parametre, Personne, Snapshot
+from backend.models import AnneeScolaire, Parametre, Personne, Snapshot
 
 EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp")
 """Ce que CardStudio sait poser sur un badge."""
@@ -608,3 +610,127 @@ def classeur(inventaire: InventairePhotos) -> bytes:
     tampon = io.BytesIO()
     classeur.save(tampon)
     return tampon.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# Pour une seule personne : la vignette et la fiche
+# ---------------------------------------------------------------------------
+
+DUREE_ATTRIBUTIONS = 120.0
+"""Deux minutes. Un relevé du partage coûte un dixième de seconde ; une page
+du Référentiel demande quarante vignettes."""
+
+_attributions: dict[str, tuple[tuple, float, dict[int, str], str | None]] = {}
+"""Par population : (ce qui a servi au relevé, quand, le relevé, pourquoi il
+n'a pas pu se faire)."""
+_verrou_attributions = threading.Lock()
+
+
+def _releve_de_l_annee(
+    session: Session, personne: Personne
+) -> tuple[AnneeScolaire | None, dict[int, str], str | None]:
+    """L'attribution de l'année la plus récente, pour la population de
+    cette personne : `(année, {personne: chemin}, motif)`.
+
+    Le motif dit pourquoi le partage n'a pas pu être lu — dossier non
+    réglé, partage injoignable. Sans lui, « pas de photo » et « pas
+    regardé » se confondraient.
+
+    Gardée deux minutes, sous verrou : quarante vignettes qui arrivent
+    ensemble ne déclenchent qu'un relevé. Refaite aussitôt si un dossier
+    change — régler celui de NDE doit montrer ses photos tout de suite.
+    """
+    from backend.models import Site
+
+    annee = session.query(AnneeScolaire).order_by(AnneeScolaire.libelle.desc()).first()
+    if annee is None:
+        return None, {}, "Aucune année scolaire dans le référentiel."
+    cle = (
+        annee.id,
+        dossier_photos(session, type_personne=personne.type),
+        tuple(sorted(
+            (s.id, s.dossier_photos_eleves or "", s.dossier_photos_adultes or "")
+            for s in session.query(Site)
+        )),
+    )
+    with _verrou_attributions:
+        garde = _attributions.get(personne.type)
+        if (
+            garde is None
+            or garde[0] != cle
+            or time.monotonic() - garde[1] > DUREE_ATTRIBUTIONS
+        ):
+            motif = None
+            try:
+                attribues = chemins_attribues(
+                    session, annee_id=annee.id, type_personne=personne.type
+                )
+            except InventaireImpossible as e:
+                attribues, motif = {}, str(e)
+            garde = _attributions[personne.type] = (
+                cle, time.monotonic(), attribues, motif
+            )
+    return annee, garde[2], garde[3]
+
+
+def photo_attribuee(session: Session, personne: Personne) -> Path | None:
+    """Le fichier que l'inventaire attribue à cette personne cette année.
+
+    Les vignettes cherchaient `NOM Prénom.jpg` à l'orthographe près. Une
+    photo nommée avant qu'un accent soit corrigé dans Charlemagne
+    (`ROUÉ Léa.jpg` pour ROUE Léa), ou marquée de sa classe (`SAOUT Marie
+    (44).jpg`), restait sans visage dans le Référentiel alors que
+    l'inventaire et les cartes la trouvaient. Elles lisent donc la même
+    attribution — celle qui refuse aussi un fichier que deux personnes se
+    disputent.
+    """
+    _, attribues, _ = _releve_de_l_annee(session, personne)
+    chemin = attribues.get(personne.id)
+    return Path(chemin) if chemin else None
+
+
+@dataclass
+class ConstatPhoto:
+    etat: str
+    """`trouvee`, `absente`, `non_lue` (dossier non réglé, partage
+    injoignable) ou `hors_annee` (la photo n'est cherchée que pour les
+    inscrits de l'année)."""
+    fichier: str | None = None
+    motif: str | None = None
+
+
+def constat_photo(session: Session, personne: Personne) -> ConstatPhoto:
+    """Ce que la fiche dit de la photo — la même attribution que la
+    vignette, les cartes et l'inventaire.
+
+    La fiche écrivait « Non relevée » en dur, quelle que soit la photo :
+    elle date d'avant que le partage se lise en quelques millièmes. Relevé
+    par Johann le 28 septembre 2026.
+    """
+    annee, attribues, motif = _releve_de_l_annee(session, personne)
+    chemin = attribues.get(personne.id)
+    if chemin:
+        return ConstatPhoto("trouvee", fichier=Path(chemin).name)
+    if annee is None:
+        return ConstatPhoto("non_lue", motif=motif)
+    inscrite = (
+        session.query(Snapshot.id)
+        .filter(
+            Snapshot.personne_id == personne.id,
+            Snapshot.annee_scolaire_id == annee.id,
+        )
+        .first()
+        is not None
+    )
+    if not inscrite:
+        return ConstatPhoto(
+            "hors_annee",
+            motif=f"Hors de l'année {annee.libelle} : la photo n'est cherchée "
+            "que pour les inscrits.",
+        )
+    if motif:
+        return ConstatPhoto("non_lue", motif=motif)
+    return ConstatPhoto(
+        "absente",
+        motif="Aucun fichier ne lui revient sans doute possible sur le partage.",
+    )

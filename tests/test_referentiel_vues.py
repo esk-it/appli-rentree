@@ -279,3 +279,76 @@ def test_la_vignette_trouve_la_photo_que_l_inventaire_attribue(client, session, 
     assert client.get(f"/api/photos/{ecole['lea'].id}").status_code == 200
     assert client.get(f"/api/photos/{ecole['mat'].id}").status_code == 200, "la parenthèse aussi"
     assert client.get(f"/api/photos/{ecole['cam'].id}").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# La fiche complète : ce qu'elle écrivait en dur — relevé le 28 septembre 2026
+# ---------------------------------------------------------------------------
+
+
+def test_la_fiche_porte_le_dernier_croisement(client, session, ecole):
+    """« Pas vérifié » était écrit en dur pour Charlemagne et KoXo, même au
+    lendemain d'un croisement de la Cohérence."""
+    from backend.models import VerdictCoherence
+
+    quand = datetime(2026, 9, 28, 7, 4, 47)
+    session.add_all([
+        VerdictCoherence(personne_id=ecole["lea"].id, systeme="charlemagne", etat="accord",
+                         attendu="1_G4", constate="1_G4", verifie_le=quand),
+        VerdictCoherence(personne_id=ecole["lea"].id, systeme="koxo", etat="ecart", genre="koxo",
+                         attendu="1_G4", constate="2_1", verifie_le=quand),
+    ])
+    session.commit()
+
+    f = client.get(f"/api/personnes/{ecole['lea'].id}/fiche").json()
+    assert f["verdict"]["etat"] == "ecarts"
+    assert f["verdict"]["verifie_le"] == "2026-09-28T07:04:47"
+    par_systeme = {s["systeme"]: s for s in f["verdict"]["systemes"]}
+    assert par_systeme["charlemagne"]["etat"] == "accord"
+    assert (par_systeme["koxo"]["etat"], par_systeme["koxo"]["constate"]) == ("ecart", "2_1")
+
+    assert client.get(f"/api/personnes/{ecole['mat'].id}/fiche").json()["verdict"] is None
+
+
+def test_la_fiche_dit_quand_le_site_n_a_pas_de_koxo(client, session, ecole, site_factory):
+    ecole["ndk"].base_koxo = "NDK"
+    session.commit()
+    assert client.get(f"/api/personnes/{ecole['lea'].id}/fiche").json()["site_a_koxo"] is True
+
+    nde = site_factory("NDE")
+    ecole["mat"].site_id = nde.id
+    session.commit()
+    assert client.get(f"/api/personnes/{ecole['mat'].id}/fiche").json()["site_a_koxo"] is False
+
+
+def test_la_fiche_porte_la_photo_que_l_inventaire_attribue(client, session, ecole, tmp_path):
+    """« Non relevée » était écrit en dur, quelle que soit la photo."""
+    import json
+
+    from backend.models import Parametre
+
+    r = client.get(f"/api/personnes/{ecole['lea'].id}/fiche").json()
+    assert r["photo"]["etat"] == "non_lue", "sans dossier réglé, on n'a pas regardé"
+    assert r["photo"]["motif"]
+
+    session.add(Parametre(cle="chemin_dossier_photos", valeur_json=json.dumps(str(tmp_path))))
+    session.commit()
+    (tmp_path / "TANGUY Leane.jpg").write_bytes(b"\xff\xd8\xff")
+
+    lea = client.get(f"/api/personnes/{ecole['lea'].id}/fiche").json()["photo"]
+    assert (lea["etat"], lea["fichier"]) == ("trouvee", "TANGUY Leane.jpg")
+    assert client.get(f"/api/personnes/{ecole['mat'].id}/fiche").json()["photo"]["etat"] == "absente"
+
+
+def test_hors_de_l_annee_la_photo_n_est_pas_cherchee(client, session, ecole, tmp_path, annee_factory):
+    import json
+
+    from backend.models import Parametre
+
+    session.add(Parametre(cle="chemin_dossier_photos", valeur_json=json.dumps(str(tmp_path))))
+    annee_factory("2027-2028")  # une année plus récente, où personne n'est encore inscrit
+    session.commit()
+
+    photo = client.get(f"/api/personnes/{ecole['lea'].id}/fiche").json()["photo"]
+    assert photo["etat"] == "hors_annee"
+    assert "2027-2028" in photo["motif"]

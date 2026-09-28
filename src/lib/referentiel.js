@@ -34,6 +34,20 @@ export function comparerNaturel(a, b) {
   return 0;
 }
 
+/**
+ * Depuis quand un constat date, en clair : « vérifié il y a 3 h ».
+ *
+ * @param {string|null|undefined} iso  UTC sans fuseau, comme le serveur l'écrit
+ */
+export function depuisQuand(iso) {
+  if (!iso) return "";
+  const h = Math.round((Date.now() - new Date(iso + "Z").getTime()) / 3600000);
+  if (h < 1) return "vérifié il y a moins d'une heure";
+  if (h < 24) return `vérifié il y a ${h} h`;
+  const j = Math.round(h / 24);
+  return j === 1 ? "vérifié hier" : `vérifié il y a ${j} jours`;
+}
+
 export const NOM_SYSTEME = {
   charlemagne: "Charlemagne",
   google: "Google",

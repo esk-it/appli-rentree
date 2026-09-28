@@ -731,6 +731,27 @@ class CompteOut(BaseModel):
     note: str | None
 
 
+class VerdictSystemeOut(BaseModel):
+    systeme: str
+    etat: str
+    genre: str | None = None
+    attendu: str | None = None
+    constate: str | None = None
+
+
+class VerdictFicheOut(BaseModel):
+    etat: str
+    verifie_le: str
+    """UTC, sans fuseau — comme `/api/concordance/verdicts`."""
+    systemes: list[VerdictSystemeOut]
+
+
+class PhotoFicheOut(BaseModel):
+    etat: str
+    fichier: str | None = None
+    motif: str | None = None
+
+
 class FicheOut(BaseModel):
     personne: PersonneOut
     parcours: list[AnneeVecueOut]
@@ -739,6 +760,14 @@ class FicheOut(BaseModel):
     anciennes_fiches: list[str] = []
     """Les fiches réunies à celle-ci : `E717 (NDE)`. Sans elles, le
     parcours montrerait une année à NDE sans dire d'où elle vient."""
+    verdict: VerdictFicheOut | None = None
+    """Ce que le dernier croisement de la Cohérence a constaté d'elle, système
+    par système. `None` : jamais croisée. La fiche écrivait « Pas vérifié »
+    en dur pour Charlemagne et KoXo, même au lendemain d'un croisement."""
+    site_a_koxo: bool | None = None
+    """Faux pour un site sans annuaire KoXo — NDE : « pas vérifié » y dirait
+    qu'il reste quelque chose à faire, alors qu'il n'y a rien à vérifier."""
+    photo: PhotoFicheOut | None = None
 
 
 class IdentitePayload(BaseModel):
@@ -846,8 +875,29 @@ def fiche(personne_id: int, session: Session = Depends(db_session)) -> FicheOut:
 
     from backend.models import FicheFusionnee
 
+    from backend.services.coherence import verdicts_par_personne
+    from backend.services.inventaire_photos import constat_photo
+
     sites_par_id = {s_.id: s_ for s_ in session.query(Site).all()}
+    v = verdicts_par_personne(session, [personne_id]).get(personne_id)
+    site = sites_par_id.get(personne.site_id)
+    try:
+        c = constat_photo(session, personne)
+        photo = PhotoFicheOut(etat=c.etat, fichier=c.fichier, motif=c.motif)
+    except Exception as e:  # pragma: no cover - la fiche prime sur sa photo
+        photo = PhotoFicheOut(etat="non_lue", motif=str(e))
     return FicheOut(
+        verdict=(
+            VerdictFicheOut(
+                etat=v["etat"],
+                verifie_le=v["verifie_le"].isoformat(),
+                systemes=[VerdictSystemeOut(**x) for x in v["systemes"]],
+            )
+            if v
+            else None
+        ),
+        site_a_koxo=bool(site.base_koxo) if site is not None else None,
+        photo=photo,
         personne=_serialiser(
             personne, sites_par_id, _constats_par_badge(session)
         ),

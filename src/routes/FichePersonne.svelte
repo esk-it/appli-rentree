@@ -13,7 +13,12 @@
   import Squelette from "$lib/components/Squelette.svelte";
   import { personnes } from "$lib/api.js";
   import { TEINTES } from "$lib/familles.js";
+  import { depuisQuand } from "$lib/referentiel.js";
   import { notify } from "$lib/toasts.js";
+  import losanges from "$lib/assets/marque/losanges.png";
+  import logoCharlemagne from "$lib/assets/systemes/charlemagne.png";
+  import logoGoogle from "$lib/assets/systemes/google.svg";
+  import logoKoxo from "$lib/assets/systemes/koxo.png";
 
   /**
    * La page d'une personne : où elle est, dans chaque système.
@@ -26,22 +31,27 @@
    * le référentiel se corrige en plusieurs gestes, et chacun d'eux fermait
    * la fiche.
    *
-   * ## Six systèmes, et trois façons de ne rien savoir
+   * ## Trois systèmes, et ce qu'on en sait
    *
-   * Le tableau montre **six lignes**, et chacune dit *comment* elle sait,
-   * ou pourquoi elle ne sait pas :
+   * Le référentiel fait référence ; en face, les trois systèmes que la
+   * Cohérence croise — Charlemagne, Google, KoXo. Chaque ligne dit ce que
+   * le dernier croisement a constaté, et l'en-tête dit de quand il date.
+   * « Interroger les systèmes » relit Google en direct pour cette
+   * personne, et passe devant.
    *
-   * - **Le référentiel** fait référence : c'est lui qu'on compare.
-   * - **Google** s'interroge ici même, en direct, sur demande.
-   * - **Charlemagne et KoXo** se comparent depuis la Concordance, qui
-   *   demande un export frais. Ils ont une source ; elle n'est simplement
-   *   pas branchée sur cette page.
-   * - **PMB et Sodexo** n'ont aucune source : le programme leur écrit des
-   *   fichiers, rien n'en revient.
+   * Jusqu'au 28 septembre 2026, Charlemagne et KoXo étaient écrits « pas
+   * vérifié » en dur, et la photo « non relevée » : la fiche datait d'avant
+   * que les croisements soient rangés. Johann lançait la Cohérence, et la
+   * fiche n'en disait rien.
    *
-   * C'est le point de tout l'écran : **une absence de regard n'est pas une
-   * absence d'écart**. Une ligne verte qu'on n'a pas vérifiée est pire
-   * qu'une ligne grise, parce qu'elle rassure.
+   * Reste le point de tout l'écran : **une absence de regard n'est pas une
+   * absence d'écart**. Jamais croisé se dit « pas vérifié », jamais
+   * « cohérent ». Et un site sans KoXo — NDE — ne se dit pas « pas
+   * vérifié » : il n'y a rien à y vérifier.
+   *
+   * PMB et Sodexo n'y figurent plus, comme dans la Cohérence (décidé le
+   * 24 septembre 2026) : rien n'en revient, et deux lignes grises
+   * permanentes ne disaient rien de cette personne.
    *
    * @typedef {Object} Props
    * @property {number} personneId
@@ -60,23 +70,19 @@
   let erreur = $state("");
   let vue = $state("ensemble");
 
-  /**
-   * Les six systèmes, et d'où viendrait leur réponse.
-   *
-   * `lecture` vaut `ici` quand cette page sait interroger, `concordance`
-   * quand la comparaison existe mais demande un export frais, `aucune`
-   * quand rien ne revient du système. Confondre les deux derniers dirait
-   * que Charlemagne n'a pas de source — alors que tout le référentiel en
-   * vient.
-   */
   const SYSTEMES = [
-    { id: "referentiel", nom: "Référentiel", sigle: "Ré", teinte: TEINTES.annee, lecture: "reference" },
-    { id: "charlemagne", nom: "Charlemagne", sigle: "Ch", teinte: TEINTES.rentree, lecture: "concordance" },
-    { id: "google", nom: "Google", sigle: "G", teinte: TEINTES.google, lecture: "ici" },
-    { id: "koxo", nom: "KoXo", sigle: "Ko", teinte: TEINTES.koxo, lecture: "concordance" },
-    { id: "pmb", nom: "PMB", sigle: "PM", teinte: TEINTES.materiel, lecture: "aucune" },
-    { id: "sodexo", nom: "Sodexo", sigle: "So", teinte: TEINTES.repas, lecture: "aucune" },
+    { id: "referentiel", nom: "Référentiel", logo: losanges },
+    { id: "charlemagne", nom: "Charlemagne", logo: logoCharlemagne },
+    { id: "google", nom: "Google", logo: logoGoogle },
+    { id: "koxo", nom: "KoXo", logo: logoKoxo },
   ];
+
+  const PASTILLE_PHOTO = {
+    trouvee: { etat: "pret", texte: "Sur le partage" },
+    absente: { etat: "attente", texte: "Absente" },
+    non_lue: { etat: "inconnu", texte: "Non lue" },
+    hors_annee: { etat: "inconnu", texte: "Hors de l'année" },
+  };
 
   $effect(() => {
     const id = personneId;
@@ -115,7 +121,16 @@
   );
   let nbEcarts = $derived(enquete?.divergences?.length ?? 0);
 
-  /** Ce que chaque ligne du tableau affiche. */
+  // La photo telle que l'inventaire l'attribue — la même que la vignette,
+  // les cartes et le trombinoscope.
+  let photo = $derived(fiche?.photo ?? { etat: "non_lue", fichier: null, motif: null });
+  let pastillePhoto = $derived(PASTILLE_PHOTO[photo.etat] ?? PASTILLE_PHOTO.non_lue);
+
+  /**
+   * Ce que chaque ligne du tableau affiche.
+   *
+   * @returns {{valeur: string, etat: "pret"|"ecart"|"attente"|"reference"|"inconnu", texte: string, vers?: string}}
+   */
   function ligne(s) {
     if (s.id === "referentiel") {
       const bouts = [];
@@ -124,40 +139,42 @@
       return { valeur: bouts.join(" · ") || "—", etat: "reference", texte: "Référence" };
     }
 
-    if (s.lecture === "aucune") {
+    if (s.id === "koxo" && fiche?.site_a_koxo === false) {
       return {
-        valeur: "Aucun export de ce système n'entre dans le programme",
+        valeur: `${p?.site ?? "Ce site"} n'a pas de KoXo : ses comptes se créent directement dans Google`,
         etat: "inconnu",
-        texte: "Pas de source",
+        texte: "Sans objet",
       };
     }
 
-    if (s.lecture === "concordance") {
-      return {
-        valeur: "Se compare dans la Concordance, qui demande un export frais",
-        etat: "inconnu",
-        texte: "Pas vérifié",
-        vers: "concordance",
-      };
-    }
-
+    // Google relu en direct passe devant le dernier croisement.
     const d = dires[s.id];
-    if (!d) {
-      return { valeur: "—", etat: "inconnu", texte: "Pas vérifié" };
-    }
-    if (!d.consultee) {
-      return { valeur: d.motif ?? "Non interrogé", etat: "inconnu", texte: "Pas vérifié" };
+    if (d?.consultee) {
+      const ecart = (enquete?.divergences ?? []).find((x) => x.entre?.includes(s.id));
+      const valeurs = Object.entries(d.valeurs ?? {})
+        .filter(([, v]) => v)
+        .map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`)
+        .join(" · ");
+      return ecart
+        ? { valeur: `${ecart.quoi} : ${ecart.valeurs?.join(" ≠ ") ?? ""}`, etat: "ecart", texte: "Écart" }
+        : { valeur: valeurs || "Rien à signaler", etat: "pret", texte: "Cohérent" };
     }
 
-    const ecart = (enquete?.divergences ?? []).find((x) => x.entre?.includes(s.id));
-    const valeurs = Object.entries(d.valeurs ?? {})
-      .filter(([, v]) => v)
-      .map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`)
-      .join(" · ");
-
-    return ecart
-      ? { valeur: `${ecart.quoi} : ${ecart.valeurs?.join(" ≠ ") ?? ""}`, etat: "ecart", texte: "Écart" }
-      : { valeur: valeurs || "Rien à signaler", etat: "pret", texte: "Cohérent" };
+    const v = fiche?.verdict?.systemes?.find((x) => x.systeme === s.id);
+    if (!v) {
+      return { valeur: "Pas encore croisé", etat: "inconnu", texte: "Pas vérifié", vers: "coherence" };
+    }
+    if (v.etat === "accord") {
+      return { valeur: v.constate ?? v.attendu ?? "Rien à signaler", etat: "pret", texte: "Cohérent" };
+    }
+    if (v.etat === "absent") {
+      return { valeur: `Aucun compte trouvé dans ${s.nom}`, etat: "attente", texte: "Absent" };
+    }
+    return {
+      valeur: `${v.constate ?? "—"} — le référentiel dit ${v.attendu ?? "—"}`,
+      etat: "ecart",
+      texte: "Écart",
+    };
   }
 </script>
 
@@ -248,9 +265,13 @@
                   ? `${nbEcarts} écart${nbEcarts > 1 ? "s" : ""} à corriger`
                   : "Aucun écart sur les sources lues"}
               </span>
+            {:else if fiche.verdict}
+              <span class="text-[13px] text-stone-500 dark:text-stone-400">
+                Dernier croisement de la Cohérence · {depuisQuand(fiche.verdict.verifie_le)}
+              </span>
             {:else}
               <span class="text-[13px] text-stone-500 dark:text-stone-400">
-                Rien n'a encore été interrogé
+                Pas encore croisé par la Cohérence
               </span>
             {/if}
           </div>
@@ -268,13 +289,7 @@
                      {l.etat === 'ecart' ? 'bg-red-50/70 dark:bg-red-400/5' : ''}"
             >
               <span class="flex items-center gap-3 font-semibold">
-                <span
-                  class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
-                  style="background: {s.teinte};"
-                  aria-hidden="true"
-                >
-                  {s.sigle}
-                </span>
+                <img src={s.logo} alt="" class="h-7 w-7 shrink-0 object-contain" draggable="false" />
                 {s.nom}
               </span>
               <span class="min-w-0 truncate text-sm text-stone-600 dark:text-stone-400">
@@ -285,7 +300,7 @@
                     style="color: {TEINTES.koxo};"
                     onclick={() => onNaviguer?.(l.vers)}
                   >
-                    Y aller →
+                    Ouvrir la Cohérence →
                   </button>
                 {/if}
               </span>
@@ -294,11 +309,10 @@
           {/each}
 
           <p class="mt-3 max-w-3xl text-[13px] leading-relaxed text-stone-500 dark:text-stone-400">
-            Charlemagne et KoXo <strong>ont</strong> une source : la Concordance
-            les compare, avec un export frais. PMB et Sodexo n'en ont aucune —
-            le programme leur écrit des fichiers, rien n'en revient. Ces deux
-            lignes resteront grises tant qu'un export n'entrera pas ici, et
-            c'est plus honnête qu'un vert qui rassurerait à tort.
+            Chaque ligne dit ce que le dernier croisement de la Cohérence a
+            constaté. « Interroger les systèmes » relit Google en direct pour
+            cette personne. Une ligne jamais croisée reste grise : ne pas
+            avoir regardé n'est pas avoir trouvé tout en ordre.
           </p>
         </section>
 
@@ -338,10 +352,13 @@
               <span class="plaque-icone h-14 w-14" style="--teinte: {TEINTES.photos};">
                 <Camera class="h-7 w-7" style="stroke-width: 1.6;" />
               </span>
-              <div>
-                <Pastille etat="inconnu" texte="Non relevée" />
-                <p class="mt-1.5 text-[13px] text-stone-500 dark:text-stone-400">
-                  Le partage se lit depuis l'écran Photos.
+              <div class="min-w-0">
+                <Pastille etat={pastillePhoto.etat} texte={pastillePhoto.texte} />
+                <p
+                  class="mt-1.5 text-[13px] text-stone-500 dark:text-stone-400 {photo.fichier ? 'truncate font-mono text-xs' : ''}"
+                  title={photo.fichier ?? ""}
+                >
+                  {photo.fichier ?? photo.motif ?? ""}
                 </p>
               </div>
             </div>
