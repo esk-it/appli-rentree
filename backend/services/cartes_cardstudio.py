@@ -41,6 +41,19 @@ et le référentiel ne le sait pas davantage. Mais la liste, elle, est stable :
 les soixante-dix-sept chambres de l'internat ne changent pas d'une année sur
 l'autre. Elle est donc écrite ici, et reconduite telle quelle.
 
+## La clé unique
+
+Un projet CardStudio ne se met à jour qu'à travers une colonne dont chaque
+valeur est unique — sans elle, ajouter un nouvel élève oblige à supprimer et
+recréer le projet entier (Johann, 30 septembre 2026). Aucune des treize
+colonnes de Charlemagne ne l'est sur tout le fichier : les lignes de
+chambre n'ont ni badge ni nom.
+
+D'où une quatorzième colonne, en dernier pour ne déranger aucun champ déjà
+placé : le **numéro de badge** pour un élève — stable d'une année sur
+l'autre, c'est lui que portent KoXo et le TS1000 — et le **nom de la
+chambre** pour une chambre. Les deux ne peuvent pas se confondre.
+
 ## Ce qui n'est jamais inventé
 
 Un élève sans photo constatée sort avec `Photo` et `NomFichierPhoto` vides,
@@ -74,6 +87,7 @@ COLONNES_CARDSTUDIO = [
     "Etablissement", "Code établissement", "Code niveau", "Code classe",
     "Num Badge", "Code Régime", "Nom et prénom", "Nom", "Prénom",
     "Photo", "Date Entrée pour tri", "NomFichierPhoto", "Chambres",
+    "Clé unique",
 ]
 
 ETABLISSEMENTS = {
@@ -437,6 +451,7 @@ def construire_fichier(
             # sans passer par Excel, et une formule sans cache lui est vide.
             "NomFichierPhoto": Path(chemin).name if chemin else "",
             "Chambres": "",
+            "Clé unique": str(p.badge) if p.badge else p.cle_pivot,
         })
 
     # L'ordre de l'impression : classe puis nom, pour que la pile qui sort de
@@ -452,6 +467,7 @@ def construire_fichier(
                 **{c: "" for c in COLONNES_CARDSTUDIO},
                 "Etablissement": ETABLISSEMENT_INTERNAT,
                 "Chambres": chambre,
+                "Clé unique": chambre,
             }
             for chambre in CHAMBRES
         )

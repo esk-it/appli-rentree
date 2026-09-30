@@ -561,3 +561,21 @@ def test_un_autre_prenom_n_est_pas_une_photo(session, contexte):
     (contexte["dossier"] / "GUIVARCH Maëlys.jpg").write_bytes(b"x")
 
     assert p.id not in _chemins(session, contexte)
+
+
+def test_le_double_tiret_et_l_espace_se_valent(session, contexte):
+    """Charlemagne écrit `GEULIN--LOEVENBRUCK` ou `GEULIN LOEVENBRUCK` selon
+    l'export ; la photo, elle, garde le nom du jour où elle a été déposée."""
+    p = contexte["eleve"]("GEULIN--LOEVENBRUCK", "Hanaé", classe="T_STMG2")
+    (contexte["dossier"] / "GEULIN LOEVENBRUCK Hanaé.jpg").write_bytes(b"x")
+
+    assert _chemins(session, contexte)[p.id].endswith("GEULIN LOEVENBRUCK Hanaé.jpg")
+
+
+def test_un_nom_colle_n_est_pas_un_nom_compose(session, contexte):
+    """Les séparateurs se valent entre eux, mais ne disparaissent pas :
+    `LEBRIS` et `LE BRIS` restent deux noms."""
+    p = contexte["eleve"]("LE BRIS", "Jean")
+    (contexte["dossier"] / "LEBRIS Jean.jpg").write_bytes(b"x")
+
+    assert p.id not in _chemins(session, contexte)

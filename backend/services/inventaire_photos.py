@@ -201,9 +201,17 @@ def _candidats(racine: Path, personne: Personne) -> list[Path]:
 
 
 def _plier(texte: str) -> str:
-    """Sans accent ni casse : `ROUÉ Léa` et `ROUE Léa` se replient pareil."""
+    """Sans accent, sans casse, et un seul séparateur entre les mots.
+
+    `ROUÉ Léa` et `ROUE Léa` se replient pareil ; `GEULIN--LOEVENBRUCK`
+    et `GEULIN LOEVENBRUCK` aussi. Charlemagne écrit le même nom composé
+    tantôt avec le double tiret de l'état civil, tantôt avec une espace,
+    selon l'export : la photo d'Hanaé, déposée sous l'espace, disparaissait
+    à chaque ingestion d'un export au double tiret (30 septembre 2026).
+    """
     t = unicodedata.normalize("NFKD", texte or "")
-    return "".join(c for c in t if not unicodedata.combining(c)).casefold()
+    t = "".join(c for c in t if not unicodedata.combining(c)).casefold()
+    return re.sub(r"[\s_\-]+", " ", t).strip()
 
 
 class Noms(set):

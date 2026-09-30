@@ -82,9 +82,10 @@ def test_les_chambres_sont_reconduites_en_fin_de_fichier(
 ):
     """Cochée, la case remplit vraiment la colonne — c'était le défaut.
 
-    Les lignes de chambre ne portent que deux valeurs, comme Charlemagne les
-    écrit : l'établissement `INTERNAT` et le nom de la chambre. Elles vont en
-    queue : ce ne sont pas des élèves, elles n'ont pas à s'intercaler.
+    Les lignes de chambre portent les deux valeurs que Charlemagne leur
+    donne — l'établissement `INTERNAT` et le nom de la chambre — plus leur
+    clé unique. Elles vont en queue : ce ne sont pas des élèves, elles n'ont
+    pas à s'intercaler.
     """
     from backend.services.cartes_cardstudio import CHAMBRES, construire_fichier
 
@@ -107,6 +108,34 @@ def test_les_chambres_sont_reconduites_en_fin_de_fichier(
     assert chambres == CHAMBRES
     assert {l["Etablissement"] for l in lignes[1:]} == {"INTERNAT"}
     assert all(not l["Num Badge"] for l in lignes[1:])
+    assert [l["Clé unique"] for l in lignes[1:]] == CHAMBRES
+
+
+def test_chaque_ligne_porte_une_cle_unique(
+    session, site_factory, annee_factory, personne_factory, snap_factory, classe_factory
+):
+    """Sans colonne unique sur tout le fichier, un projet CardStudio ne se met
+    pas à jour : un nouvel élève obligeait à recréer le projet entier."""
+    from backend.services.cartes_cardstudio import COLONNES_CARDSTUDIO, construire_fichier
+
+    site = site_factory("NDK")
+    annee = annee_factory("2026-2027")
+    classe_factory(site, "2_1", niveau="1-2NDES-LY", etablissement="03-LY")
+    ids = []
+    for i, (nom, prenom) in enumerate([("DUPONT", "Léa"), ("DUPONT", "Léa")]):
+        p = personne_factory(site_id=site.id, nom=nom, prenom=prenom, login=f"ldupont{i}")
+        snap_factory(p.id, annee.id, classe="2_1")
+        ids.append(p)
+
+    octets, _ = construire_fichier(
+        session, personne_ids=[p.id for p in ids], annee_id=annee.id, avec_chambres=True
+    )
+    lignes = _lignes(octets)
+    cles = [l["Clé unique"] for l in lignes]
+
+    assert COLONNES_CARDSTUDIO[-1] == "Clé unique", "en dernier : aucun champ placé ne bouge"
+    assert all(cles) and len(set(cles)) == len(cles) == 79
+    assert sorted(cles[:2]) == sorted(str(p.badge) for p in ids), "homonymes : deux clés"
 
 
 def test_sans_la_case_aucune_ligne_de_chambre(
