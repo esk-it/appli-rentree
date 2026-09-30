@@ -295,3 +295,46 @@ def test_les_groupes_utiles_passent_devant(session, contexte):
     assert creations[0].adresse == "2nde-1@lekreisker.fr"
     assert creations[0].nb_membres_attendus == 1
     assert creations[1].nb_membres_attendus == 0
+
+
+def test_un_adulte_du_personnel_nest_jamais_retire(session, contexte, personne_factory):
+    """Depuis que le personnel entre au référentiel, l'adresse d'une
+    enseignante était « connue » : membre du groupe de sa classe, elle
+    passait pour une élève partie. Retirée de 2nde-bpgatl le 30/09/2026."""
+    from backend.services.groupes_google import calculer_diff_groupes
+
+    contexte["eleve"]("DUPONT", "Jean", "jdupont")
+    personne_factory(
+        type="adulte", nom="DERRIEN", prenom="Nathalie", login="nderrien",
+        site_id=contexte["site"].id, email_constate="nathalie.derrien@lekreisker.fr",
+    )
+    r = calculer_diff_groupes(
+        session,
+        {"2nde-1@lekreisker.fr": ["jean.dupont@lekreisker.fr", "nathalie.derrien@lekreisker.fr"]},
+        annee_id=contexte["annee"].id,
+    )
+    d = r.diffs[0]
+    assert d.a_retirer == []
+    assert d.adultes == ["nathalie.derrien@lekreisker.fr"]
+    assert d.inconnus == [], "elle n'est pas inconnue : elle est du personnel"
+    assert r.nb_adultes == 1
+    assert any("personnel" in a for a in r.avertissements)
+
+
+def test_un_eleve_parti_se_retire_toujours(session, contexte, personne_factory):
+    """La protection des adultes ne doit pas couvrir un élève parti."""
+    from backend.services.groupes_google import calculer_diff_groupes
+
+    contexte["eleve"]("DUPONT", "Jean", "jdupont")  # le site a des élèves chargés
+    parti = contexte["eleve"]("PARTI", "Luc", "lparti", classe="AUTRE")
+    personne_factory(
+        type="adulte", nom="PROF", prenom="Anne", login="aprof",
+        site_id=contexte["site"].id, email_constate="anne.prof@lekreisker.fr",
+    )
+    r = calculer_diff_groupes(
+        session,
+        {"2nde-1@lekreisker.fr": ["jean.dupont@lekreisker.fr", parti.email_constate, "anne.prof@lekreisker.fr"]},
+        annee_id=contexte["annee"].id,
+    )
+    assert r.diffs[0].a_retirer == ["luc.parti@lekreisker.fr"]
+    assert r.diffs[0].adultes == ["anne.prof@lekreisker.fr"]

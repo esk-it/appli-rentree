@@ -589,8 +589,8 @@
           L'export CSV <strong>ajoute</strong> des membres sans jamais en
           retirer : un groupe de 3e garde ses élèves d'il y a deux ans. Ici la
           composition est calculée par différence, dans les deux sens. Les
-          membres inconnus du référentiel — enseignants, adresses de service —
-          ne sont jamais retirés.
+          adultes du personnel et les membres inconnus du référentiel —
+          adresses de service, ajouts manuels — ne sont jamais retirés.
         </p>
 
         <div class="flex flex-wrap items-end gap-3">
@@ -652,7 +652,7 @@
             entrée(s) ·
             <strong class="text-red-700 dark:text-red-400">{diffGroupes.nb_a_retirer}</strong>
             sortie(s) ·
-            {diffGroupes.nb_inconnus} membre(s) laissés en place
+            {diffGroupes.nb_inconnus + (diffGroupes.nb_adultes ?? 0)} membre(s) laissés en place
           </p>
 
           {#if diffGroupes.sites_sans_eleve.length}
@@ -799,6 +799,30 @@
               </tbody>
             </table>
           </div>
+
+          <!-- Qui entre et qui sort, nommément, avant de synchroniser : le
+               tableau ne donnait que des nombres, et « Synchroniser »
+               retirait des élèves qu'on n'avait pas vus. -->
+          {#if diffGroupes.nb_a_retirer || diffGroupes.nb_a_ajouter}
+            <div class="grid gap-4 md:grid-cols-2">
+              {#each [["Sortent", "a_retirer", "text-red-700 dark:text-red-400"], ["Entrent", "a_ajouter", "text-emerald-700 dark:text-emerald-400"]] as [titre, cle, teinte] (cle)}
+                {@const lignes = diffGroupes.diffs.filter((d) => d[cle].length)}
+                {#if lignes.length}
+                  <div>
+                    <p class="libelle-champ {teinte}">{titre}</p>
+                    <ul class="mt-1 max-h-64 space-y-1 overflow-auto text-xs">
+                      {#each lignes as d (d.groupe)}
+                        <li>
+                          <span class="font-semibold">{d.site} · {d.classe}</span>
+                          <span class="font-mono text-stone-600 dark:text-stone-400">{d[cle].join(", ")}</span>
+                        </li>
+                      {/each}
+                    </ul>
+                  </div>
+                {/if}
+              {/each}
+            </div>
+          {/if}
         {/if}
       </div>
     {:else if volet === "comptes"}

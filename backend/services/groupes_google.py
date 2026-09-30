@@ -68,8 +68,12 @@ class DiffGroupe:
     a_retirer: list[str] = field(default_factory=list)
     """Membres connus du référentiel, absents de l'année préparée."""
     inconnus: list[str] = field(default_factory=list)
-    """Membres qu'aucune personne du référentiel ne porte : profs, adresses
-    de service, ajouts manuels. Jamais retirés d'office."""
+    """Membres qu'aucune personne du référentiel ne porte : adresses de
+    service, ajouts manuels. Jamais retirés d'office."""
+    adultes: list[str] = field(default_factory=list)
+    """Membres du personnel : l'enseignant qui suit la classe, une AESH.
+    Jamais retirés — le programme ne gère que les élèves d'un groupe de
+    classe."""
     deja_membres: int = 0
     existe: bool = True
     """Faux si Google ne connaît pas ce groupe. Ses ajouts sont retenus."""
@@ -120,6 +124,10 @@ class RapportGroupes:
     @property
     def nb_inconnus(self) -> int:
         return sum(len(d.inconnus) for d in self.diffs)
+
+    @property
+    def nb_adultes(self) -> int:
+        return sum(len(d.adultes) for d in self.diffs)
 
     @property
     def groupes_absents(self) -> list[str]:
@@ -251,15 +259,21 @@ def calculer_diff_groupes(
         a = (p.email or "").strip().lower()
         return a or None
 
-    # Toutes les adresses connues du référentiel, pour distinguer un partant
-    # d'un compte ajouté à la main.
+    # Les adresses connues du référentiel, pour distinguer un élève parti
+    # d'un compte ajouté à la main — **et celles du personnel à part**. Seul
+    # un élève se retire d'un groupe de classe. Depuis que les adultes
+    # entrent au référentiel, leur adresse était « connue » et un enseignant
+    # membre du groupe passait pour un élève parti : Nathalie DERRIEN a été
+    # retirée de 2nde-bpgatl le 30 septembre 2026.
     connues: set[str] = set()
+    adultes: set[str] = set()
     for p in session.query(Personne).all():
+        cible = adultes if p.type == "adulte" else connues
         a = adresse(p)
         if a:
-            connues.add(a)
+            cible.add(a)
         if p.email_constate:
-            connues.add(p.email_constate.strip().lower())
+            cible.add(p.email_constate.strip().lower())
 
     par_classe: dict[str, set[str]] = {}
     for pid, sn in derniers.items():
@@ -279,9 +293,14 @@ def calculer_diff_groupes(
         existe = releve is not None
         actuels = {m.lower() for m in (releve or [])}
 
-        a_retirer, inconnus = [], []
+        a_retirer, inconnus, du_personnel = [], [], []
         for m in sorted(actuels - voulus):
-            (a_retirer if m in connues else inconnus).append(m)
+            if m in adultes:
+                du_personnel.append(m)
+            elif m in connues:
+                a_retirer.append(m)
+            else:
+                inconnus.append(m)
 
         manquants = sorted(voulus - actuels)
         rapport.diffs.append(
@@ -292,6 +311,7 @@ def calculer_diff_groupes(
                 a_ajouter=manquants if existe else [],
                 a_retirer=a_retirer,
                 inconnus=inconnus,
+                adultes=du_personnel,
                 deja_membres=len(voulus & actuels),
                 existe=existe,
                 retenus=[] if existe else manquants,
@@ -379,7 +399,13 @@ def calculer_diff_groupes(
     if rapport.nb_inconnus:
         rapport.avertissements.append(
             f"{rapport.nb_inconnus} membre(s) ne correspondent à personne du "
-            "référentiel — enseignants, adresses de service, ajouts manuels. "
-            "Ils sont laissés en place : le programme ignore pourquoi ils sont là."
+            "référentiel — adresses de service, ajouts manuels. Ils sont "
+            "laissés en place : le programme ignore pourquoi ils sont là."
+        )
+    if rapport.nb_adultes:
+        rapport.avertissements.append(
+            f"{rapport.nb_adultes} membre(s) du personnel sont dans des groupes "
+            "de classe. Ils sont laissés en place : le programme ne gère que "
+            "les élèves."
         )
     return rapport

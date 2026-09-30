@@ -1696,6 +1696,7 @@ class DiffGroupeOut(BaseModel):
     a_ajouter: list[str]
     a_retirer: list[str]
     inconnus: list[str]
+    adultes: list[str] = []
     deja_membres: int
     existe: bool = True
     retenus: list[str] = []
@@ -1706,6 +1707,7 @@ class GroupesOut(BaseModel):
     nb_a_ajouter: int
     nb_a_retirer: int
     nb_inconnus: int
+    nb_adultes: int = 0
     nb_retenus: int = 0
     groupes_absents: list[str] = []
     sites_sans_eleve: list[str] = []
@@ -1772,6 +1774,7 @@ def diff_groupes(
         nb_a_ajouter=r.nb_a_ajouter,
         nb_a_retirer=r.nb_a_retirer,
         nb_inconnus=r.nb_inconnus,
+        nb_adultes=r.nb_adultes,
         nb_retenus=r.nb_retenus,
         groupes_absents=r.groupes_absents,
         sites_sans_eleve=r.sites_sans_eleve,
@@ -1813,8 +1816,13 @@ def synchroniser_groupes(
             self.action = action
             self.email = email
             self.groupe = groupe
+            # L'adresse dans le libellé : « Retirer de 5eme-1 », seize fois
+            # de suite, ne disait pas qui sortait — Johann a synchronisé sans
+            # pouvoir le savoir, le 30 septembre 2026.
             self.libelle = (
-                f"{'Ajouter à' if action == 'ajouter' else 'Retirer de'} {groupe}"
+                f"Ajouter {email} à {groupe}"
+                if action == "ajouter"
+                else f"Retirer {email} de {groupe}"
             )
             self.personne_id = None
             self.ou_visee = None
