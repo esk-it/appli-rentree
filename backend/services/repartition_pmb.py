@@ -42,6 +42,15 @@ PMB fait ce qu'il veut. Le seul geste est de choisir dans quel fichier la
 ligne tombe. C'est ce qui rend le résultat vérifiable : la somme des
 fichiers produits vaut le fichier d'origine, aux lignes écartées près.
 
+## Ce qu'elle retire : l'en-tête
+
+PMB n'a pas d'option « ignorer la première ligne » : il la lit comme un
+élève. Importé le 30 septembre 2026 à Sainte-Ursule, le fichier a créé un
+lecteur « Nom Prénom », numéro « Num Badge », et signalé un professeur
+principal « Princ. » introuvable. Les fichiers produits commencent donc à
+la première ligne d'élève — et sans le BOM de Charlemagne, qui se serait
+alors collé au numéro du premier élève.
+
 ## Les deux listes que la répartition rend en plus
 
 - **Écartées** : les lignes dont le code classe n'est dans aucune table.
@@ -60,7 +69,6 @@ from sqlalchemy.orm import Session
 
 from backend.models import Personne, Site, TableCorrespondance
 from backend.services.csv_charlemagne import (
-    BOM_UTF8,
     champs as _champs,
     decoder as _decoder,
     lignes_du_fichier as _lignes,
@@ -211,7 +219,7 @@ def repartir_export_pmb(
                 nom_fichier=f"PMB_{site_nom}_{annee_libelle}.csv",
                 nb_eleves=len(corps),
                 classes=sorted(classes_par_site[site_nom]),
-                contenu_csv=_encoder([lignes[0], *corps]),
+                contenu_csv=_encoder(corps),
             )
         )
     return rapport
@@ -231,13 +239,13 @@ def _ecart(champs: list[str], reperes: _Reperes, motif: str) -> LigneEcartee:
 
 
 def _encoder(lignes: list[str]) -> bytes:
-    """Réémet les lignes d'origine, intactes, en UTF-8 avec BOM et CRLF.
+    """Réémet les lignes d'élèves, intactes, en UTF-8 et CRLF — sans en-tête
+    ni BOM (voir « Ce qu'elle retire » plus haut).
 
-    C'est exactement ce que Charlemagne produit et ce que PMB accepte. Les
-    lignes ne repassent pas par un `csv.writer` : leur guillemetage
+    Les lignes ne repassent pas par un `csv.writer` : leur guillemetage
     d'origine est ainsi conservé au caractère près.
     """
-    return BOM_UTF8 + ("\r\n".join(lignes) + "\r\n").encode("utf-8")
+    return ("\r\n".join(lignes) + "\r\n").encode("utf-8")
 
 
 # ---------------------------------------------------------------------------

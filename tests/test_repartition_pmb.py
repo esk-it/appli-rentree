@@ -145,23 +145,26 @@ def test_les_treize_colonnes_ressortent_intactes(session, deux_instances):
     )
     r = repartir_export_pmb(session, _fichier(ligne), annee_libelle="2026-2027")
 
-    sortie = r.paquets[0].contenu_csv.decode("utf-8-sig")
+    sortie = r.paquets[0].contenu_csv.decode("utf-8")
     lues = list(csv.reader(io.StringIO(sortie), delimiter=";"))
-    assert lues[0] == ENTETE.split(";")
-    assert lues[1] == ligne.split(";")
+    assert lues == [ligne.split(";")]
 
 
-def test_le_fichier_rendu_a_le_bom_et_des_crlf(session, deux_instances):
-    """C'est ce que Charlemagne produit et ce que PMB avale sans broncher."""
+def test_le_fichier_rendu_commence_au_premier_eleve(session, deux_instances):
+    """PMB lit la première ligne comme un élève : l'en-tête de Charlemagne a
+    créé un lecteur « Nom Prénom » à Sainte-Ursule, le 30/09/2026. Sans
+    en-tête, pas de BOM non plus — il se collerait au premier numéro."""
     from backend.services.repartition_pmb import repartir_export_pmb
 
     r = repartir_export_pmb(
         session, _fichier(_ligne(11, "A", "B", "2_1")), annee_libelle="2026-2027"
     )
     brut = r.paquets[0].contenu_csv
-    assert brut.startswith(b"\xef\xbb\xbf")
+    assert brut.startswith(b"11;A;B;")
+    assert b"Num Badge" not in brut
     assert brut.endswith(b"\r\n")
     assert b"\n" not in brut.replace(b"\r\n", b"")
+    assert r.paquets[0].nb_eleves == 1
 
 
 def test_l_ordre_des_lignes_est_celui_du_fichier_d_origine(session, deux_instances):
@@ -173,8 +176,8 @@ def test_l_ordre_des_lignes_est_celui_du_fichier_d_origine(session, deux_instanc
         _ligne(2, "DEUX", "B", "2_1"),
     )
     r = repartir_export_pmb(session, contenu, annee_libelle="2026-2027")
-    sortie = r.paquets[0].contenu_csv.decode("utf-8-sig")
-    assert [l.split(";")[1] for l in sortie.strip().split("\r\n")[1:]] == [
+    sortie = r.paquets[0].contenu_csv.decode("utf-8")
+    assert [l.split(";")[1] for l in sortie.strip().split("\r\n")] == [
         "TROIS", "UN", "DEUX",
     ]
 

@@ -1100,11 +1100,24 @@
         </div>
         <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
           Le contenu n'est pas touché — chaque ligne ressort telle quelle,
-          colonne <code>Prof. Princ.</code> comprise. L'année choisie
+          colonne <code>Prof. Princ.</code> comprise. Seul l'en-tête est
+          retiré : PMB le prendrait pour un élève. L'année choisie
           ci-dessous ne sert qu'à nommer les fichiers :
           <strong class="font-mono text-stone-700 dark:text-stone-300">
             PMB_&lt;SITE&gt;_{anneeLibelleChoisie || "…"}.csv
           </strong>
+        </p>
+        <!-- Ce qu'il faut cocher dans PMB, appris à l'import de Sainte-Ursule
+             le 30/09/2026 : la case des logins était cochée, celle des
+             numéros ne l'était pas, et chaque colonne aurait glissé d'un cran. -->
+        <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
+          Dans PMB (Administration → Lecteurs → Import lecteurs → Import des
+          élèves), séparateur <code>;</code> et coche
+          <strong>« Les numéros d'emprunteurs »</strong>, « Les adresses e-mail »,
+          « Les professeurs principaux » — <strong>pas</strong> « Les logins et mots
+          de passe », que le fichier ne porte pas. « Nouveaux lecteurs » ne
+          supprime rien ; « Mise à jour complète » retire en plus les lecteurs
+          absents du fichier qui n'ont pas de prêt en cours.
         </p>
       </div>
     {/if}
