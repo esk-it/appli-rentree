@@ -607,3 +607,17 @@ def test_la_classe_vient_de_la_photographie_de_l_annee(
         annee_cible_id=cible.id, annee_source_id=source.id,
     )
     assert next(l for l in r.lignes if l.nom == "ABGRALL").classe == "51"
+
+
+def test_sans_site_l_etiquette_porte_les_losanges_de_l_ensemble():
+    """L'aperçu, avant qu'on choisisse un site, montrait un carré blanc à la
+    place du logo : on le prenait pour une étiquette cassée."""
+    from backend.services.modeles_etiquettes import logo_du_site, page_etiquettes
+
+    e = {"classe": "3_1", "groupe": "3_1", "nom": "LAMBLIN", "prenom": "Azilys",
+         "login": "alamblin", "mot_de_passe": "Sateku68",
+         "adresse": "azilys.lamblin@lekreisker.fr", "organisation": "Établissement"}
+    sans_site = page_etiquettes([e], annee="", site_nom="").decode("utf-8")
+    assert logo_du_site("ESK") in sans_site
+    avec_site = page_etiquettes([e], annee="", site_nom="NDK").decode("utf-8")
+    assert logo_du_site("NDK") in avec_site and logo_du_site("ESK") not in avec_site

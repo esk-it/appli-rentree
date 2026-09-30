@@ -574,7 +574,10 @@ def page_etiquettes(
     """
     m = MODELES.get(modele) or MODELES[MODELE_PAR_DEFAUT]
     echelle = geometrie(par_page)[2] / geometrie(PAR_PAGE_DEFAUT)[2]
-    logo = logo_du_site(site_nom)
+    # Sans logo de site — l'aperçu, tant qu'aucun site n'est choisi —, les
+    # losanges de l'ensemble plutôt qu'un carré blanc : l'aperçu neutre
+    # passait pour une étiquette cassée (Johann, 30 septembre 2026).
+    logo = logo_du_site(site_nom) or logo_du_site("ESK")
     couleur = couleur_du_site(site_nom)
 
     par_classe: dict[str, list[dict]] = {}
