@@ -1110,7 +1110,9 @@ export const coffreApi = {
    * et le ranger sont le même geste, et la génération refuse si le coffre
    * est fermé.
    */
-  async comptesSansKoxo({ siteId, anneeCibleId, anneeSourceId = null, categorie = "nouveaux" }) {
+  async comptesSansKoxo({
+    siteId, anneeCibleId, anneeSourceId = null, categorie = "nouveaux", formatEtiquettes = "pdf",
+  }) {
     return jsonOrThrow(
       await fetch(`${BASE}/coffre/comptes-sans-koxo`, {
         method: "POST",
@@ -1120,6 +1122,7 @@ export const coffreApi = {
           annee_cible_id: anneeCibleId,
           annee_source_id: anneeSourceId,
           categorie,
+          format_etiquettes: formatEtiquettes,
         }),
       }),
     );
@@ -1338,7 +1341,7 @@ export const exportsCible = {
   async listesKoxo({
     fichierKoxo, siteId, anneeCibleId, anneeSourceId = null,
     classes = [], personneIds = [], documents = [], modele = null,
-    parPage = 18, police = null,
+    parPage = 18, police = null, formatEtiquettes = "pdf",
   }) {
     if (!fichierKoxo) throw new Error("Export KoXo requis");
     const koxo_base64 = arrayBufferEnBase64(await fichierKoxo.arrayBuffer());
@@ -1349,7 +1352,7 @@ export const exportsCible = {
           koxo_base64, site_id: siteId,
           annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
           classes, personne_ids: personneIds, documents, modele,
-          par_page: parPage, police,
+          par_page: parPage, police, format_etiquettes: formatEtiquettes,
         }),
       }),
     );

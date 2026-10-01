@@ -197,6 +197,8 @@ class ComptesSansKoxoPayload(BaseModel):
     annee_cible_id: int
     annee_source_id: int | None = None
     categorie: str = "nouveaux"
+    format_etiquettes: str = "pdf"
+    """`pdf` (par défaut) ou `html`, comme pour les listes depuis KoXo."""
 
 
 class ComptesSansKoxoOut(BaseModel):
@@ -246,14 +248,22 @@ def comptes_sans_koxo(
         raise HTTPException(400, str(e)) from None
 
     session.commit()
+    nom_fiches = rapport.nom_fichier_fiches
+    avertissements = list(rapport.avertissements)
+    if payload.format_etiquettes == "pdf":
+        from backend.services.impression_pdf import etiquettes_en_pdf
+
+        rendus, avertis = etiquettes_en_pdf({"fiches": (etiquettes, nom_fiches)})
+        etiquettes, nom_fiches = rendus["fiches"]
+        avertissements += avertis
     return ComptesSansKoxoOut(
         site_nom=rapport.site_nom,
         nb_lignes=rapport.nb_lignes,
         nb_generes=rapport.nb_generes,
         nb_deja_au_coffre=rapport.nb_deja_au_coffre,
-        avertissements=rapport.avertissements,
+        avertissements=avertissements,
         nom_fichier_csv=rapport.nom_fichier_csv,
-        nom_fichier_fiches=rapport.nom_fichier_fiches,
+        nom_fichier_fiches=nom_fiches,
         csv_base64=base64.b64encode(csv_google).decode(),
         etiquettes_base64=base64.b64encode(etiquettes).decode(),
     )

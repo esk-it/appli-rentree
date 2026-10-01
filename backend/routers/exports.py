@@ -837,6 +837,9 @@ class ListesKoxoPayload(BaseModel):
     étiquettes quand on ne voulait qu'un classeur."""
     modele: str | None = None
     """La présentation des étiquettes ; inconnue, celle par défaut."""
+    format_etiquettes: str = "pdf"
+    """`pdf` (par défaut) ou `html`. Le PDF passe par le navigateur du poste ;
+    s'il échoue, les étiquettes sortent en HTML et la réponse le dit."""
 
 
 class ModeleOut(BaseModel):
@@ -972,6 +975,7 @@ class ListesKoxoReponse(BaseModel):
     etiquettes_tous_base64: str = ""
     nom_etiquettes: str
     etiquettes_base64: str
+    avertissements: list[str] = []
 
 
 @router.post("/listes-koxo", response_model=ListesKoxoReponse)
@@ -1059,8 +1063,19 @@ def listes_koxo(
     except Exception:  # pragma: no cover — le journal ne doit rien casser
         session.rollback()
 
+    documents = {
+        "tous": (r.etiquettes_tous, r.nom_etiquettes_tous),
+        "nouveaux": (r.etiquettes_nouveaux, r.nom_etiquettes),
+    }
+    avertissements: list[str] = []
+    if payload.format_etiquettes == "pdf":
+        from backend.services.impression_pdf import etiquettes_en_pdf
+
+        documents, avertissements = etiquettes_en_pdf(documents)
+
     b64 = lambda o: base64.b64encode(o).decode("ascii")
     return ListesKoxoReponse(
+        avertissements=avertissements,
         site_nom=r.site_nom, annee_libelle=r.annee_libelle,
         nb_tous=r.nb_tous, nb_nouveaux=r.nb_nouveaux,
         sans_ligne_koxo=r.sans_ligne_koxo,
@@ -1069,10 +1084,10 @@ def listes_koxo(
         nom_xlsx_tous=r.nom_xlsx_tous, xlsx_tous_base64=b64(r.xlsx_tous),
         nom_xlsx_nouveaux=r.nom_xlsx_nouveaux,
         xlsx_nouveaux_base64=b64(r.xlsx_nouveaux),
-        nom_etiquettes_tous=r.nom_etiquettes_tous,
-        etiquettes_tous_base64=b64(r.etiquettes_tous),
-        nom_etiquettes=r.nom_etiquettes,
-        etiquettes_base64=b64(r.etiquettes_nouveaux),
+        nom_etiquettes_tous=documents["tous"][1],
+        etiquettes_tous_base64=b64(documents["tous"][0]),
+        nom_etiquettes=documents["nouveaux"][1],
+        etiquettes_base64=b64(documents["nouveaux"][0]),
     )
 
 

@@ -62,7 +62,11 @@ class Planche:
     """Un document à rendre, et son nom de fichier."""
 
     nom: str
-    html: str
+    html: str | bytes
+    """Texte ou octets UTF-8. Les étiquettes sortent en octets depuis la
+    v0.141 ; la conversion n'acceptait que du texte, et « Étiquettes en PDF,
+    une planche par classe » échouait sur `TypeError: data must be str, not
+    bytes` — sans qu'aucun test ne passe par ce chemin (1er octobre 2026)."""
 
 
 @dataclass
@@ -130,7 +134,10 @@ def rendre(
             jeton = uuid.uuid4().hex[:8]
             source = base / f"{jeton}.html"
             cible = base / f"{jeton}.pdf"
-            source.write_text(planche.html, encoding="utf-8")
+            if isinstance(planche.html, bytes):
+                source.write_bytes(planche.html)
+            else:
+                source.write_text(planche.html, encoding="utf-8")
             try:
                 _imprimer(moteur, source, cible, profil)
                 rapport.pdfs[planche.nom] = cible.read_bytes()
@@ -188,6 +195,39 @@ def _attendre_le_fichier(cible: Path, *, limite: float = DELAI_PAR_PAGE) -> bool
             taille = actuelle
         time.sleep(0.25)
     return False
+
+
+def etiquettes_en_pdf(
+    documents: dict[str, tuple[bytes, str]],
+) -> tuple[dict[str, tuple[bytes, str]], list[str]]:
+    """Convertit des planches d'étiquettes HTML en PDF, quand c'est possible.
+
+    Args:
+        documents: `{clé: (html, nom de fichier .html)}`.
+
+    Returns:
+        Les mêmes clés, en PDF quand la conversion a réussi — en HTML sinon,
+        avec un avertissement : mieux vaut une planche à imprimer depuis le
+        navigateur que pas de planche du tout.
+    """
+    a_rendre = [Planche(nom=cle, html=html) for cle, (html, _) in documents.items() if html]
+    if not a_rendre:
+        return documents, []
+    try:
+        rendu = rendre(a_rendre)
+    except ImpressionImpossible as e:
+        return documents, [f"PDF impossible ({e}) : les étiquettes sortent en HTML."]
+
+    sortie = dict(documents)
+    avertissements = []
+    for cle, pdf in rendu.pdfs.items():
+        nom = documents[cle][1]
+        sortie[cle] = (pdf, nom.rsplit(".", 1)[0] + ".pdf")
+    for cle, motif in rendu.echecs:
+        avertissements.append(
+            f"{documents[cle][1]} : PDF impossible ({motif}) — rendu en HTML."
+        )
+    return sortie, avertissements
 
 
 def nom_de_fichier(base: str) -> str:

@@ -19,6 +19,7 @@
     sites as sitesApi,
     enregistrerFichierBase64,
   } from "$lib/api.js";
+  import { ecrire, lire } from "$lib/memoire.svelte.js";
   import { notify } from "$lib/toasts.js";
 
   let listeSites = $state([]);
@@ -228,6 +229,7 @@
         anneeCibleId,
         anneeSourceId: anneeSourceId ?? null,
         categorie: anneeSourceId ? "nouveaux" : "tous",
+        formatEtiquettes,
       });
       dernierRapport = { ...r, cible: "google (comptes fabriqués)" };
 
@@ -236,7 +238,7 @@
       );
       if (csv.annule) return;
       const fiches = await enregistrerFichierBase64(
-        r.nom_fichier_fiches, r.etiquettes_base64, "text/html",
+        r.nom_fichier_fiches, r.etiquettes_base64, typeEtiquettes(r.nom_fichier_fiches),
       );
 
       notify.succes(
@@ -519,6 +521,14 @@
   let planchesPdf = $state(/** @type {any} */ (null));
   let impressionEnCours = $state(false);
 
+  // Les étiquettes sortent en PDF par défaut : le HTML demandait d'ouvrir
+  // chaque planche dans le navigateur pour l'imprimer. Il reste au choix.
+  let formatEtiquettes = $state(lire("exports.formatEtiquettes", "pdf"));
+  $effect(() => ecrire("exports.formatEtiquettes", formatEtiquettes));
+  /** Le type d'un document d'étiquettes, d'après ce que le serveur a rendu. */
+  const typeEtiquettes = (nom) =>
+    String(nom ?? "").toLowerCase().endsWith(".pdf") ? "application/pdf" : "text/html";
+
   async function genererPlanchesPdf() {
     if (!fichierListes || !siteId || !anneeCibleId) return;
     impressionEnCours = true;
@@ -566,11 +576,15 @@
         modele: modeleChoisi,
         parPage,
         police: policeChoisie,
+        formatEtiquettes,
       });
       notify.succes(
         `${rapportListes.nb_tous} élève(s), dont ${rapportListes.nb_nouveaux} entrants`,
         { duree: 8000 },
       );
+      for (const a of rapportListes.avertissements ?? []) {
+        notify.avertissement(a, { duree: 12000 });
+      }
     } catch (e) {
       erreur = String(e).replace(/^Error:\s*/, "");
       notify.erreur(erreur, { duree: 14000 });
@@ -867,6 +881,20 @@
                   Aperçu {siteId ? "" : "— choisis un site pour voir son logo"}
                 </p>
                 <label class="ml-auto inline-flex items-center gap-1.5 text-xs text-stone-600 dark:text-stone-300">
+                  format
+                  <select
+                    class="champ py-0.5 text-xs"
+                    value={formatEtiquettes}
+                    onchange={(e) => {
+                      formatEtiquettes = e.currentTarget.value;
+                      rapportListes = null;
+                    }}
+                  >
+                    <option value="pdf">PDF</option>
+                    <option value="html">HTML</option>
+                  </select>
+                </label>
+                <label class="inline-flex items-center gap-1.5 text-xs text-stone-600 dark:text-stone-300">
                   par feuille
                   <select
                     class="champ py-0.5 text-xs"
@@ -1488,10 +1516,10 @@
             titre: "Tous les élèves", detail: `${r.nb_tous} lignes · classe, identifiant, mot de passe, adresse` },
           { nom: r.nom_xlsx_nouveaux, b64: r.xlsx_nouveaux_base64, mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             titre: "Les entrants seuls", detail: `${r.nb_nouveaux} lignes` },
-          { nom: r.nom_etiquettes_tous, b64: r.etiquettes_tous_base64, mime: "text/html",
+          { nom: r.nom_etiquettes_tous, b64: r.etiquettes_tous_base64, mime: typeEtiquettes(r.nom_etiquettes_tous),
             titre: "Étiquettes de tous les élèves", detail: `${r.nb_tous} étiquettes · pour une réimpression ou un mot de passe perdu` },
-          { nom: r.nom_etiquettes, b64: r.etiquettes_base64, mime: "text/html",
-            titre: "Étiquettes des entrants", detail: "une planche par classe, à imprimer depuis le navigateur" },
+          { nom: r.nom_etiquettes, b64: r.etiquettes_base64, mime: typeEtiquettes(r.nom_etiquettes),
+            titre: "Étiquettes des entrants", detail: "une classe par page" },
         ] as doc (doc.titre)}
           {#if doc.b64}
             <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-stone-200 bg-white p-2.5 dark:border-stone-700 dark:bg-stone-900">
