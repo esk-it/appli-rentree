@@ -108,7 +108,9 @@ def test_les_chambres_sont_reconduites_en_fin_de_fichier(
     assert chambres == CHAMBRES
     assert {l["Etablissement"] for l in lignes[1:]} == {"INTERNAT"}
     assert all(not l["Num Badge"] for l in lignes[1:])
-    assert [l["Clé unique"] for l in lignes[1:]] == CHAMBRES
+    cles = [l["Clé unique"] for l in lignes[1:]]
+    assert (cles[0], cles[39], cles[40], cles[-1]) == ("201", "2102", "22", "58")
+    assert all(c.isdigit() for c in cles), "des numéros, comme les badges"
 
 
 def test_chaque_ligne_porte_une_cle_unique(
@@ -135,6 +137,9 @@ def test_chaque_ligne_porte_une_cle_unique(
 
     assert COLONNES_CARDSTUDIO[-1] == "Clé unique", "en dernier : aucun champ placé ne bouge"
     assert all(cles) and len(set(cles)) == len(cles) == 79
+    # CardStudio devine le type de la colonne : un texte au milieu de
+    # numéros y devenait vide.
+    assert all(str(c).isdigit() for c in cles)
     assert sorted(cles[:2]) == sorted(str(p.badge) for p in ids), "homonymes : deux clés"
 
 

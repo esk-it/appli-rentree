@@ -51,8 +51,15 @@ chambre n'ont ni badge ni nom.
 
 D'où une quatorzième colonne, en dernier pour ne déranger aucun champ déjà
 placé : le **numéro de badge** pour un élève — stable d'une année sur
-l'autre, c'est lui que portent KoXo et le TS1000 — et le **nom de la
-chambre** pour une chambre. Les deux ne peuvent pas se confondre.
+l'autre, c'est lui que portent KoXo et le TS1000 — et un **numéro de
+chambre** pour une chambre : `chambre 02-01` → 201, `chambre 22` → 22.
+
+Un numéro, et pas le nom de la chambre : CardStudio devine le type d'une
+colonne à ses valeurs. Au milieu de numéros de badge, il a fait de la clé
+une colonne numérique, et « chambre 02-01 » y est devenu vide — soixante-
+dix-sept clés vides, et la colonne refusée comme unique et obligatoire
+(1er octobre 2026). Sous 10 010, un numéro de chambre ne peut croiser
+aucun badge d'élève, toujours multiple de dix et au-delà.
 
 ## Ce qui n'est jamais inventé
 
@@ -117,6 +124,16 @@ Elles sont écrites ici plutôt que relues d'un export parce qu'elles ne
 changent pas — un internat ne se reconstruit pas chaque été. Le jour où il
 s'agrandit, cette liste est l'endroit à corriger, et le seul.
 """
+
+
+def cle_de_chambre(chambre: str) -> str:
+    """Le numéro qui identifie une chambre : étage × 100 + lit pour une
+    double (`chambre 21-02` → 2102), son numéro pour une simple
+    (`chambre 22` → 22)."""
+    chiffres = re.findall(r"\d+", chambre)
+    if len(chiffres) == 2:
+        return str(int(chiffres[0]) * 100 + int(chiffres[1]))
+    return str(int(chiffres[0]))
 
 
 class CartesImpossibles(Exception):
@@ -467,7 +484,7 @@ def construire_fichier(
                 **{c: "" for c in COLONNES_CARDSTUDIO},
                 "Etablissement": ETABLISSEMENT_INTERNAT,
                 "Chambres": chambre,
-                "Clé unique": chambre,
+                "Clé unique": cle_de_chambre(chambre),
             }
             for chambre in CHAMBRES
         )
