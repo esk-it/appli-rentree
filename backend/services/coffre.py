@@ -236,6 +236,12 @@ def _dechiffrer(cle: bytes, secret: SecretConserve) -> str:
         ) from None
 
 
+def lire_secret(cle: bytes, secret: SecretConserve) -> str:
+    """Le mot de passe d'un secret déjà trouvé — pour un geste qui l'envoie
+    aussitôt ailleurs (la création d'un compte Google), sans le garder."""
+    return _dechiffrer(cle, secret)
+
+
 def _normaliser(t: str) -> str:
     t = unicodedata.normalize("NFD", (t or "").lower())
     return "".join(c for c in t if not unicodedata.combining(c))

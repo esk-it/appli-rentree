@@ -728,6 +728,20 @@ export const googleApi = {
   async statut() {
     return jsonOrThrow(await fetch(`${BASE}/google/statut`));
   },
+  /** Les inscrits de l'année qu'aucun compte Google ne porte. Lecture seule. */
+  async nouveauxSansCompte(anneeId = null) {
+    const q = anneeId ? `?annee_id=${anneeId}` : "";
+    return jsonOrThrow(await fetch(`${BASE}/google/nouveaux-sans-compte${q}`));
+  },
+  /** Crée leurs comptes, avec le mot de passe du coffre (ouvert). */
+  async creerNouveauxComptes({ personneIds, anneeId = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/nouveaux-sans-compte/creer`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ personne_ids: personneIds, annee_id: anneeId, confirmation: true }),
+      }),
+    );
+  },
   async testerConnexion() {
     return jsonOrThrow(await fetch(`${BASE}/google/tester-connexion`, { method: "POST" }));
   },
@@ -1363,6 +1377,20 @@ export const exportsCible = {
    * `classes` vide vaut « toutes celles du site » : c'est le geste courant,
    * puisque chaque planche part chez un professeur principal différent.
    */
+  /** Les étiquettes de quelques élèves, identifiants et mots de passe du coffre. */
+  async etiquettesCoffre({
+    personneIds, anneeId = null, formatEtiquettes = "pdf", modele = null, parPage = 18, police = null,
+  }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/exports/etiquettes-coffre`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          personne_ids: personneIds, annee_id: anneeId, format_etiquettes: formatEtiquettes,
+          modele, par_page: parPage, police,
+        }),
+      }),
+    );
+  },
   async etiquettesParClasse({
     fichierKoxo, siteId, anneeCibleId, anneeSourceId = null,
     classes = [], personneIds = [], modele = null, parPage = 18, police = null,

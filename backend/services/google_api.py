@@ -905,6 +905,11 @@ class ClientGoogle:
                 break
         return groupes
 
+    def creer_utilisateur(self, payload: dict) -> dict:
+        """Crée un compte et rend ce que Google en dit — son identifiant
+        compris. Lève si Google refuse : un 409 dit qu'il existe déjà."""
+        return self._service.users().insert(body=payload).execute()
+
     def ajouter_membre(self, groupe: str, email: str) -> None:
         self._service.members().insert(
             groupKey=groupe, body=payload_membre_groupe(email=email)

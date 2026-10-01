@@ -7,10 +7,15 @@
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
   import { SvelteSet } from "svelte/reactivity";
   import Bouton from "$lib/components/Bouton.svelte";
+  import ComptesGoogleNouveaux from "$lib/components/ComptesGoogleNouveaux.svelte";
   import { annees, coffreApi, ingestion, sites } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
   let { onNaviguer = null } = $props();
+
+  // Après une ingestion réelle des élèves, le relevé des comptes Google à
+  // créer se lance de lui-même : c'est la question qui suit (1er octobre 2026).
+  let comptesGoogle = $state(/** @type {any} */ (null));
 
   let listeAnnees = $state([]);
   let listeSites = $state([]);
@@ -150,6 +155,7 @@
         );
         // Rafraîchit la liste
         listeAnnees = await annees.lister();
+        if (rapport.type_personne === "eleve") comptesGoogle?.verifier();
       } else if (rapport.est_bloquee) {
         notify.avertissement(
           `Ingestion bloquée : ${rapport.classes_inconnues.length} classe(s) hors table`,
@@ -504,6 +510,8 @@
       {/if}
     </div>
   {/if}
+
+  <ComptesGoogleNouveaux bind:this={comptesGoogle} {onNaviguer} />
 
   {#if listeAnnees.length > 0}
     <div class="card p-4">

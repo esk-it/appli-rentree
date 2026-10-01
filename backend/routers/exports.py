@@ -1262,3 +1262,67 @@ def etiquettes_par_classe(
         nom_zip=nom_de_fichier(f"Etiquettes_{site.nom}_{annee.libelle}") + ".zip",
         nb_total_etiquettes=sum(comptes.values()),
     )
+
+
+# ---------------------------------------------------------------------------
+# Les étiquettes de quelques élèves, depuis le coffre
+# ---------------------------------------------------------------------------
+
+
+class EtiquettesCoffrePayload(BaseModel):
+    personne_ids: list[int]
+    annee_id: int | None = None
+    format_etiquettes: str = "pdf"
+    modele: str | None = None
+    par_page: int = 18
+    police: str | None = None
+
+
+class FichierEtiquettesOut(BaseModel):
+    nom_fichier: str
+    contenu_base64: str
+
+
+class EtiquettesCoffreReponse(BaseModel):
+    fichiers: list[FichierEtiquettesOut]
+    sans_mot_de_passe: list[str] = []
+    avertissements: list[str] = []
+
+
+@router.post("/etiquettes-coffre", response_model=EtiquettesCoffreReponse)
+def etiquettes_coffre(
+    payload: EtiquettesCoffrePayload, session: Session = Depends(db_session)
+) -> EtiquettesCoffreReponse:
+    """Les étiquettes des élèves désignés, sans export KoXo : leur identifiant
+    et leur mot de passe sont au coffre, venus de Charlemagne ou de KoXo.
+    Une planche par site. Le coffre doit être ouvert."""
+    from backend.routers.coffre import _cle_courante
+    from backend.services.comptes_google_nouveaux import CreationImpossible, etiquettes
+    from backend.services.impression_pdf import etiquettes_en_pdf, nom_de_fichier
+
+    cle = _cle_courante()
+    try:
+        planches, sans = etiquettes(
+            session, cle, payload.personne_ids, annee_id=payload.annee_id,
+            modele=payload.modele, par_page=payload.par_page, police=payload.police,
+        )
+    except CreationImpossible as e:
+        raise HTTPException(400, str(e)) from None
+
+    documents = {
+        site: (html, nom_de_fichier(f"Etiquettes_{site}_nouveaux") + ".html")
+        for site, html in planches
+    }
+    avertissements: list[str] = []
+    if payload.format_etiquettes == "pdf" and documents:
+        documents, avertissements = etiquettes_en_pdf(documents)
+    return EtiquettesCoffreReponse(
+        fichiers=[
+            FichierEtiquettesOut(
+                nom_fichier=nom, contenu_base64=base64.b64encode(contenu).decode("ascii")
+            )
+            for contenu, nom in documents.values()
+        ],
+        sans_mot_de_passe=sans,
+        avertissements=avertissements,
+    )

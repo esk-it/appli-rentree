@@ -2542,3 +2542,112 @@ def etat_google(
         ],
         avertissements=avertissements,
     )
+
+
+# ---------------------------------------------------------------------------
+# Les inscrits sans compte Google, et leur création en un clic
+# ---------------------------------------------------------------------------
+
+
+class CompteAFaireOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str | None
+    site: str | None
+    adresse: str | None
+    ou: str | None
+    groupe: str | None
+    origine_mot_de_passe: str | None
+    bloque: str | None = None
+
+
+class CompteARattacherOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str | None
+    adresse: str | None
+    adresses_google: list[str]
+
+
+class NouveauxSansCompteOut(BaseModel):
+    annee: str
+    nb_inscrits: int
+    nb_avec_compte: int
+    a_creer: list[CompteAFaireOut]
+    a_rattacher: list[CompteARattacherOut]
+
+
+@router.get("/nouveaux-sans-compte", response_model=NouveauxSansCompteOut)
+def nouveaux_sans_compte(
+    annee_id: int | None = None, session: Session = Depends(db_session)
+) -> NouveauxSansCompteOut:
+    """Les inscrits de l'année qu'aucun compte Google ne porte. Lecture seule.
+
+    Lit tous les comptes du domaine une fois : quelques secondes, et le
+    relevé porte sur le réel, pas sur ce que le programme a mémorisé.
+    """
+    from dataclasses import asdict
+
+    from backend.services.comptes_google_nouveaux import CreationImpossible, relever
+
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    try:
+        r = relever(session, client.lister_utilisateurs(), annee_id=annee_id)
+    except CreationImpossible as e:
+        raise HTTPException(400, str(e)) from None
+    return NouveauxSansCompteOut(**asdict(r))
+
+
+class CreationNouveauxPayload(BaseModel):
+    personne_ids: list[int]
+    annee_id: int | None = None
+    confirmation: bool = False
+
+
+class ResultatCreationOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    adresse: str | None
+    statut: str
+    message: str | None = None
+    ou: str | None = None
+    groupe: str | None = None
+    groupe_ok: bool = False
+
+
+@router.post("/nouveaux-sans-compte/creer", response_model=list[ResultatCreationOut])
+def creer_nouveaux_comptes(
+    payload: CreationNouveauxPayload, session: Session = Depends(db_session)
+) -> list[ResultatCreationOut]:
+    """Crée les comptes désignés, avec le mot de passe du coffre.
+
+    Le coffre doit être ouvert : c'est lui qui garde le mot de passe venu
+    de Charlemagne ou de KoXo. Rien n'est créé sans confirmation.
+    """
+    from dataclasses import asdict
+
+    from backend.routers.coffre import _cle_courante
+    from backend.services.comptes_google_nouveaux import CreationImpossible, creer
+
+    if not payload.confirmation:
+        raise HTTPException(400, "Confirmation requise.")
+    if not payload.personne_ids:
+        raise HTTPException(400, "Aucun élève désigné.")
+    cle = _cle_courante()
+    config = charger_config(session)
+    try:
+        client = ClientGoogle(config)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    try:
+        resultats = creer(session, client, cle, payload.personne_ids, annee_id=payload.annee_id)
+    except CreationImpossible as e:
+        raise HTTPException(400, str(e)) from None
+    return [ResultatCreationOut(**asdict(r)) for r in resultats]
