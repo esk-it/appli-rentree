@@ -90,6 +90,9 @@ def _serialiser(
     # une requête par personne alors que les sites sont déjà chargés ici.
     if p.email_constate:
         email = p.email_constate
+    elif p.email_attribuee:
+        # Une homonymie tranchée : le calcul redonnerait l'adresse de l'autre.
+        email = p.email_attribuee
     elif site:
         email = calculer_email(p.prenom, p.nom, site.domaine_mail) or None
     else:

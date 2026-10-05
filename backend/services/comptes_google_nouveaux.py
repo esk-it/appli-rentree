@@ -136,10 +136,12 @@ def _annee(session: Session, annee_id: int | None) -> AnneeScolaire:
 
 def _meilleur_secret(secrets: list[SecretConserve], site_nom: str | None):
     """Le mot de passe à donner à Google, sans l'ouvrir."""
+    # Un mot de passe venu d'une autre base — Google fabriqué pour un autre
+    # site, KoXo d'un autre serveur (l'accès DAO) — ouvre un autre compte.
     candidats = [
         s for s in secrets
         if s.cible in ORDRE_DES_SECRETS
-        and not (s.cible == "google" and s.site not in (None, site_nom))
+        and not (s.cible in ("google", "koxo") and s.site not in (None, site_nom))
     ]
     candidats.sort(key=lambda s: ORDRE_DES_SECRETS[s.cible])
     return candidats[0] if candidats else None

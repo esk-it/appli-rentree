@@ -5,6 +5,7 @@
   import EtatVide from "$lib/components/EtatVide.svelte";
   import Segments from "$lib/components/Segments.svelte";
   import Squelette from "$lib/components/Squelette.svelte";
+  import ReleveAdresses from "$lib/components/referentiel/ReleveAdresses.svelte";
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
   import { untrack } from "svelte";
   import { personnes as personnesApi } from "$lib/api.js";
@@ -27,9 +28,10 @@
    * @property {number|null} anneeId
    * @property {(f: {classe: string, facette: string, valeur: string}) => void} [onFiltrer]
    * @property {(page: string) => void} [onNaviguer]
+   * @property {() => void} [onModifie] - le relevé a écrit au référentiel
    */
   /** @type {Props} */
-  let { anneeId = null, onFiltrer, onNaviguer } = $props();
+  let { anneeId = null, onFiltrer, onNaviguer, onModifie } = $props();
 
   let releve = $state.raw(/** @type {any} */ (null));
   let chargement = $state(false);
@@ -99,7 +101,9 @@
         titre: "Adresse constatée",
         valeur: pct(r.avec_adresse, r.effectif),
         chiffre: `${pct(r.avec_adresse, r.effectif)} %`,
-        detail: `${r.avec_adresse.toLocaleString("fr-FR")} sur ${r.effectif.toLocaleString("fr-FR")} — les autres sont calculées, pas encore relevées dans Google`,
+        detail: r.avec_adresse < r.effectif
+          ? `${r.avec_adresse.toLocaleString("fr-FR")} sur ${r.effectif.toLocaleString("fr-FR")} — les autres sont calculées : relève-les dans Google ci-dessous`
+          : `${r.avec_adresse.toLocaleString("fr-FR")} sur ${r.effectif.toLocaleString("fr-FR")}`,
       },
       {
         titre: "Mot de passe au coffre",
@@ -203,6 +207,17 @@
         </div>
       {/each}
     </div>
+
+    {#key anneeId}
+      <ReleveAdresses
+        {anneeId}
+        nbCalculees={releve.effectif - releve.avec_adresse}
+        onModifie={() => {
+          charger();
+          onModifie?.();
+        }}
+      />
+    {/key}
 
     <div class="mt-5 flex flex-wrap items-center gap-3">
       <span class="h-2.5 w-2.5 rounded-full bg-emerald-600"></span>

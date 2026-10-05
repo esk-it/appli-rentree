@@ -742,6 +742,27 @@ export const googleApi = {
       }),
     );
   },
+  /**
+   * Relève dans Google les adresses que le référentiel calculait : ce qui
+   * concorde est enregistré, le reste revient à vérifier. Google n'est que lu.
+   */
+  async releverAdresses({ anneeId = null } = {}) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/adresses/relever`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ annee_id: anneeId }),
+      }),
+    );
+  },
+  /** Enregistre les adresses proposées qu'on a cochées : `[{personne_id, adresse}]`. */
+  async retenirAdresses(choix) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/adresses/retenir`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ choix }),
+      }),
+    );
+  },
   async testerConnexion() {
     return jsonOrThrow(await fetch(`${BASE}/google/tester-connexion`, { method: "POST" }));
   },
@@ -1353,12 +1374,12 @@ export const exportsCible = {
    *   quatre-vingt-dix étiquettes quand on ne voulait qu'un classeur.
    */
   async listesKoxo({
-    fichierKoxo, siteId, anneeCibleId, anneeSourceId = null,
+    fichierKoxo = null, siteId, anneeCibleId, anneeSourceId = null,
     classes = [], personneIds = [], documents = [], modele = null,
     parPage = 18, police = null, formatEtiquettes = "pdf",
   }) {
-    if (!fichierKoxo) throw new Error("Export KoXo requis");
-    const koxo_base64 = arrayBufferEnBase64(await fichierKoxo.arrayBuffer());
+    // Sans fichier, les mots de passe viennent du coffre (ouvert).
+    const koxo_base64 = fichierKoxo ? arrayBufferEnBase64(await fichierKoxo.arrayBuffer()) : null;
     return jsonOrThrow(
       await fetch(`${BASE}/exports/listes-koxo`, {
         method: "POST", headers: { "content-type": "application/json" },
@@ -1371,12 +1392,6 @@ export const exportsCible = {
       }),
     );
   },
-  /**
-   * Une planche PDF par classe, dans une archive.
-   *
-   * `classes` vide vaut « toutes celles du site » : c'est le geste courant,
-   * puisque chaque planche part chez un professeur principal différent.
-   */
   /** Les étiquettes de quelques élèves, identifiants et mots de passe du coffre. */
   async etiquettesCoffre({
     personneIds, anneeId = null, formatEtiquettes = "pdf", modele = null, parPage = 18, police = null,
@@ -1391,16 +1406,22 @@ export const exportsCible = {
       }),
     );
   },
+  /**
+   * Une planche PDF par classe, dans une archive.
+   *
+   * `classes` vide vaut « toutes celles du site » : c'est le geste courant,
+   * puisque chaque planche part chez un professeur principal différent.
+   * Sans fichier KoXo, les mots de passe viennent du coffre.
+   */
   async etiquettesParClasse({
-    fichierKoxo, siteId, anneeCibleId, anneeSourceId = null,
+    fichierKoxo = null, siteId, anneeCibleId, anneeSourceId = null,
     classes = [], personneIds = [], modele = null, parPage = 18, police = null,
   }) {
-    if (!fichierKoxo) throw new Error("Export KoXo requis");
     return jsonOrThrow(
       await fetch(`${BASE}/exports/etiquettes-par-classe`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          koxo_base64: arrayBufferEnBase64(await fichierKoxo.arrayBuffer()),
+          koxo_base64: fichierKoxo ? arrayBufferEnBase64(await fichierKoxo.arrayBuffer()) : null,
           site_id: siteId,
           annee_cible_id: anneeCibleId, annee_source_id: anneeSourceId,
           classes, personne_ids: personneIds, modele,

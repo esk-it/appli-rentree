@@ -242,6 +242,43 @@ def lire_secret(cle: bytes, secret: SecretConserve) -> str:
     return _dechiffrer(cle, secret)
 
 
+ORDRE_AVEC_KOXO = ("koxo", "charlemagne", "google")
+ORDRE_SANS_KOXO = ("google", "charlemagne", "koxo")
+
+
+def secrets_a_remettre(secrets: list[SecretConserve], site) -> list[SecretConserve]:
+    """Les mots de passe de la personne sur son site, le plus sûr d'abord.
+
+    Là où KoXo existe, le sien d'abord : KoXo tient le compte et fait foi.
+    Puis celui que Charlemagne porte — « MDP Réseau Péda », recopié de KoXo
+    à la main —, et en dernier celui que le programme a fabriqué pour Google
+    à l'arrivée d'un élève. Là où il n'y a pas de KoXo, ce mot de passe
+    fabriqué est le seul qui existe : il passe devant.
+
+    Un mot de passe KoXo d'une **autre** base ouvre un autre compte —
+    l'accès DAO d'un élève de SU sur le serveur de NDK — et n'en fait pas
+    partie. Rien n'est déchiffré ici.
+    """
+    nom = site.nom if site is not None else None
+    base = ((site.base_koxo or "").strip() or None) if site is not None else None
+    ordre = ORDRE_SANS_KOXO if site is not None and not base else ORDRE_AVEC_KOXO
+
+    def recevable(s: SecretConserve) -> bool:
+        if s.cible == "koxo":
+            return s.site in (None, nom, base)
+        if s.cible == "google":
+            return s.site in (None, nom)
+        return s.cible == "charlemagne"
+
+    return sorted((s for s in secrets if recevable(s)), key=lambda s: ordre.index(s.cible))
+
+
+def secret_a_remettre(secrets: list[SecretConserve], site) -> SecretConserve | None:
+    """Le mot de passe que la personne utilise — voir `secrets_a_remettre`."""
+    recevables = secrets_a_remettre(secrets, site)
+    return recevables[0] if recevables else None
+
+
 def _normaliser(t: str) -> str:
     t = unicodedata.normalize("NFD", (t or "").lower())
     return "".join(c for c in t if not unicodedata.combining(c))

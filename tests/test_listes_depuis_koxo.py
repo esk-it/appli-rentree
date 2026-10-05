@@ -509,7 +509,7 @@ def test_un_eleve_absent_de_l_export_est_nomme(session, etab, deux_eleves):
         session, _lignes(ancienne), site_id=su.id,
         annee_cible_id=cible.id, annee_source_id=source.id,
     )
-    assert r.sans_ligne_koxo == ["Tom BIHAN"]
+    assert r.absents_de_la_source == ["Tom BIHAN"]
     assert r.nb_tous == 1
 
 
@@ -621,3 +621,137 @@ def test_sans_site_l_etiquette_porte_les_losanges_de_l_ensemble():
     assert logo_du_site("ESK") in sans_site
     avec_site = page_etiquettes([e], annee="", site_nom="NDK").decode("utf-8")
     assert logo_du_site("NDK") in avec_site and logo_du_site("ESK") not in avec_site
+
+
+# ---------------------------------------------------------------------------
+# Sans export KoXo : les mots de passe du coffre
+# ---------------------------------------------------------------------------
+#
+# Depuis la v0.183, l'export Charlemagne enrichi range « MDP Réseau Péda »
+# au coffre. Johann chargeait pourtant encore un export KoXo pour imprimer
+# des étiquettes (5 octobre 2026) : le coffre suffit.
+
+
+@pytest.fixture()
+def cle(session):
+    from backend.services.coffre import initialiser
+
+    return initialiser(session, "maitre-essai-longue-phrase")
+
+
+def _deposer(session, cle, p, mdp, cible="charlemagne", site=None, identifiant=None):
+    from backend.services.coffre import deposer
+
+    deposer(session, cle, personne_id=p.id, mot_de_passe=mdp, cible=cible, site=site,
+            origine="genere" if cible == "google" else cible, identifiant=identifiant)
+    session.commit()
+
+
+def _coffre(session, cle, su, source, cible, **kw):
+    from backend.services.listes_depuis_koxo import listes_depuis_le_coffre
+
+    return listes_depuis_le_coffre(
+        session, cle, site_id=su.id, annee_cible_id=cible.id,
+        annee_source_id=source.id, **kw,
+    )
+
+
+def test_sans_export_koxo_les_mots_de_passe_viennent_du_coffre(
+    session, etab, deux_eleves, cle
+):
+    su, source, cible = etab
+    su.base_koxo = "SU"
+    ancienne, entrant = deux_eleves
+    _deposer(session, cle, ancienne, "Charl111", identifiant="labgrall")
+    _deposer(session, cle, entrant, "Koxo2222", cible="koxo", site="SU")
+
+    r = _coffre(session, cle, su, source, cible)
+
+    assert r.source == "coffre" and r.absents_de_la_source == []
+    assert {l.nom: (l.login, l.mot_de_passe) for l in r.lignes} == {
+        "ABGRALL": ("labgrall", "Charl111"), "BIHAN": ("tbihan", "Koxo2222"),
+    }
+    assert [l.nom for l in r.nouveaux] == ["BIHAN"]
+    assert "Charl111" in r.etiquettes_tous.decode("utf-8")
+
+
+def test_koxo_fait_foi_et_l_ecart_avec_charlemagne_est_dit_sans_mot_de_passe(
+    session, etab, deux_eleves, cle
+):
+    su, source, cible = etab
+    su.base_koxo = "SU"
+    ancienne, entrant = deux_eleves
+    _deposer(session, cle, ancienne, "Charl111", identifiant="labgrall")
+    _deposer(session, cle, ancienne, "Koxo1111", cible="koxo", site="SU")
+    _deposer(session, cle, entrant, "Pareil22", identifiant="tbihan")
+    _deposer(session, cle, entrant, "Pareil22", cible="koxo", site="SU")
+
+    r = _coffre(session, cle, su, source, cible)
+
+    assert next(l for l in r.lignes if l.nom == "ABGRALL").mot_de_passe == "Koxo1111"
+    (a,) = r.avertissements
+    assert "Lena ABGRALL (KoXo ≠ Charlemagne)" in a and "BIHAN" not in a
+    assert "Koxo1111" not in a and "Charl111" not in a
+
+
+def test_le_mot_de_passe_d_une_autre_base_koxo_n_est_pas_le_sien(
+    session, etab, deux_eleves, cle
+):
+    """Un élève de SU qui suit un enseignement à NDK a aussi un compte sur le
+    serveur de NDK (groupe DAO) : ce mot de passe-là ouvre un autre compte."""
+    su, source, cible = etab
+    su.base_koxo = "SU"
+    ancienne, entrant = deux_eleves
+    _deposer(session, cle, ancienne, "Charl111")
+    _deposer(session, cle, entrant, "AutreNdk", cible="koxo", site="NDK")
+
+    r = _coffre(session, cle, su, source, cible)
+    assert r.absents_de_la_source == ["Tom BIHAN"]
+    assert "AutreNdk" not in r.etiquettes_tous.decode("utf-8")
+
+
+def test_l_identifiant_lu_dans_koxo_accompagne_son_mot_de_passe(
+    session, etab, deux_eleves, cle
+):
+    """Le secret KoXo n'a pas d'identifiant : c'est celui que le contrôle a
+    lu dans la base **du site** — pas celui d'une autre base."""
+    from backend.models import LoginReserve
+
+    su, source, cible = etab
+    su.base_koxo = "SU"
+    ancienne, entrant = deux_eleves
+    _deposer(session, cle, ancienne, "Koxo1111", cible="koxo", site="SU")
+    _deposer(session, cle, entrant, "Koxo2222", cible="koxo", site="SU")
+    session.add_all([
+        LoginReserve(login="labgrall2", badge=ancienne.badge, site="SU", source="controle_koxo"),
+        LoginReserve(login="tbihan9", badge=entrant.badge, site="NDK", source="controle_koxo"),
+    ])
+    session.commit()
+
+    r = _coffre(session, cle, su, source, cible)
+    assert {l.nom: l.login for l in r.lignes} == {"ABGRALL": "labgrall2", "BIHAN": "tbihan"}
+
+
+def test_la_ou_il_n_y_a_pas_de_koxo_le_mot_de_passe_fabrique_passe_devant(
+    session, site_factory, annee_factory, personne_factory, snap_factory, cle
+):
+    nde = site_factory("NDE")
+    an = annee_factory("2026-2027")
+    p = personne_factory(type="eleve", site_id=nde.id, nom="KERDONCUFF", prenom="Rose")
+    snap_factory(p.id, an.id, "6A")
+    _deposer(session, cle, p, "Gene1234", cible="google", site="NDE")
+
+    from backend.services.listes_depuis_koxo import listes_depuis_le_coffre
+
+    r = listes_depuis_le_coffre(session, cle, site_id=nde.id, annee_cible_id=an.id)
+    assert [l.mot_de_passe for l in r.lignes] == ["Gene1234"]
+
+
+def test_un_coffre_sans_mot_de_passe_pour_le_site_dit_quoi_faire(
+    session, etab, deux_eleves, cle
+):
+    from backend.services.listes_depuis_koxo import ListesImpossibles
+
+    su, source, cible = etab
+    with pytest.raises(ListesImpossibles, match="MDP Réseau Péda"):
+        _coffre(session, cle, su, source, cible)

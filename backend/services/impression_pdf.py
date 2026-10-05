@@ -125,8 +125,8 @@ def rendre(
         )
 
     rapport = RapportImpression(moteur=Path(moteur).stem)
-    with tempfile.TemporaryDirectory(prefix="appli-rentree-pdf-") as dossier:
-        base = Path(dossier)
+    base = Path(tempfile.mkdtemp(prefix="appli-rentree-pdf-"))
+    try:
         # Un profil jetable : sans lui, un Edge déjà ouvert récupère la
         # demande et rend la main tout de suite, sans jamais écrire le PDF.
         profil = base / "profil"
@@ -143,7 +143,30 @@ def rendre(
                 rapport.pdfs[planche.nom] = cible.read_bytes()
             except Exception as e:
                 rapport.echecs.append((planche.nom, str(e)))
+    finally:
+        _effacer(base)
     return rapport
+
+
+def _effacer(dossier: Path, *, essais: int = 20) -> None:
+    """Efface le dossier de travail, profil du navigateur compris.
+
+    Le navigateur détaché garde son profil ouvert une ou deux secondes après
+    avoir écrit le PDF. `TemporaryDirectory` échouait alors sur un fichier
+    verrouillé — « WinError 32 … campaign_history » — et la planche par
+    classe finissait en erreur interne, PDF pourtant rendus. On réessaie le
+    temps qu'il se ferme, puis on laisse le reste au nettoyage de Windows :
+    un dossier temporaire oublié ne vaut pas des étiquettes perdues.
+    """
+    for _ in range(essais):
+        try:
+            shutil.rmtree(dossier)
+            return
+        except FileNotFoundError:
+            return
+        except OSError:
+            time.sleep(0.25)
+    shutil.rmtree(dossier, ignore_errors=True)
 
 
 def _imprimer(moteur: str, source: Path, cible: Path, profil: Path) -> None:

@@ -1584,6 +1584,121 @@ def corriger_adresses(
 
 
 # ---------------------------------------------------------------------------
+# Le relevé des adresses calculées
+# ---------------------------------------------------------------------------
+
+
+class AdresseReleveOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    type: str
+    site: str | None
+    classe: str | None
+    adresse_affichee: str | None
+    adresse_google: str | None
+    ou_google: str | None
+    motif: str
+
+
+class ReleveAdressesOut(BaseModel):
+    annee: str
+    nb_inscrits: int
+    nb_deja_constatees: int
+    nb_enregistrees: int
+    relevees: list[AdresseReleveOut]
+    a_verifier: list[AdresseReleveOut]
+    sans_compte: list[AdresseReleveOut]
+
+
+class ReleveAdressesPayload(BaseModel):
+    annee_id: int | None = None
+
+
+def _vers_out(r) -> AdresseReleveOut:
+    return AdresseReleveOut(**{k: v for k, v in vars(r).items() if k != "google_id"})
+
+
+@router.post("/adresses/relever", response_model=ReleveAdressesOut)
+def relever_adresses(
+    payload: ReleveAdressesPayload, session: Session = Depends(db_session)
+) -> ReleveAdressesOut:
+    """Relève dans Google les adresses que le référentiel calculait.
+
+    Google n'est que lu. Le référentiel enregistre d'office ce qui concorde
+    sans ambiguïté — l'adresse affichée devient un constat, sans changer — et
+    rend le reste à vérifier, avec la raison.
+    """
+    from backend.services.releve_adresses import ReleveImpossible, enregistrer, relever
+
+    try:
+        client = ClientGoogle(charger_config(session))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    try:
+        comptes = client.lister_utilisateurs()
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+    try:
+        r = relever(session, comptes, annee_id=payload.annee_id)
+    except ReleveImpossible as e:
+        raise HTTPException(400, str(e)) from None
+    n = enregistrer(session, r)
+    return ReleveAdressesOut(
+        annee=r.annee, nb_inscrits=r.nb_inscrits,
+        nb_deja_constatees=r.nb_deja_constatees, nb_enregistrees=n,
+        relevees=[_vers_out(x) for x in r.relevees],
+        a_verifier=[_vers_out(x) for x in r.a_verifier],
+        sans_compte=[_vers_out(x) for x in r.sans_compte],
+    )
+
+
+class AdresseChoisie(BaseModel):
+    personne_id: int
+    adresse: str
+
+
+class RetenirAdressesPayload(BaseModel):
+    choix: list[AdresseChoisie]
+
+
+class AdresseRetenueOut(BaseModel):
+    personne_id: int
+    adresse: str | None
+    retenue: bool
+    motif: str = ""
+
+
+@router.post("/adresses/retenir", response_model=list[AdresseRetenueOut])
+def retenir_adresses(
+    payload: RetenirAdressesPayload, session: Session = Depends(db_session)
+) -> list[AdresseRetenueOut]:
+    """Enregistre les adresses proposées qu'on a cochées.
+
+    Chacune est relue dans Google avant d'être écrite : un appel par
+    adresse, et l'adresse principale du compte est celle qu'on garde.
+    """
+    from dataclasses import asdict
+
+    from backend.services.releve_adresses import retenir
+
+    if not payload.choix:
+        raise HTTPException(400, "Aucune adresse cochée.")
+    try:
+        client = ClientGoogle(charger_config(session))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    try:
+        comptes = client.lire_utilisateurs([c.adresse for c in payload.choix])
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+    resultats = retenir(
+        session, comptes, {c.personne_id: c.adresse for c in payload.choix}
+    )
+    return [AdresseRetenueOut(**asdict(r)) for r in resultats]
+
+
+# ---------------------------------------------------------------------------
 # Homonymies d'adresse
 # ---------------------------------------------------------------------------
 

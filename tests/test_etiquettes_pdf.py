@@ -113,3 +113,96 @@ def test_sans_navigateur_les_etiquettes_restent_en_html_et_c_est_dit(
     r = client.post("/api/exports/listes-koxo", json=_corps(export_koxo)).json()
     assert r["nom_etiquettes_tous"].endswith(".html")
     assert any("PDF impossible" in a for a in r["avertissements"])
+
+
+# ---------------------------------------------------------------------------
+# Sans fichier : le coffre
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def coffre_ouvert(client, session, export_koxo):
+    """Le coffre ouvert par l'API, et le mot de passe de Léna rangé dedans
+    comme l'ingestion de l'export Charlemagne enrichi l'y range."""
+    import importlib
+
+    from backend.services.coffre import deposer
+
+    routeur = importlib.import_module("backend.routers.coffre")
+    client.post("/api/coffre/verrouiller")
+    assert client.post(
+        "/api/coffre/initialiser", json={"mot_de_passe": "maitre-essai-longue-phrase"}
+    ).status_code == 200
+    eleve = session.query(importlib.import_module("backend.models").Personne).one()
+    deposer(session, routeur._CLE, personne_id=eleve.id, mot_de_passe="Coffre11",
+            cible="charlemagne", origine="charlemagne", identifiant="labgrall")
+    session.commit()
+    yield
+    client.post("/api/coffre/verrouiller")
+
+
+def _sans_fichier(e, **kw):
+    return {"site_id": e["site"].id, "annee_cible_id": e["annee"].id, **kw}
+
+
+def test_sans_fichier_et_coffre_ferme_le_refus_le_dit(client, export_koxo):
+    client.post("/api/coffre/verrouiller")
+    r = client.post("/api/exports/listes-koxo", json=_sans_fichier(export_koxo))
+    assert r.status_code == 401 and "coffre est fermé" in r.json()["detail"]
+
+
+def test_sans_fichier_les_listes_partent_du_coffre(client, export_koxo, coffre_ouvert):
+    r = client.post(
+        "/api/exports/listes-koxo", json=_sans_fichier(export_koxo, format_etiquettes="html")
+    )
+    assert r.status_code == 200, r.text
+    corps = r.json()
+    assert (corps["source"], corps["nb_tous"], corps["absents_de_la_source"]) == ("coffre", 1, [])
+    assert b"Coffre11" in base64.b64decode(corps["etiquettes_tous_base64"])
+
+
+def test_sans_fichier_la_planche_par_classe_part_du_coffre(
+    client, export_koxo, coffre_ouvert, faux_navigateur
+):
+    r = client.post("/api/exports/etiquettes-par-classe", json=_sans_fichier(export_koxo))
+    assert r.status_code == 200, r.text
+    assert [p["classe"] for p in r.json()["planches"]] == ["61"]
+    assert b"Coffre11" in faux_navigateur[0]
+
+
+def test_un_profil_encore_verrouille_n_emporte_pas_les_pdf(faux_navigateur, monkeypatch):
+    """Edge garde son profil ouvert un instant après le PDF : « WinError 32 »
+    faisait finir la planche par classe en erreur interne, PDF rendus. Le
+    nettoyage réessaie, et n'échoue jamais un rendu réussi."""
+    impression_pdf = _module_impression()
+    vrai = impression_pdf.shutil.rmtree
+    appels: list[bool] = []
+
+    def rmtree(chemin, ignore_errors=False):
+        appels.append(ignore_errors)
+        if not ignore_errors and len(appels) < 3:
+            raise PermissionError(32, "fichier utilisé par un autre processus")
+        return vrai(chemin, ignore_errors=ignore_errors)
+
+    monkeypatch.setattr(impression_pdf.shutil, "rmtree", rmtree)
+    monkeypatch.setattr(impression_pdf.time, "sleep", lambda s: None)
+    r = impression_pdf.rendre([impression_pdf.Planche(nom="61", html="<p>Léna</p>")])
+    assert r.pdfs["61"].startswith(b"%PDF") and not r.echecs
+    assert appels == [False, False, False], "deux refus, puis le dossier part"
+
+
+def test_un_profil_qui_reste_verrouille_est_laisse_a_windows(faux_navigateur, monkeypatch):
+    impression_pdf = _module_impression()
+    vrai = impression_pdf.shutil.rmtree
+    laisses = []
+
+    def rmtree(chemin, ignore_errors=False):
+        if not ignore_errors:
+            raise PermissionError(32, "fichier utilisé par un autre processus")
+        laisses.append(chemin)
+
+    monkeypatch.setattr(impression_pdf.shutil, "rmtree", rmtree)
+    monkeypatch.setattr(impression_pdf.time, "sleep", lambda s: None)
+    r = impression_pdf.rendre([impression_pdf.Planche(nom="61", html="<p>Léna</p>")])
+    assert r.pdfs["61"].startswith(b"%PDF") and len(laisses) == 1
+    vrai(laisses[0])  # le test ne laisse rien derrière lui

@@ -659,6 +659,7 @@ class ClientGoogle:
                 raise
             resultats[cle] = {
                 "email": (u.get("primaryEmail") or "").lower(),
+                "id": u.get("id"),
                 "ou": u.get("orgUnitPath") or "",
                 "suspendu": bool(u.get("suspended", False)),
                 "changement_mdp_exige": bool(
@@ -702,6 +703,9 @@ class ClientGoogle:
                 utilisateurs.append(
                     {
                         "email": (u.get("primaryEmail") or "").lower(),
+                        # L'identifiant immuable du compte : il survit à un
+                        # changement d'adresse, que le relevé garde.
+                        "id": u.get("id"),
                         # Un compte répond aussi à ses alias. Sans eux, une
                         # adresse d'alias enregistrée au référentiel passait
                         # pour introuvable, et le contrôle la signalait comme

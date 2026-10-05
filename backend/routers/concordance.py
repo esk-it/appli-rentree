@@ -89,6 +89,9 @@ class ConcordanceReponse(BaseModel):
     acces_secondaires: list[str] = []
     """Comptes posés sur la base KoXo d'un autre établissement — la DAO.
     Nommés, jamais comparés à la classe."""
+    adresses_relevees: int = 0
+    """Adresses calculées que l'annuaire, lu pour le croisement, a
+    confirmées — enregistrées au référentiel au passage."""
 
 
 def _lire_les_exports_koxo(fichiers: list[str]) -> tuple[list[list], list[str]]:
@@ -261,7 +264,24 @@ def croiser_les_sources(
         # d'écriture ne doit pas emporter une minute de lecture Google.
         avertissements.append(f"Constat non enregistré : {type(e).__name__}: {e}")
 
+    # L'annuaire vient d'être lu en entier : les adresses calculées qu'il
+    # confirme sans ambiguïté deviennent des constats, sans autre geste.
+    # Le reste se vérifie dans Référentiel › Ce qui manque.
+    adresses_relevees = 0
+    if comptes is not None:
+        from backend.services.releve_adresses import enregistrer as ranger_adresses
+        from backend.services.releve_adresses import relever as relever_adresses
+
+        try:
+            adresses_relevees = ranger_adresses(
+                session, relever_adresses(session, comptes, annee_id=payload.annee_id)
+            )
+        except Exception as e:  # pragma: no cover - le croisement prime
+            session.rollback()
+            avertissements.append(f"Adresses non relevées : {type(e).__name__}: {e}")
+
     return ConcordanceReponse(
+        adresses_relevees=adresses_relevees,
         annee_libelle=r.annee_libelle,
         google_consulte=r.google_consulte,
         koxo_fourni=r.koxo_fourni,

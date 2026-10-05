@@ -949,6 +949,7 @@
         anneeId={parAnnee ? anneeId : (listeAnnees.at(-1)?.id ?? null)}
         onFiltrer={filtrerDepuisManque}
         {onNaviguer}
+        onModifie={rafraichir}
       />
     </div>
   {/if}

@@ -811,14 +811,16 @@ def exporter_jpm(payload: ExportJpmPayload, session: Session = Depends(db_sessio
 
 
 # ---------------------------------------------------------------------------
-# Les listes de rentrée, tirées d'un export KoXo
+# Les listes de rentrée, avec les mots de passe du coffre ou d'un export KoXo
 # ---------------------------------------------------------------------------
 
 
 class ListesKoxoPayload(BaseModel):
-    """L'export KoXo avec les mots de passe, et le site qu'il concerne."""
+    """Le site, l'année, et d'où viennent les mots de passe."""
 
-    koxo_base64: str
+    koxo_base64: str | None = None
+    """L'export KoXo pris avec les mots de passe. Absent, ils viennent du
+    coffre, qui doit alors être ouvert."""
     site_id: int
     annee_cible_id: int
     annee_source_id: int | None = None
@@ -961,10 +963,12 @@ def modeles_etiquettes() -> list[ModeleOut]:
 class ListesKoxoReponse(BaseModel):
     site_nom: str
     annee_libelle: str
+    source: str = "koxo"
+    """`coffre` ou `koxo` — d'où viennent les mots de passe."""
     classes_disponibles: list[str] = []
     nb_tous: int
     nb_nouveaux: int
-    sans_ligne_koxo: list[str]
+    absents_de_la_source: list[str]
     sans_mot_de_passe: list[str]
     koxo_hors_site: int
     nom_xlsx_tous: str
@@ -978,28 +982,21 @@ class ListesKoxoReponse(BaseModel):
     avertissements: list[str] = []
 
 
-@router.post("/listes-koxo", response_model=ListesKoxoReponse)
-def listes_koxo(
-    payload: ListesKoxoPayload, session: Session = Depends(db_session)
-) -> ListesKoxoReponse:
-    """Trois documents de rentrée d'un seul export : liste, entrants, fiches.
+def _source_des_mots_de_passe(payload: ListesKoxoPayload) -> tuple[str, object]:
+    """`("koxo", lignes)` quand un export est déposé, `("coffre", clé)` sinon.
 
-    Le référentiel ne connaît pas les mots de passe — là où KoXo existe,
-    c'est lui l'autorité. Or les trois en ont besoin. Ils se tirent donc de
-    l'export KoXo pris **avec les mots de passe**.
-
-    Ce que le programme ajoute à ce que KoXo sait déjà imprimer : distinguer
-    les entrants, ce qui demande l'année précédente, et rendre un classeur
-    qu'on trie plutôt qu'un tableau figé.
+    Coffre fermé, le refus est un 401 : l'écran propose de l'ouvrir sur
+    place, sans perdre les classes ni les élèves qu'on a cochés.
     """
+    if not payload.koxo_base64:
+        from backend.routers.coffre import _cle_courante
+
+        return "coffre", _cle_courante()
+
     from pathlib import Path
     from tempfile import NamedTemporaryFile
 
     from backend.services.controle_koxo import lire_export_brut
-    from backend.services.listes_depuis_koxo import (
-        ListesImpossibles,
-        listes_depuis_koxo,
-    )
 
     try:
         contenu = base64.b64decode(payload.koxo_base64)
@@ -1025,37 +1022,75 @@ def listes_koxo(
         raise HTTPException(
             400,
             "Cet export ne porte pas de colonne « Mot de passe ». Reprends-le "
-            "depuis KoXo en cochant l'inclusion des mots de passe — sans eux, "
-            "ni les listes ni les étiquettes n'ont d'objet. Colonnes lues : "
-            + (", ".join(colonnes) or "aucune"),
+            "depuis KoXo en cochant l'inclusion des mots de passe, ou retire "
+            "le fichier : les mots de passe viendront du coffre. Colonnes "
+            "lues : " + (", ".join(colonnes) or "aucune"),
         )
+    return "koxo", lignes
 
+
+def _produire_listes(
+    session: Session, source: tuple[str, object], *, refus_en_http: bool = True, **kw
+):
+    """Les documents, depuis la source choisie.
+
+    `refus_en_http=False` laisse passer `ListesImpossibles` : la planche
+    par classe saute une classe sans élève retenu au lieu de tout refuser.
+    """
+    from backend.services.listes_depuis_koxo import (
+        ListesImpossibles,
+        listes_depuis_koxo,
+        listes_depuis_le_coffre,
+    )
+
+    nature, donnee = source
+    produire = listes_depuis_le_coffre if nature == "coffre" else listes_depuis_koxo
     try:
-        r = listes_depuis_koxo(
-            session, lignes, site_id=payload.site_id,
-            annee_cible_id=payload.annee_cible_id,
-            annee_source_id=payload.annee_source_id,
-            classes=payload.classes or None,
-            personne_ids=payload.personne_ids or None,
-            documents=set(payload.documents) or None,
-            modele=payload.modele,
-            par_page=payload.par_page,
-            police=payload.police,
-        )
+        return produire(session, donnee, **kw)
     except ListesImpossibles as e:
+        if not refus_en_http:
+            raise
         raise HTTPException(400, str(e)) from None
+
+
+@router.post("/listes-koxo", response_model=ListesKoxoReponse)
+def listes_koxo(
+    payload: ListesKoxoPayload, session: Session = Depends(db_session)
+) -> ListesKoxoReponse:
+    """Trois documents de rentrée : liste, entrants, fiches.
+
+    Les mots de passe viennent du coffre — Charlemagne y range « MDP Réseau
+    Péda » à chaque ingestion de l'export enrichi —, ou de l'export KoXo
+    pris **avec les mots de passe** quand on en dépose un.
+
+    Ce que le programme ajoute à ce que KoXo sait déjà imprimer : distinguer
+    les entrants, ce qui demande l'année précédente, et rendre un classeur
+    qu'on trie plutôt qu'un tableau figé.
+    """
+    source = _source_des_mots_de_passe(payload)
+    r = _produire_listes(
+        session, source, site_id=payload.site_id,
+        annee_cible_id=payload.annee_cible_id,
+        annee_source_id=payload.annee_source_id,
+        classes=payload.classes or None,
+        personne_ids=payload.personne_ids or None,
+        documents=set(payload.documents) or None,
+        modele=payload.modele,
+        par_page=payload.par_page,
+        police=payload.police,
+    )
 
     # Le journal ne porte ni mot de passe ni nom : seulement des nombres.
     try:
         journaliser(
             session,
             type_operation="export",
-            cible="listes_koxo",
+            cible=f"listes_{r.source}",
             annee_libelle=r.annee_libelle,
-            parametres={"site": r.site_nom},
+            parametres={"site": r.site_nom, "source": r.source},
             resultat={
                 "nb_tous": r.nb_tous, "nb_nouveaux": r.nb_nouveaux,
-                "nb_sans_ligne_koxo": len(r.sans_ligne_koxo),
+                "nb_absents_de_la_source": len(r.absents_de_la_source),
                 "nb_sans_mot_de_passe": len(r.sans_mot_de_passe),
             },
         )
@@ -1067,18 +1102,19 @@ def listes_koxo(
         "tous": (r.etiquettes_tous, r.nom_etiquettes_tous),
         "nouveaux": (r.etiquettes_nouveaux, r.nom_etiquettes),
     }
-    avertissements: list[str] = []
+    avertissements: list[str] = list(r.avertissements)
     if payload.format_etiquettes == "pdf":
         from backend.services.impression_pdf import etiquettes_en_pdf
 
-        documents, avertissements = etiquettes_en_pdf(documents)
+        documents, rendu = etiquettes_en_pdf(documents)
+        avertissements += rendu
 
     b64 = lambda o: base64.b64encode(o).decode("ascii")
     return ListesKoxoReponse(
         avertissements=avertissements,
-        site_nom=r.site_nom, annee_libelle=r.annee_libelle,
+        site_nom=r.site_nom, annee_libelle=r.annee_libelle, source=r.source,
         nb_tous=r.nb_tous, nb_nouveaux=r.nb_nouveaux,
-        sans_ligne_koxo=r.sans_ligne_koxo,
+        absents_de_la_source=r.absents_de_la_source,
         sans_mot_de_passe=r.sans_mot_de_passe,
         koxo_hors_site=r.koxo_hors_site,
         nom_xlsx_tous=r.nom_xlsx_tous, xlsx_tous_base64=b64(r.xlsx_tous),
@@ -1138,21 +1174,15 @@ def etiquettes_par_classe(
     """
     import io
     import zipfile
-    from pathlib import Path
-    from tempfile import NamedTemporaryFile
 
     from backend.models import AnneeScolaire, Site
-    from backend.services.controle_koxo import lire_export_brut
     from backend.services.impression_pdf import (
         ImpressionImpossible,
         Planche,
         nom_de_fichier,
         rendre,
     )
-    from backend.services.listes_depuis_koxo import (
-        ListesImpossibles,
-        listes_depuis_koxo,
-    )
+    from backend.services.listes_depuis_koxo import ListesImpossibles
 
     site = session.query(Site).filter_by(id=payload.site_id).one_or_none()
     annee = (
@@ -1161,74 +1191,44 @@ def etiquettes_par_classe(
     if site is None or annee is None:
         raise HTTPException(404, "Site ou année introuvable.")
 
-    try:
-        contenu = base64.b64decode(payload.koxo_base64)
-    except Exception as e:
-        raise HTTPException(400, f"Base64 invalide : {e}") from e
+    source = _source_des_mots_de_passe(payload)
+    commun = dict(
+        site_id=payload.site_id,
+        annee_cible_id=payload.annee_cible_id,
+        annee_source_id=payload.annee_source_id,
+        personne_ids=payload.personne_ids or None,
+        documents={"etiquettes_tous"},
+        par_page=payload.par_page,
+    )
 
-    with NamedTemporaryFile(suffix=".csv", delete=False) as tmp:
-        tmp.write(contenu)
-        chemin = Path(tmp.name)
-    try:
-        lignes, _colonnes, _sep, _enc, avait_mdp = lire_export_brut(
-            chemin, garder_mots_de_passe=True
-        )
-    except Exception as e:
-        raise HTTPException(400, f"Export KoXo illisible : {e}") from None
-    finally:
-        try:
-            chemin.unlink()
-        except OSError:
-            pass
-
-    if not avait_mdp:
-        raise HTTPException(
-            400,
-            "Cet export ne porte pas de colonne « Mot de passe » : sans elle "
-            "les étiquettes n'ont pas d'objet.",
-        )
-
-    # Une première passe sans filtre apprend quelles classes existent — on
-    # ne demande pas à l'utilisateur de les énumérer pour lui rendre ce que
-    # le fichier contient déjà.
-    try:
-        apercu = listes_depuis_koxo(
-            session,
-            lignes,
-            site_id=payload.site_id,
-            annee_cible_id=payload.annee_cible_id,
-            annee_source_id=payload.annee_source_id,
-            documents={"etiquettes_tous"},
-            par_page=payload.par_page,
-        )
-    except ListesImpossibles as e:
-        raise HTTPException(400, str(e)) from None
-
-    classes = payload.classes or sorted(apercu.classes_disponibles)
+    # Une première passe apprend quelles classes ont des étiquettes à
+    # sortir — celles des élèves cochés, s'il y en a : on ne demande pas à
+    # l'utilisateur d'énumérer ce que la source contient déjà.
+    apercu = _produire_listes(session, source, **commun)
+    classes = payload.classes or sorted({l.classe for l in apercu.lignes if l.classe})
     if not classes:
-        raise HTTPException(400, "Aucune classe dans cet export.")
+        raise HTTPException(400, "Aucune classe à imprimer.")
 
     planches: list[Planche] = []
     comptes: dict[str, int] = {}
+    classe_de: dict[str, str] = {}
     for classe in classes:
-        r = listes_depuis_koxo(
-            session,
-            lignes,
-            site_id=payload.site_id,
-            annee_cible_id=payload.annee_cible_id,
-            annee_source_id=payload.annee_source_id,
-            classes=[classe],
-            personne_ids=payload.personne_ids,
-            documents={"etiquettes_tous"},
-            par_page=payload.par_page,
-            police=payload.police,
-            modele=payload.modele,
-        )
+        try:
+            r = _produire_listes(
+                session, source, refus_en_http=False, classes=[classe],
+                police=payload.police, modele=payload.modele, **commun,
+            )
+        except ListesImpossibles:
+            # Une classe dont personne n'est retenu — aucun élève coché, ou
+            # aucun mot de passe — n'a pas de planche : ce n'est pas une
+            # raison de refuser les autres.
+            continue
         if not r.etiquettes_tous or not r.lignes:
             continue
         nom = nom_de_fichier(f"Etiquettes_{site.nom}_{annee.libelle}_{classe}")
         planches.append(Planche(nom=nom, html=r.etiquettes_tous))
         comptes[nom] = len(r.lignes)
+        classe_de[nom] = classe
 
     if not planches:
         raise HTTPException(400, "Aucune étiquette à produire pour ces classes.")
@@ -1250,7 +1250,8 @@ def etiquettes_par_classe(
         moteur=impression.moteur,
         planches=[
             PlancheOut(
-                classe=nom.rsplit("_", 1)[-1],
+                # Pas `nom.rsplit("_")` : « 1_BPAGORA » devenait « BPAGORA ».
+                classe=classe_de[nom],
                 nom_fichier=f"{nom}.pdf",
                 nb_etiquettes=comptes.get(nom, 0),
             )

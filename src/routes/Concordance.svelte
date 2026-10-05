@@ -150,6 +150,14 @@
         `${rapport.nb_accord} d'accord, ${rapport.nb_a_corriger} à corriger`,
         { duree: 8000 },
       );
+      // L'annuaire lu pour le croisement a aussi confirmé des adresses
+      // calculées : le référentiel les a enregistrées au passage.
+      if (rapport.adresses_relevees) {
+        notify.info(
+          `${rapport.adresses_relevees} adresse(s) confirmée(s) dans Google et enregistrée(s) au référentiel.`,
+          { duree: 9000 },
+        );
+      }
     } catch (e) {
       notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 12000 });
     } finally {

@@ -353,7 +353,9 @@
             {#if !p.email_est_constate}
               <p class="mt-2 text-[11px] leading-relaxed text-stone-500 dark:text-stone-400">
                 Calculée, non constatée : la formule tombe juste neuf fois sur
-                dix. N'écris jamais sur cette adresse sans l'avoir vérifiée.
+                dix. N'écris jamais sur cette adresse sans l'avoir vérifiée —
+                « Relever dans Google », dans Référentiel › Ce qui manque, le fait
+                pour tout le monde.
               </p>
             {/if}
           </div>

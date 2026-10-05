@@ -446,16 +446,65 @@
   }
 
   /**
-   * Les trois documents de rentrée d'un site, depuis son export KoXo.
+   * Les trois documents de rentrée d'un site, avec les mots de passe.
    *
-   * Le référentiel ne connaît pas les mots de passe : là où KoXo existe,
-   * c'est lui l'autorité, et le programme n'en invente aucun. Les trois
-   * documents en ont pourtant besoin — la liste que le professeur principal
-   * garde, celle des entrants pour la vie scolaire, les étiquettes que
-   * l'élève emporte.
+   * La liste que le professeur principal garde, celle des entrants pour la
+   * vie scolaire, les étiquettes que l'élève emporte : toutes portent le
+   * mot de passe. Il vient du coffre — Charlemagne y range « MDP Réseau
+   * Péda » à chaque ingestion de l'export enrichi —, ou d'un export KoXo
+   * qu'on dépose. Le coffre est la source par défaut : Johann chargeait
+   * encore un export KoXo pour imprimer, alors que tout était déjà là.
    */
   let fichierListes = $state(/** @type {File|null} */ (null));
   let rapportListes = $state(/** @type {any} */ (null));
+  let sourceListes = $state(/** @type {"coffre"|"koxo"} */ (lire("exports.sourceListes", "coffre")));
+  $effect(() => ecrire("exports.sourceListes", sourceListes));
+  /** Ce que l'écran a le droit de savoir du coffre : ouvert ou non. */
+  let coffre = $state(/** @type {{initialise: boolean, ouvert: boolean, nb_secrets: number}|null} */ (null));
+  let motMaitre = $state("");
+  let ouvertureCoffre = $state(false);
+  /** Le fichier KoXo à envoyer — aucun quand la source est le coffre. */
+  let fichierSource = $derived(sourceListes === "koxo" ? fichierListes : null);
+  let sourcePrete = $derived(
+    sourceListes === "koxo" ? Boolean(fichierListes) : Boolean(coffre?.ouvert),
+  );
+
+  $effect(() => {
+    if (cible !== "listes" || sourceListes !== "coffre") return;
+    lireCoffre();
+  });
+
+  async function lireCoffre() {
+    try {
+      coffre = await coffreApi.etat();
+    } catch {
+      coffre = null;
+    }
+  }
+
+  /**
+   * Ouvre le coffre sur place : aller sur son écran puis revenir ferait
+   * perdre les classes et les élèves cochés.
+   */
+  async function ouvrirCoffre() {
+    if (!motMaitre) return;
+    ouvertureCoffre = true;
+    try {
+      coffre = await coffreApi.ouvrir(motMaitre);
+      motMaitre = "";
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      ouvertureCoffre = false;
+    }
+  }
+
+  /** Un refus « coffre fermé » remet le champ du mot de passe maître. */
+  function surErreurListes(e) {
+    const m = String(e).replace(/^Error:\s*/, "");
+    if (/coffre est fermé/i.test(m)) lireCoffre();
+    return m;
+  }
 
   /** Le catalogue des présentations, et celle qu'on a retenue. */
   let modeles = $state(/** @type {any[]} */ ([]));
@@ -530,11 +579,11 @@
     String(nom ?? "").toLowerCase().endsWith(".pdf") ? "application/pdf" : "text/html";
 
   async function genererPlanchesPdf() {
-    if (!fichierListes || !siteId || !anneeCibleId) return;
+    if (!sourcePrete || !siteId || !anneeCibleId) return;
     impressionEnCours = true;
     try {
       planchesPdf = await exportsCible.etiquettesParClasse({
-        fichierKoxo: fichierListes,
+        fichierKoxo: fichierSource,
         siteId,
         anneeCibleId,
         anneeSourceId: anneeSourceId ?? null,
@@ -553,20 +602,21 @@
         notify.erreur(`${e.planche} : ${e.motif}`, { duree: 12000 });
       }
     } catch (e) {
-      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 14000 });
+      notify.erreur(surErreurListes(e), { duree: 14000 });
     } finally {
       impressionEnCours = false;
     }
   }
 
   async function genererListes() {
-    if (!fichierListes || !siteId || !anneeCibleId) return;
+    if (!sourcePrete || !siteId || !anneeCibleId) return;
     chargement = true;
     erreur = "";
     rapportListes = null;
+    planchesPdf = null;
     try {
       rapportListes = await exportsCible.listesKoxo({
-        fichierKoxo: fichierListes,
+        fichierKoxo: fichierSource,
         siteId,
         anneeCibleId,
         anneeSourceId: anneeSourceId ?? null,
@@ -586,7 +636,7 @@
         notify.avertissement(a, { duree: 12000 });
       }
     } catch (e) {
-      erreur = String(e).replace(/^Error:\s*/, "");
+      erreur = surErreurListes(e);
       notify.erreur(erreur, { duree: 14000 });
     } finally {
       chargement = false;
@@ -771,50 +821,102 @@
 
     {#if cible === "listes"}
       <div class="rounded-lg border-2 border-dashed border-sky-300 bg-sky-50/40 p-3 dark:border-sky-700 dark:bg-sky-900/10">
-        <p class="mb-2 text-xs font-medium text-sky-900 dark:text-sky-200">
-          Trois documents, depuis l'export KoXo du site
-        </p>
-        <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
-          Le référentiel ne connaît pas les <strong>mots de passe</strong> : là
-          où KoXo existe, c'est lui l'autorité, et le programme n'en invente
-          aucun. Les trois documents en ont pourtant besoin. Exporte donc la
-          base KoXo <strong>en cochant l'inclusion des mots de passe</strong>,
-          puis dépose le fichier ici.
-        </p>
+        <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p class="text-xs font-medium text-sky-900 dark:text-sky-200">
+            Trois documents, avec les mots de passe
+          </p>
+          <Segments
+            bind:valeur={sourceListes}
+            taille="sm"
+            options={[
+              { id: "coffre", label: "Du coffre" },
+              { id: "koxo", label: "D'un export KoXo" },
+            ]}
+          />
+        </div>
         <ul class="mb-2 ml-4 list-disc text-xs text-stone-700 dark:text-stone-300">
           <li>la liste de <strong>tous</strong> les élèves — classeur trié et filtrable</li>
           <li>celle des <strong>entrants</strong> seuls</li>
-          <li>les <strong>étiquettes</strong> des entrants, une planche par classe</li>
+          <li>les <strong>étiquettes</strong>, une planche par classe</li>
         </ul>
-        <div class="flex flex-wrap items-center gap-2">
-          <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
-            <Upload class="h-3.5 w-3.5" />
-            {fichierListes?.name ?? "Choisir l'export KoXo (avec mots de passe)"}
-            <input
-              type="file"
-              accept=".csv,.xlsx"
-              onchange={(e) => {
-                const champ = /** @type {HTMLInputElement} */ (e.target);
-                fichierListes = champ.files?.[0] ?? null;
-                rapportListes = null;
-              }}
-              class="hidden"
-            />
-          </label>
-          {#if fichierListes}
-            <button
-              class="text-xs text-stone-500 hover:text-red-600"
-              onclick={() => { fichierListes = null; rapportListes = null; }}
-            >
-              × retirer
-            </button>
+
+        {#if sourceListes === "coffre"}
+          <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
+            Charlemagne range « MDP Réseau Péda » au <strong>coffre</strong> à
+            chaque ingestion de l'export enrichi : plus besoin de repasser par
+            KoXo. Quand le coffre garde aussi le mot de passe de KoXo et que
+            les deux diffèrent, c'est celui de KoXo qui s'imprime — il fait
+            foi — et l'écart t'est signalé.
+          </p>
+          {#if coffre && !coffre.initialise}
+            <p class="text-xs text-amber-800 dark:text-amber-300">
+              Le coffre n'a pas encore de mot de passe maître : crée-le depuis
+              l'écran Coffre, ou passe par un export KoXo.
+            </p>
+          {:else if coffre && !coffre.ouvert}
+            <div class="flex flex-wrap items-center gap-2">
+              <input
+                type="password"
+                class="champ w-64"
+                placeholder="Mot de passe maître"
+                autocomplete="current-password"
+                aria-label="Mot de passe maître du coffre"
+                bind:value={motMaitre}
+                onkeydown={(e) => e.key === "Enter" && ouvrirCoffre()}
+              />
+              <Bouton taille="sm" variante="primary" occupe={ouvertureCoffre} disabled={!motMaitre} onclick={ouvrirCoffre}>
+                Ouvrir le coffre
+              </Bouton>
+            </div>
+            <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
+              Le coffre est fermé. Ouvre-le ici : les classes et les élèves
+              cochés restent cochés.
+            </p>
+          {:else if coffre}
+            <p class="inline-flex items-center gap-1.5 text-xs text-vert-800 dark:text-vert-300">
+              <CheckCircle2 class="h-3.5 w-3.5" />
+              Coffre ouvert — {coffre.nb_secrets.toLocaleString("fr-FR")} mots de passe gardés.
+            </p>
           {/if}
-        </div>
+        {:else}
+          <p class="mb-2 text-xs text-stone-700 dark:text-stone-300">
+            Exporte la base KoXo du site <strong>en cochant l'inclusion des
+            mots de passe</strong>, puis dépose le fichier ici — utile quand le
+            coffre n'est pas à jour, ou pour imprimer exactement ce que KoXo
+            tient.
+          </p>
+          <div class="flex flex-wrap items-center gap-2">
+            <label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-1.5 text-xs text-stone-700 hover:border-emerald-400 dark:border-stone-600 dark:bg-stone-800 dark:text-stone-300">
+              <Upload class="h-3.5 w-3.5" />
+              {fichierListes?.name ?? "Choisir l'export KoXo (avec mots de passe)"}
+              <input
+                type="file"
+                accept=".csv,.xlsx"
+                onchange={(e) => {
+                  const champ = /** @type {HTMLInputElement} */ (e.target);
+                  fichierListes = champ.files?.[0] ?? null;
+                  rapportListes = null;
+                }}
+                class="hidden"
+              />
+            </label>
+            {#if fichierListes}
+              <button
+                class="text-xs text-stone-500 hover:text-red-600"
+                onclick={() => { fichierListes = null; rapportListes = null; }}
+              >
+                × retirer
+              </button>
+            {/if}
+          </div>
+          <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
+            <strong>KoXo a une base par établissement</strong> : dépose celle du
+            site choisi ci-dessus.
+          </p>
+        {/if}
         <p class="mt-1.5 text-xs text-stone-500 dark:text-stone-400">
-          <strong>KoXo a une base par établissement</strong> : dépose celle du
-          site choisi ci-dessus. Sans <strong>année source</strong>, les
-          entrants ne peuvent pas être distingués — ni leur liste ni leurs
-          étiquettes ne sont alors produites.
+          Sans <strong>année source</strong>, les entrants ne peuvent pas être
+          distingués — ni leur liste ni leurs étiquettes ne sont alors produites.
         </p>
       </div>
 
@@ -1472,7 +1574,7 @@
           variante="primary"
           icon={FileDown}
           occupe={chargement}
-          disabled={!fichierListes || !siteId || !anneeCibleId}
+          disabled={!sourcePrete || !siteId || !anneeCibleId}
           onclick={genererListes}
         >
           Produire les listes et les étiquettes
@@ -1583,18 +1685,23 @@
           </p>
         {/if}
 
-        {#if r.sans_ligne_koxo.length}
+        {#if r.absents_de_la_source.length}
           <details class="rounded-lg border border-amber-300 bg-amber-50 p-2.5 dark:border-amber-800 dark:bg-amber-950/40">
             <summary class="cursor-pointer text-xs font-medium text-amber-900 dark:text-amber-200">
-              {r.sans_ligne_koxo.length} élève(s) absents de l'export KoXo
+              {r.absents_de_la_source.length} élève(s)
+              {r.source === "coffre" ? "sans mot de passe au coffre" : "absents de l'export KoXo"}
             </summary>
             <p class="mt-1 text-xs text-amber-800 dark:text-amber-300">
-              Ils n'ont pas de mot de passe à distribuer, et ne figurent dans
-              aucun des trois documents. Synchronise KoXo, puis reprends
-              l'export.
+              Ils ne figurent dans aucun des trois documents.
+              {#if r.source === "coffre"}
+                « MDP Réseau Péda » est-il rempli dans Charlemagne ? Réingère
+                l'export enrichi coffre ouvert — ou passe par un export KoXo.
+              {:else}
+                Synchronise KoXo, puis reprends l'export.
+              {/if}
             </p>
             <p class="mt-1 text-xs text-stone-600 dark:text-stone-400">
-              {r.sans_ligne_koxo.join(" · ")}
+              {r.absents_de_la_source.join(" · ")}
             </p>
           </details>
         {/if}

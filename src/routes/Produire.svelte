@@ -140,8 +140,8 @@
       nom: "Listes & étiquettes",
       teinte: TEINTES.fichiers,
       contenu:
-        "Liste de tous les élèves, liste des entrants, et étiquettes des entrants — une planche par classe.",
-      demande: "l'export KoXo du site, mots de passe inclus",
+        "Liste de tous les élèves, liste des entrants, et étiquettes — une planche par classe.",
+      demande: "un site — les mots de passe viennent du coffre, ou d'un export KoXo",
       vers: "exports",
       cible: "listes",
       nonSuivi: "Documents imprimés",

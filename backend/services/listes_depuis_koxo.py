@@ -1,18 +1,25 @@
-"""Les listes et les étiquettes d'un site, tirées de son export KoXo.
+"""Les listes et les étiquettes d'un site, avec les mots de passe.
 
-## Pourquoi cet export-là et pas le référentiel
+## D'où viennent les mots de passe
 
-Le référentiel connaît le nom, la classe, le login et l'adresse. Il ne
-connaît **pas le mot de passe** — et c'est délibéré : là où KoXo existe,
-c'est lui qui en est l'autorité, le programme n'en invente aucun.
+Le référentiel connaît le nom, la classe, le login et l'adresse — pas le
+mot de passe. Or les trois documents qu'on distribue à la rentrée en ont
+tous besoin : la liste que le professeur principal garde sous la main,
+celle des entrants qu'on remet à la vie scolaire, et les étiquettes que
+l'élève emporte.
 
-Or les trois documents qu'on distribue à la rentrée en ont tous besoin :
-la liste que le professeur principal garde sous la main, celle des
-entrants qu'on remet à la vie scolaire, et les étiquettes que l'élève
-emporte. Les tirer du référentiel donnerait des colonnes vides.
+Deux sources les donnent :
 
-Ils se tirent donc de l'**export KoXo avec les mots de passe** — le même
-fichier qui sert déjà à remplir le mot de passe des comptes Google.
+- **le coffre**, par défaut. Depuis la v0.183, l'export Charlemagne enrichi
+  y range « MDP Réseau Péda » à chaque ingestion faite coffre ouvert, et un
+  export KoXo peut y être versé. Plus besoin de repasser par KoXo pour
+  imprimer : c'était le geste qui restait, et Johann s'étonnait de devoir
+  encore charger un fichier (5 octobre 2026) ;
+- **l'export KoXo pris avec les mots de passe**, comme avant — quand le
+  coffre n'est pas à jour, ou pour imprimer exactement ce que KoXo tient.
+
+KoXo fait foi : quand le coffre garde son mot de passe et celui de
+Charlemagne, c'est le sien qui s'imprime, et l'écart est signalé.
 
 ## Ce que le programme apporte
 
@@ -22,20 +29,20 @@ KoXo sait déjà imprimer ses fiches. Ce qu'il ne sait pas faire :
   référentiel la photographie ;
 - **rendre un classeur** que l'on trie et que l'on filtre.
 
-Le croisement se fait sur l'`ID unique`, où le programme écrit toujours le
-badge Charlemagne. Jamais sur le nom : deux homonymes suffiraient à
-échanger deux mots de passe.
+Le croisement avec un export KoXo se fait sur l'`ID unique`, où le
+programme écrit toujours le badge Charlemagne. Jamais sur le nom : deux
+homonymes suffiraient à échanger deux mots de passe.
 
 ## Les mots de passe ne sont pas conservés
 
-Ils traversent la mémoire, entrent dans les fichiers rendus, et rien
-n'est écrit en base. Le coffre sert aux mots de passe **que le programme
-fabrique** — ceux de NDE, qui n'a pas de KoXo et où les perdre obligerait
-à réinitialiser chaque compte. Ici l'autorité est KoXo : il les redonnera.
+Ils traversent la mémoire et entrent dans les fichiers rendus. Ceux d'un
+export KoXo déposé ici ne sont pas écrits en base — le verser au coffre
+est un autre geste, fait exprès.
 """
 from __future__ import annotations
 
 import io
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from sqlalchemy.orm import Session
@@ -49,6 +56,14 @@ COLONNES = ("Nom", "Prénom", "Classe", "Identifiant", "Mot de passe", "Adresse"
 
 class ListesImpossibles(Exception):
     """La génération est refusée, et le message dit pourquoi."""
+
+
+@dataclass
+class Identifiants:
+    """Ce qu'une étiquette imprime pour ouvrir une session."""
+
+    login: str
+    mot_de_passe: str
 
 
 @dataclass
@@ -72,6 +87,8 @@ class LigneListe:
 class RapportListes:
     site_nom: str
     annee_libelle: str
+    source: str = "koxo"
+    """`coffre` ou `koxo` — d'où viennent les mots de passe."""
 
     lignes: list[LigneListe] = field(default_factory=list)
     nouveaux: list[LigneListe] = field(default_factory=list)
@@ -81,15 +98,17 @@ class RapportListes:
     l'écran propose, et elle ne doit pas se réduire à ce qu'on a déjà
     coché."""
 
-    sans_ligne_koxo: list[str] = field(default_factory=list)
-    """Inscrits au site que l'export KoXo ne porte pas — donc sans mot de
-    passe à distribuer."""
+    absents_de_la_source: list[str] = field(default_factory=list)
+    """Inscrits au site que la source ne connaît pas — absents de l'export
+    KoXo, ou sans mot de passe au coffre. Ils n'ont rien à distribuer et ne
+    figurent dans aucun document."""
     sans_mot_de_passe: list[str] = field(default_factory=list)
     """Présents dans l'export, mais la colonne du mot de passe est vide :
     l'export a été pris sans cocher « inclure les mots de passe »."""
     koxo_hors_site: int = 0
     """Lignes de l'export qui ne concernent pas ce site — un autre serveur,
     ou des comptes que le référentiel ne connaît pas."""
+    avertissements: list[str] = field(default_factory=list)
 
     xlsx_tous: bytes = b""
     xlsx_nouveaux: bytes = b""
@@ -112,6 +131,26 @@ class RapportListes:
         return len(self.nouveaux)
 
 
+_REFUS = {
+    "koxo": {
+        "retenus": "Aucun des élèves retenus n'a de ligne dans cet export KoXo.",
+        "site": (
+            "Aucun élève de {site} n'a été retrouvé dans cet export KoXo. "
+            "C'est probablement l'export d'un autre serveur — KoXo a une base "
+            "par établissement."
+        ),
+    },
+    "coffre": {
+        "retenus": "Aucun des élèves retenus n'a de mot de passe au coffre.",
+        "site": (
+            "Aucun élève de {site} n'a de mot de passe au coffre. Ingère "
+            "l'export Charlemagne enrichi (« MDP Réseau Péda ») coffre ouvert, "
+            "ou verse un export KoXo au coffre — ou dépose ici l'export KoXo."
+        ),
+    },
+}
+
+
 def listes_depuis_koxo(
     session: Session,
     lignes_koxo: list,
@@ -126,10 +165,167 @@ def listes_depuis_koxo(
     par_page: int = 18,
     police: str | None = None,
 ) -> RapportListes:
-    """Trois documents d'un seul export : la liste, les entrants, les fiches.
+    """Trois documents d'un export KoXo : la liste, les entrants, les fiches.
 
     Args:
         lignes_koxo: les lignes de `lire_export_brut` — pas le tuple entier.
+        Les autres : voir `_listes`.
+
+    Raises:
+        ListesImpossibles: site ou année inconnus, export vide, ou aucun
+            élève du site retrouvé dedans.
+    """
+    if not lignes_koxo:
+        raise ListesImpossibles("L'export KoXo ne contient aucune ligne.")
+
+    par_badge = {}
+    for l in lignes_koxo:
+        ident = (getattr(l, "id_unique", "") or "").strip()
+        if ident:
+            par_badge[ident] = l
+    vus: set[str] = set()
+
+    def trouver(p: Personne) -> Identifiants | None:
+        badge = str(p.badge) if p.badge is not None else ""
+        k = par_badge.get(badge)
+        if k is None:
+            return None
+        vus.add(badge)
+        return Identifiants(
+            # Le login de KoXo fait foi : c'est celui avec lequel l'élève se
+            # connecte au réseau, et il peut différer de celui du
+            # référentiel après une reprise manuelle.
+            login=(getattr(k, "login", "") or "").strip() or (p.login or ""),
+            mot_de_passe=(getattr(k, "mot_de_passe", "") or "").strip(),
+        )
+
+    rapport = _listes(
+        session, trouver, source="koxo", site_id=site_id,
+        annee_cible_id=annee_cible_id, annee_source_id=annee_source_id,
+        classes=classes, personne_ids=personne_ids, documents=documents,
+        modele=modele, par_page=par_page, police=police,
+    )
+    rapport.koxo_hors_site = len(par_badge) - len(vus)
+    return rapport
+
+
+def listes_depuis_le_coffre(
+    session: Session,
+    cle: bytes,
+    *,
+    site_id: int,
+    annee_cible_id: int,
+    annee_source_id: int | None = None,
+    classes: list[str] | None = None,
+    personne_ids: list[int] | None = None,
+    documents: set[str] | None = None,
+    modele: str | None = None,
+    par_page: int = 18,
+    police: str | None = None,
+) -> RapportListes:
+    """Les mêmes trois documents, avec les mots de passe du coffre.
+
+    Le mot de passe est celui que `secret_a_remettre` désigne : KoXo d'abord
+    là où il existe, puis Charlemagne. L'identifiant est celui qui va avec :
+    l'« ID Réseau Péda » que Charlemagne associe à son mot de passe, sinon
+    celui que le dernier contrôle KoXo a lu dans la base du site, sinon
+    celui du référentiel.
+
+    Quand le coffre garde deux mots de passe qui diffèrent pour un même
+    élève, l'étiquette porte le premier et le rapport le dit — sans jamais
+    écrire ni l'un ni l'autre.
+
+    Args:
+        cle: la clé du coffre ouvert.
+        Les autres : voir `_listes`.
+    """
+    from backend.models import LoginReserve, SecretConserve
+    from backend.services.coffre import lire_secret, secrets_a_remettre
+
+    site = session.query(Site).filter_by(id=site_id).one_or_none()
+    if site is None:
+        raise ListesImpossibles(f"Site introuvable : {site_id}")
+    ids = ids_personnes_du_site(
+        session, site_id=site_id, annee_id=annee_cible_id, type_personne="eleve"
+    )
+    secrets: dict[int, list[SecretConserve]] = {}
+    for s in session.query(SecretConserve).filter(
+        SecretConserve.personne_id.in_(list(ids) or [0])
+    ):
+        secrets.setdefault(s.personne_id, []).append(s)
+
+    # L'identifiant que la base KoXo **de ce site** détient : un constat
+    # d'une autre base désigne un autre compte (deux frères `lbernard`, un
+    # par serveur).
+    bases = {site.nom, (site.base_koxo or "").strip()} - {""}
+    constats: dict[int, str] = {}
+    for c in (
+        session.query(LoginReserve)
+        .filter(LoginReserve.site.in_(bases), LoginReserve.badge.isnot(None))
+        .order_by(LoginReserve.date_constat)
+    ):
+        if c.login:
+            constats[c.badge] = c.login
+
+    ecarts: dict[int, str] = {}
+    origines = {"koxo": "KoXo", "charlemagne": "Charlemagne", "google": "Google"}
+
+    def trouver(p: Personne) -> Identifiants | None:
+        recevables = secrets_a_remettre(secrets.get(p.id, []), site)
+        if not recevables:
+            return None
+        retenu, *suivants = recevables
+        mdp = lire_secret(cle, retenu)
+        autres = {s.cible for s in suivants if lire_secret(cle, s) != mdp}
+        if autres:
+            ecarts[p.id] = (
+                f"{p.prenom} {p.nom} ({origines[retenu.cible]} ≠ "
+                + ", ".join(origines.get(a, a) for a in sorted(autres)) + ")"
+            )
+        return Identifiants(
+            login=(retenu.identifiant or "").strip()
+            or constats.get(p.badge)
+            or (p.login or ""),
+            mot_de_passe=mdp,
+        )
+
+    rapport = _listes(
+        session, trouver, source="coffre", site_id=site_id,
+        annee_cible_id=annee_cible_id, annee_source_id=annee_source_id,
+        classes=classes, personne_ids=personne_ids, documents=documents,
+        modele=modele, par_page=par_page, police=police,
+    )
+    divergents = [ecarts[l.personne_id] for l in rapport.lignes if l.personne_id in ecarts]
+    if divergents:
+        rapport.avertissements.append(
+            f"{len(divergents)} élève(s) ont au coffre deux mots de passe qui "
+            "diffèrent — l'étiquette porte le premier nommé, qui fait foi : "
+            + ", ".join(divergents[:8]) + (", …" if len(divergents) > 8 else "")
+            + ". Corrige l'autre source (« MDP Réseau Péda » dans Charlemagne)."
+        )
+    return rapport
+
+
+def _listes(
+    session: Session,
+    trouver: Callable[[Personne], Identifiants | None],
+    *,
+    source: str,
+    site_id: int,
+    annee_cible_id: int,
+    annee_source_id: int | None = None,
+    classes: list[str] | None = None,
+    personne_ids: list[int] | None = None,
+    documents: set[str] | None = None,
+    modele: str | None = None,
+    par_page: int = 18,
+    police: str | None = None,
+) -> RapportListes:
+    """Le cœur commun aux deux sources.
+
+    Args:
+        trouver: les identifiants d'un élève, ou `None` si la source ne le
+            connaît pas.
         annee_source_id: sans elle, on ne peut pas dire qui entre. La liste
             des nouveaux et leurs étiquettes ne sont alors pas produites,
             plutôt que rendues fausses.
@@ -145,10 +341,6 @@ def listes_depuis_koxo(
             ne voulait qu'un classeur.
         modele: la présentation des étiquettes, parmi celles de
             `modeles_etiquettes`.
-
-    Raises:
-        ListesImpossibles: site ou année inconnus, export vide, ou aucun
-            élève du site retrouvé dedans.
     """
     site = session.query(Site).filter_by(id=site_id).one_or_none()
     if site is None:
@@ -156,8 +348,6 @@ def listes_depuis_koxo(
     annee = session.query(AnneeScolaire).filter_by(id=annee_cible_id).one_or_none()
     if annee is None:
         raise ListesImpossibles(f"Année introuvable : {annee_cible_id}")
-    if not lignes_koxo:
-        raise ListesImpossibles("L'export KoXo ne contient aucune ligne.")
     if annee_source_id is not None and annee_source_id == annee_cible_id:
         # Comparer une année à elle-même ne rend aucun entrant, et le
         # rendait sans rien dire : trois documents produits, celui des
@@ -170,12 +360,6 @@ def listes_depuis_koxo(
             "précédente comme source."
         )
 
-    par_badge = {}
-    for l in lignes_koxo:
-        ident = (getattr(l, "id_unique", "") or "").strip()
-        if ident:
-            par_badge[ident] = l
-
     ids_site = ids_personnes_du_site(
         session, site_id=site_id, annee_id=annee_cible_id, type_personne="eleve"
     )
@@ -186,8 +370,7 @@ def listes_depuis_koxo(
         else set()
     )
 
-    rapport = RapportListes(site_nom=site.nom, annee_libelle=annee.libelle)
-    vus_dans_koxo: set[str] = set()
+    rapport = RapportListes(site_nom=site.nom, annee_libelle=annee.libelle, source=source)
 
     personnes = (
         session.query(Personne)
@@ -198,15 +381,12 @@ def listes_depuis_koxo(
         personnes,
         key=lambda x: ((classe_par_personne.get(x.id) or ""), x.nom, x.prenom),
     ):
-        badge = str(p.badge) if p.badge is not None else ""
-        k = par_badge.get(badge)
         qui = f"{p.prenom} {p.nom}"
-        if k is None:
-            rapport.sans_ligne_koxo.append(qui)
+        ident = trouver(p)
+        if ident is None:
+            rapport.absents_de_la_source.append(qui)
             continue
-        vus_dans_koxo.add(badge)
-        mdp = (getattr(k, "mot_de_passe", "") or "").strip()
-        if not mdp:
+        if not ident.mot_de_passe:
             rapport.sans_mot_de_passe.append(qui)
 
         ligne = LigneListe(
@@ -214,11 +394,8 @@ def listes_depuis_koxo(
             nom=p.nom,
             prenom=p.prenom,
             classe=classe_par_personne.get(p.id) or (p.classe or ""),
-            # Le login de KoXo fait foi : c'est celui avec lequel l'élève se
-            # connecte au réseau, et il peut différer de celui du
-            # référentiel après une reprise manuelle.
-            login=(getattr(k, "login", "") or "").strip() or (p.login or ""),
-            mot_de_passe=mdp,
+            login=ident.login,
+            mot_de_passe=ident.mot_de_passe,
             email=(p.email or ""),
             nouveau=annee_source_id is not None and p.id not in anciens,
         )
@@ -242,11 +419,8 @@ def listes_depuis_koxo(
         rapport.lignes = [l for l in rapport.lignes if l.personne_id in voulus]
         rapport.nouveaux = [l for l in rapport.nouveaux if l.personne_id in voulus]
 
-    rapport.koxo_hors_site = len(par_badge) - len(vus_dans_koxo)
     if not rapport.lignes and personne_ids:
-        raise ListesImpossibles(
-            "Aucun des élèves retenus n'a de ligne dans cet export KoXo."
-        )
+        raise ListesImpossibles(_REFUS[source]["retenus"])
     if not rapport.lignes and classes:
         raise ListesImpossibles(
             "Aucun élève dans les classes retenues : "
@@ -254,11 +428,7 @@ def listes_depuis_koxo(
             + ". Vérifie la sélection, ou retire-la pour prendre tout le site."
         )
     if not rapport.lignes:
-        raise ListesImpossibles(
-            f"Aucun élève de {site.nom} n'a été retrouvé dans cet export KoXo. "
-            "C'est probablement l'export d'un autre serveur — KoXo a une base "
-            "par établissement."
-        )
+        raise ListesImpossibles(_REFUS[source]["site"].format(site=site.nom))
 
     _composer(
         rapport, site, annee,
