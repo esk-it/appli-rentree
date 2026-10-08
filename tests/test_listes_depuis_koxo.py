@@ -755,3 +755,47 @@ def test_un_coffre_sans_mot_de_passe_pour_le_site_dit_quoi_faire(
     su, source, cible = etab
     with pytest.raises(ListesImpossibles, match="MDP Réseau Péda"):
         _coffre(session, cle, su, source, cible)
+
+
+# ---------------------------------------------------------------------------
+# Le nom des fichiers suit la sélection
+# ---------------------------------------------------------------------------
+#
+# Une étiquette sortie pour un seul élève s'appelait `…_tous.pdf`, comme
+# celle de tout le site (Johann, 8 octobre 2026).
+
+
+@pytest.mark.parametrize(
+    "selection, tous, entrants, libelle",
+    [
+        ({}, "SU_2026-2027_tous", "SU_2026-2027_nouveaux", "tous les élèves"),
+        ({"classes": ["61"]}, "SU_2026-2027_61", "SU_2026-2027_61_nouveaux", "la classe 6_1"),
+        ({"classes": ["61", "51"]}, "SU_2026-2027_51-61", "SU_2026-2027_51-61_nouveaux",
+         "les classes 5_1 et 6_1"),
+        ({"eleve": "BIHAN"}, "SU_2026-2027_BIHAN_Tom", "SU_2026-2027_BIHAN_Tom_nouveaux", "Tom BIHAN"),
+        ({"eleve": "tous"}, "SU_2026-2027_2_eleves", "SU_2026-2027_2_eleves_nouveaux", "2 élèves"),
+    ],
+)
+def test_le_nom_des_fichiers_dit_ce_qu_ils_couvrent(
+    session, etab, deux_eleves, selection, tous, entrants, libelle
+):
+    from backend.services.listes_depuis_koxo import listes_depuis_koxo
+
+    su, source, cible = etab
+    choix = selection.get("eleve")
+    ids = [p.id for p in deux_eleves if choix in ("tous", p.nom)] if choix else None
+    r = listes_depuis_koxo(
+        session, _lignes(*deux_eleves), site_id=su.id, annee_cible_id=cible.id,
+        annee_source_id=source.id, classes=selection.get("classes"), personne_ids=ids,
+    )
+    assert r.portee.libelle == libelle
+    assert (r.nom_xlsx_tous, r.nom_etiquettes_tous) == (f"Comptes_{tous}.xlsx", f"Etiquettes_{tous}.html")
+    assert (r.nom_xlsx_nouveaux, r.nom_etiquettes) == (
+        f"Comptes_{entrants}.xlsx", f"Etiquettes_{entrants}.html",
+    )
+
+
+def test_un_nom_compose_reste_un_seul_mot_dans_le_fichier():
+    from backend.services.listes_depuis_koxo import suffixe_eleve
+
+    assert suffixe_eleve("LE GALL", "Marie Anne") == "LE-GALL_Marie-Anne"

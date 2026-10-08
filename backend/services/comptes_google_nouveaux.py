@@ -380,7 +380,7 @@ def etiquettes(
     modele: str | None = None,
     par_page: int = 18,
     police: str | None = None,
-) -> tuple[list[tuple[str, bytes]], list[str]]:
+) -> tuple[list[tuple[str, bytes, str]], list[str]]:
     """Les étiquettes de quelques élèves, mot de passe du coffre compris.
 
     Pour l'élève qui arrive, sans relire l'export KoXo : son identifiant et
@@ -388,10 +388,13 @@ def etiquettes(
     planche par site — chacune porte le logo et la couleur du sien.
 
     Returns:
-        `[(site, planche HTML)]`, et les élèves sans mot de passe au coffre.
+        `[(site, planche HTML, ce qu'elle couvre)]` — `ROUE_Léa` pour un seul
+        élève, `3_nouveaux` sinon : le nom du fichier le reprend —, et les
+        élèves sans mot de passe au coffre.
     """
     from backend.services.coffre import lire_secret
     from backend.services.comptes_sans_koxo import fiches_html
+    from backend.services.listes_depuis_koxo import suffixe_eleve
 
     annee = _annee(session, annee_id)
     classes = {
@@ -436,6 +439,8 @@ def etiquettes(
                 par_page=par_page,
                 police=police,
             ),
+            suffixe_eleve(lignes[0]["nom"], lignes[0]["prenom"])
+            if len(lignes) == 1 else f"{len(lignes)}_nouveaux",
         )
         for sid, lignes in sorted(par_site.items(), key=lambda kv: sites[kv[0]].nom)
     ]

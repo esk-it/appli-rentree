@@ -42,6 +42,7 @@ est un autre geste, fait exprès.
 from __future__ import annotations
 
 import io
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -64,6 +65,66 @@ class Identifiants:
 
     login: str
     mot_de_passe: str
+
+
+@dataclass(frozen=True)
+class Portee:
+    """Ce que couvrent les documents — et donc le nom de leurs fichiers.
+
+    Une étiquette sortie pour un seul élève s'appelait `…_tous.pdf`, comme
+    celle de tout le site : dans le dossier Téléchargements, rien ne
+    distinguait le mot de passe perdu de Léna de la campagne de rentrée
+    (Johann, 8 octobre 2026).
+    """
+
+    suffixe: str
+    """Pour les fichiers : `tous`, `61`, `51-61`, `4_classes`,
+    `ABGRALL_Léna`, `61_3_eleves`."""
+    libelle: str
+    """Pour l'écran : « tous les élèves », « la classe 6_1 », « Léna ABGRALL »."""
+
+    @property
+    def complete(self) -> bool:
+        return self.suffixe == "tous"
+
+
+TOUT_LE_SITE = Portee("tous", "tous les élèves")
+
+
+def suffixe_eleve(nom: str | None, prenom: str | None) -> str:
+    """`LE GALL`, `Léna` → `LE-GALL_Léna` : lisible dans un dossier, sans espace."""
+    parties = [re.sub(r"\s+", "-", (x or "").strip()) for x in (nom, prenom)]
+    return "_".join(p for p in parties if p)
+
+
+def portee(
+    lignes: list["LigneListe"],
+    *,
+    classes: list[str] | None = None,
+    personne_ids: list[int] | None = None,
+) -> Portee:
+    """Ce que la sélection retient : tout le site, des classes, des élèves."""
+    if personne_ids and lignes:
+        if len(lignes) == 1:
+            (l,) = lignes
+            return Portee(suffixe_eleve(l.nom, l.prenom), f"{l.prenom} {l.nom}")
+        n = len(lignes)
+        de = sorted({l.classe for l in lignes if l.classe})
+        if len(de) == 1:
+            return Portee(f"{de[0]}_{n}_eleves", f"{n} élèves de {classe_lisible(de[0])}")
+        return Portee(f"{n}_eleves", f"{n} élèves")
+    if classes:
+        retenues = sorted(set(classes))
+        lisibles = [classe_lisible(c) for c in retenues]
+        if len(retenues) == 1:
+            return Portee(retenues[0], f"la classe {lisibles[0]}")
+        if len(retenues) <= 3:
+            return Portee(
+                "-".join(retenues),
+                "les classes " + ", ".join(lisibles[:-1]) + " et " + lisibles[-1],
+            )
+        return Portee(f"{len(retenues)}_classes", f"{len(retenues)} classes")
+    return TOUT_LE_SITE
 
 
 @dataclass
@@ -109,6 +170,7 @@ class RapportListes:
     """Lignes de l'export qui ne concernent pas ce site — un autre serveur,
     ou des comptes que le référentiel ne connaît pas."""
     avertissements: list[str] = field(default_factory=list)
+    portee: Portee = TOUT_LE_SITE
 
     xlsx_tous: bytes = b""
     xlsx_nouveaux: bytes = b""
@@ -430,6 +492,7 @@ def _listes(
     if not rapport.lignes:
         raise ListesImpossibles(_REFUS[source]["site"].format(site=site.nom))
 
+    rapport.portee = portee(rapport.lignes, classes=classes, personne_ids=personne_ids)
     _composer(
         rapport, site, annee,
         avec_nouveaux=annee_source_id is not None,
@@ -467,17 +530,22 @@ def _composer(
     qu'on hésite à rejouer la génération, donc pour qu'on garde un fichier
     approximatif.
     """
+    from backend.services.impression_pdf import nom_de_fichier
+
     voulus = set(documents) if documents else set(DOCUMENTS)
+    # Le nom dit ce que le fichier couvre : `_tous`, `_61`, `_ABGRALL_Léna`.
+    # Celui des entrants garde `_nouveaux` à la fin.
+    p = rapport.portee
+    tous = f"{site.nom}_{annee.libelle}_{p.suffixe}"
+    entrants = f"{site.nom}_{annee.libelle}" + ("" if p.complete else f"_{p.suffixe}") + "_nouveaux"
 
     if "liste_tous" in voulus:
         rapport.xlsx_tous = _classeur(rapport.lignes, f"{site.nom} {annee.libelle}")
-        rapport.nom_xlsx_tous = f"Comptes_{site.nom}_{annee.libelle}_tous.xlsx"
+        rapport.nom_xlsx_tous = nom_de_fichier(f"Comptes_{tous}") + ".xlsx"
 
     if "etiquettes_tous" in voulus:
         rapport.etiquettes_tous = _etiquettes(rapport.lignes, site, annee, modele, par_page, police)
-        rapport.nom_etiquettes_tous = (
-            f"Etiquettes_{site.nom}_{annee.libelle}_tous.html"
-        )
+        rapport.nom_etiquettes_tous = nom_de_fichier(f"Etiquettes_{tous}") + ".html"
 
     if not avec_nouveaux:
         # Sans année précédente, « nouveau » n'a pas de sens : ne rien rendre
@@ -486,15 +554,11 @@ def _composer(
 
     if "liste_nouveaux" in voulus:
         rapport.xlsx_nouveaux = _classeur(rapport.nouveaux, f"{site.nom} entrants")
-        rapport.nom_xlsx_nouveaux = (
-            f"Comptes_{site.nom}_{annee.libelle}_nouveaux.xlsx"
-        )
+        rapport.nom_xlsx_nouveaux = nom_de_fichier(f"Comptes_{entrants}") + ".xlsx"
 
     if "etiquettes_nouveaux" in voulus:
         rapport.etiquettes_nouveaux = _etiquettes(rapport.nouveaux, site, annee, modele, par_page, police)
-        rapport.nom_etiquettes = (
-            f"Etiquettes_{site.nom}_{annee.libelle}_nouveaux.html"
-        )
+        rapport.nom_etiquettes = nom_de_fichier(f"Etiquettes_{entrants}") + ".html"
 
 
 def _etiquettes(

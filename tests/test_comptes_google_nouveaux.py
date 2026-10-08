@@ -231,9 +231,10 @@ def test_les_etiquettes_des_nouveaux_viennent_du_coffre(session, ecole, cle):
     _deposer(session, cle, lea, "Abcdef12", identifiant="lroue2")
 
     planches, sans_mdp = etiquettes(session, cle, [lea.id, sans.id])
-    ((site, html),) = planches
+    ((site, html, suffixe),) = planches
     page = html.decode("utf-8")
     assert site == "NDK" and "Abcdef12" in page and "lroue2" in page
+    assert suffixe == "ROUE_Léa", "le fichier d'un seul élève porte son nom"
     assert sans_mdp == ["Raphaël DUIGOU"]
 
 

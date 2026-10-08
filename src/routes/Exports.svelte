@@ -1608,20 +1608,20 @@
       {@const r = rapportListes}
       <div class="space-y-3 rounded-lg border border-stone-200 bg-stone-50 p-3 dark:border-stone-700 dark:bg-stone-800">
         <p class="text-xs text-stone-600 dark:text-stone-400">
-          {r.site_nom} · {r.annee_libelle} —
+          {r.site_nom} · {r.annee_libelle} · {r.portee} —
           <strong class="tabular-nums">{r.nb_tous}</strong> élève(s), dont
           <strong class="tabular-nums">{r.nb_nouveaux}</strong> entrants.
         </p>
 
         {#each [
           { nom: r.nom_xlsx_tous, b64: r.xlsx_tous_base64, mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            titre: "Tous les élèves", detail: `${r.nb_tous} lignes · classe, identifiant, mot de passe, adresse` },
+            titre: `Liste — ${r.portee}`, detail: `${r.nb_tous} lignes · classe, identifiant, mot de passe, adresse` },
           { nom: r.nom_xlsx_nouveaux, b64: r.xlsx_nouveaux_base64, mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            titre: "Les entrants seuls", detail: `${r.nb_nouveaux} lignes` },
+            titre: `Liste des entrants — ${r.portee}`, detail: `${r.nb_nouveaux} lignes` },
           { nom: r.nom_etiquettes_tous, b64: r.etiquettes_tous_base64, mime: typeEtiquettes(r.nom_etiquettes_tous),
-            titre: "Étiquettes de tous les élèves", detail: `${r.nb_tous} étiquettes · pour une réimpression ou un mot de passe perdu` },
+            titre: `Étiquettes — ${r.portee}`, detail: `${r.nb_tous} étiquettes · pour une réimpression ou un mot de passe perdu` },
           { nom: r.nom_etiquettes, b64: r.etiquettes_base64, mime: typeEtiquettes(r.nom_etiquettes),
-            titre: "Étiquettes des entrants", detail: "une classe par page" },
+            titre: `Étiquettes des entrants — ${r.portee}`, detail: "une classe par page" },
         ] as doc (doc.titre)}
           {#if doc.b64}
             <div class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-stone-200 bg-white p-2.5 dark:border-stone-700 dark:bg-stone-900">
@@ -1647,7 +1647,7 @@
             <p class="text-sm font-medium">Étiquettes en PDF, une planche par classe</p>
             <p class="text-xs text-stone-500 dark:text-stone-400">
               {#if planchesPdf}
-                {planchesPdf.planches.length} planche(s) · {planchesPdf.nb_total_etiquettes}
+                {planchesPdf.portee} · {planchesPdf.planches.length} planche(s) · {planchesPdf.nb_total_etiquettes}
                 étiquettes · rendu par {planchesPdf.moteur}
               {:else}
                 Une archive à dézipper, un fichier par classe — prêt à imprimer.

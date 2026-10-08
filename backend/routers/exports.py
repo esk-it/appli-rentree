@@ -965,6 +965,8 @@ class ListesKoxoReponse(BaseModel):
     annee_libelle: str
     source: str = "koxo"
     """`coffre` ou `koxo` — d'où viennent les mots de passe."""
+    portee: str = "tous les élèves"
+    """Ce que couvrent les documents : « la classe 6_1 », « Léna ABGRALL »."""
     classes_disponibles: list[str] = []
     nb_tous: int
     nb_nouveaux: int
@@ -1113,6 +1115,7 @@ def listes_koxo(
     return ListesKoxoReponse(
         avertissements=avertissements,
         site_nom=r.site_nom, annee_libelle=r.annee_libelle, source=r.source,
+        portee=r.portee.libelle,
         nb_tous=r.nb_tous, nb_nouveaux=r.nb_nouveaux,
         absents_de_la_source=r.absents_de_la_source,
         sans_mot_de_passe=r.sans_mot_de_passe,
@@ -1157,6 +1160,7 @@ class EtiquettesParClasseReponse(BaseModel):
     zip_base64: str
     nom_zip: str
     nb_total_etiquettes: int
+    portee: str = "tous les élèves"
 
 
 @router.post("/etiquettes-par-classe", response_model=EtiquettesParClasseReponse)
@@ -1182,7 +1186,7 @@ def etiquettes_par_classe(
         nom_de_fichier,
         rendre,
     )
-    from backend.services.listes_depuis_koxo import ListesImpossibles
+    from backend.services.listes_depuis_koxo import ListesImpossibles, portee
 
     site = session.query(Site).filter_by(id=payload.site_id).one_or_none()
     annee = (
@@ -1212,6 +1216,7 @@ def etiquettes_par_classe(
     planches: list[Planche] = []
     comptes: dict[str, int] = {}
     classe_de: dict[str, str] = {}
+    imprimees = []
     for classe in classes:
         try:
             r = _produire_listes(
@@ -1225,10 +1230,12 @@ def etiquettes_par_classe(
             continue
         if not r.etiquettes_tous or not r.lignes:
             continue
-        nom = nom_de_fichier(f"Etiquettes_{site.nom}_{annee.libelle}_{classe}")
+        # La classe, ou l'élève retenu : `…_61`, `…_ABGRALL_Léna`.
+        nom = nom_de_fichier(f"Etiquettes_{site.nom}_{annee.libelle}_{r.portee.suffixe}")
         planches.append(Planche(nom=nom, html=r.etiquettes_tous))
         comptes[nom] = len(r.lignes)
         classe_de[nom] = classe
+        imprimees += r.lignes
 
     if not planches:
         raise HTTPException(400, "Aucune étiquette à produire pour ces classes.")
@@ -1244,7 +1251,9 @@ def etiquettes_par_classe(
             zf.writestr(f"{nom}.pdf", pdf)
 
     par_nom = {p.nom: p for p in planches}
+    p = portee(imprimees, classes=payload.classes, personne_ids=payload.personne_ids)
     return EtiquettesParClasseReponse(
+        portee=p.libelle,
         site_nom=site.nom,
         annee_libelle=annee.libelle,
         moteur=impression.moteur,
@@ -1260,7 +1269,7 @@ def etiquettes_par_classe(
         ],
         echecs=[{"planche": nom, "motif": motif} for nom, motif in impression.echecs],
         zip_base64=base64.b64encode(archive.getvalue()).decode("ascii"),
-        nom_zip=nom_de_fichier(f"Etiquettes_{site.nom}_{annee.libelle}") + ".zip",
+        nom_zip=nom_de_fichier(f"Etiquettes_{site.nom}_{annee.libelle}_{p.suffixe}") + ".zip",
         nb_total_etiquettes=sum(comptes.values()),
     )
 
@@ -1311,8 +1320,8 @@ def etiquettes_coffre(
         raise HTTPException(400, str(e)) from None
 
     documents = {
-        site: (html, nom_de_fichier(f"Etiquettes_{site}_nouveaux") + ".html")
-        for site, html in planches
+        site: (html, nom_de_fichier(f"Etiquettes_{site}_{suffixe}") + ".html")
+        for site, html, suffixe in planches
     }
     avertissements: list[str] = []
     if payload.format_etiquettes == "pdf" and documents:

@@ -206,3 +206,22 @@ def test_un_profil_qui_reste_verrouille_est_laisse_a_windows(faux_navigateur, mo
     r = impression_pdf.rendre([impression_pdf.Planche(nom="61", html="<p>Léna</p>")])
     assert r.pdfs["61"].startswith(b"%PDF") and len(laisses) == 1
     vrai(laisses[0])  # le test ne laisse rien derrière lui
+
+
+def test_la_planche_d_un_seul_eleve_porte_son_nom(client, export_koxo, session, faux_navigateur):
+    """L'archive comme la planche : `…_tous.zip` pour un seul élève ne
+    disait pas de qui il s'agissait."""
+    import importlib
+
+    lena = session.query(importlib.import_module("backend.models").Personne).one()
+    r = client.post("/api/exports/etiquettes-par-classe",
+                    json=_corps(export_koxo, personne_ids=[lena.id])).json()
+    assert r["nom_zip"] == "Etiquettes_SU_2026-2027_ABGRALL_Léna.zip"
+    assert [p["nom_fichier"] for p in r["planches"]] == ["Etiquettes_SU_2026-2027_ABGRALL_Léna.pdf"]
+    assert [p["classe"] for p in r["planches"]] == ["61"] and r["portee"] == "Léna ABGRALL"
+
+
+def test_l_archive_de_tout_le_site_dit_tous(client, export_koxo, faux_navigateur):
+    r = client.post("/api/exports/etiquettes-par-classe", json=_corps(export_koxo)).json()
+    assert r["nom_zip"] == "Etiquettes_SU_2026-2027_tous.zip"
+    assert [p["nom_fichier"] for p in r["planches"]] == ["Etiquettes_SU_2026-2027_61.pdf"]
