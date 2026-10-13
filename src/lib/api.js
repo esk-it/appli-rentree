@@ -754,6 +754,25 @@ export const googleApi = {
       }),
     );
   },
+  /**
+   * Qui a changé son mot de passe Google depuis cette date, et qui l'a fait
+   * — l'élève ou un administrateur. Lecture seule ; Google ne rend aucun
+   * mot de passe.
+   */
+  async changementsMotsDePasse({ depuis, anneeId = null }) {
+    const q = new URLSearchParams({ depuis });
+    if (anneeId) q.set("annee_id", String(anneeId));
+    return jsonOrThrow(await fetch(`${BASE}/google/mots-de-passe/changements?${q}`));
+  },
+  /** Impose à Google le mot de passe KoXo de ces élèves — sur confirmation, coffre ouvert. */
+  async imposerMotsDePasse({ personneIds }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/google/mots-de-passe/imposer`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ personne_ids: personneIds, confirmation: true }),
+      }),
+    );
+  },
   /** Enregistre les adresses proposées qu'on a cochées : `[{personne_id, adresse}]`. */
   async retenirAdresses(choix) {
     return jsonOrThrow(

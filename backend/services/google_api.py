@@ -59,6 +59,18 @@ SCOPES = [
 
 SCOPE_APPAREILS = "https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly"
 
+SCOPE_AUDIT = "https://www.googleapis.com/auth/admin.reports.audit.readonly"
+"""Lire le journal d'audit : qui a changé un mot de passe, et quand.
+
+Il n'entre **pas** dans les scopes optionnels : le réclamer avec le reste
+ferait perdre aussi la lecture des Chromebooks à un domaine qui ne l'a pas
+accordé. Il a son propre jeton, demandé seulement quand on lit l'audit."""
+
+
+class DroitManquant(Exception):
+    """La délégation n'accorde pas ce scope ; le message dit comment l'ajouter."""
+
+
 SCOPES_OPTIONNELS = [SCOPE_APPAREILS]
 """Droits qu'un établissement peut ne pas avoir accordés.
 
@@ -574,6 +586,7 @@ class ClientGoogle:
             deleguees.refresh(Request())
             return deleguees
 
+        self._deleguer = deleguer
         self.scopes_absents: list[str] = []
         try:
             credentials = deleguer(SCOPES + SCOPES_OPTIONNELS)
@@ -908,6 +921,88 @@ class ClientGoogle:
             if not jeton:
                 break
         return groupes
+
+    def imposer_mot_de_passe(self, email: str, mot_de_passe: str) -> None:
+        """Donne à un compte existant le mot de passe fourni.
+
+        Une **écriture** : ne s'appelle que sur le clic de l'utilisateur,
+        après confirmation. Le mot de passe traverse la requête HTTPS et
+        n'est gardé nulle part ; Google ne demandera pas de le changer à la
+        connexion suivante — c'est celui de KoXo, il doit le rester.
+        """
+        self._service.users().update(
+            userKey=email,
+            body={"password": mot_de_passe, "changePasswordAtNextLogin": False},
+        ).execute()
+
+    def changements_de_mot_de_passe(self, depuis: str) -> list[dict]:
+        """Qui a changé un mot de passe Google depuis cette date. Lecture seule.
+
+        Google ne rend aucun mot de passe et ne permet d'en éprouver aucun :
+        c'est voulu. Son journal d'audit dit en revanche **qui** en a changé
+        un, et **quand** — l'élève lui-même (`password_edit`) ou un
+        administrateur (`CHANGE_PASSWORD`). Un mot de passe changé par
+        l'élève n'est plus celui de KoXo.
+
+        Args:
+            depuis: date ISO (`2026-08-01`). Google garde environ six mois.
+
+        Raises:
+            DroitManquant: la délégation n'accorde pas `SCOPE_AUDIT`.
+        """
+        from googleapiclient.discovery import build  # type: ignore[import-not-found]
+
+        try:
+            credentials = self._deleguer([SCOPE_AUDIT])
+        except Exception as e:
+            raise DroitManquant(
+                "Google refuse de lire son journal d'audit : la délégation du "
+                "compte de service ne comprend pas ce droit. Dans la console "
+                "d'administration Google → Sécurité → Accès et contrôle des "
+                "données → Commandes des API → Délégation au niveau du domaine, "
+                "modifie le client du programme et ajoute le champ d'application "
+                f"{SCOPE_AUDIT} à ceux qui y sont déjà. ({type(e).__name__})"
+            ) from None
+        rapports = build("admin", "reports_v1", credentials=credentials, cache_discovery=False)
+        debut = f"{depuis}T00:00:00.000Z" if "T" not in depuis else depuis
+
+        def parcourir(application: str, evenement: str):
+            jeton = None
+            while True:
+                reponse = reessayer(
+                    lambda: rapports.activities().list(
+                        userKey="all", applicationName=application,
+                        eventName=evenement, startTime=debut,
+                        maxResults=1000, pageToken=jeton,
+                    ).execute()
+                )
+                yield from reponse.get("items", [])
+                jeton = reponse.get("nextPageToken")
+                if not jeton:
+                    return
+
+        changements: list[dict] = []
+        for item in parcourir("user_accounts", "password_edit"):
+            qui = ((item.get("actor") or {}).get("email") or "").lower()
+            if qui:
+                changements.append({
+                    "email": qui, "quand": (item.get("id") or {}).get("time"),
+                    "par": qui, "par_l_utilisateur": True,
+                })
+        for item in parcourir("admin", "CHANGE_PASSWORD"):
+            acteur = ((item.get("actor") or {}).get("email") or "").lower()
+            for ev in item.get("events") or []:
+                cible = next(
+                    (p.get("value") for p in ev.get("parameters") or []
+                     if p.get("name") == "USER_EMAIL"),
+                    None,
+                )
+                if cible:
+                    changements.append({
+                        "email": cible.lower(), "quand": (item.get("id") or {}).get("time"),
+                        "par": acteur, "par_l_utilisateur": False,
+                    })
+        return changements
 
     def creer_utilisateur(self, payload: dict) -> dict:
         """Crée un compte et rend ce que Google en dit — son identifiant

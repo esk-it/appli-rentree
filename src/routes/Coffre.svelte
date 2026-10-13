@@ -21,6 +21,7 @@
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import Pastille from "$lib/components/Pastille.svelte";
+  import MotsDePasseGoogle from "$lib/components/MotsDePasseGoogle.svelte";
   import { coffreApi, sites as sitesApi } from "$lib/api.js";
   import { jour } from "$lib/referentiel.js";
   import { notify } from "$lib/toasts.js";
@@ -455,6 +456,9 @@
         {/if}
       {/if}
     </div>
+
+    <!-- Google : on lit qui a changé son mot de passe, on impose sur clic. -->
+    <MotsDePasseGoogle />
 
     <!-- Verser un export KoXo -->
     <div class="card space-y-3 p-4">

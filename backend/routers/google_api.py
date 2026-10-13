@@ -2766,3 +2766,114 @@ def creer_nouveaux_comptes(
     except CreationImpossible as e:
         raise HTTPException(400, str(e)) from None
     return [ResultatCreationOut(**asdict(r)) for r in resultats]
+
+
+# ---------------------------------------------------------------------------
+# Les mots de passe Google : lire l'audit, imposer celui de KoXo
+# ---------------------------------------------------------------------------
+
+
+class ChangementGoogleOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str | None
+    site: str | None
+    adresse: str
+    quand: str
+    par: str
+    par_l_eleve: bool
+    nb_changements: int
+
+
+class ChangementsOut(BaseModel):
+    annee: str
+    depuis: str
+    nb_evenements: int
+    changements: list[ChangementGoogleOut]
+    nb_hors_eleves: int
+
+
+@router.get("/mots-de-passe/changements", response_model=ChangementsOut)
+def changements_mots_de_passe(
+    depuis: str = Query(..., description="Date ISO : 2026-08-01"),
+    annee_id: int | None = Query(None),
+    session: Session = Depends(db_session),
+) -> ChangementsOut:
+    """Qui a changé son mot de passe Google, et quand. Lecture seule.
+
+    Google ne rend aucun mot de passe : son journal d'audit dit seulement
+    qui en a changé un — l'élève, ou un administrateur. Le droit de le lire
+    s'ajoute à la délégation ; sans lui, la réponse dit comment l'ajouter.
+    """
+    from dataclasses import asdict
+    from datetime import date as _date
+
+    from backend.services.google_api import DroitManquant
+    from backend.services.mots_de_passe_google import ImpositionImpossible, changements
+
+    try:
+        _date.fromisoformat(depuis)
+    except ValueError:
+        raise HTTPException(400, f"Date invalide : {depuis!r} (attendu : 2026-08-01)") from None
+    try:
+        client = ClientGoogle(charger_config(session))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    try:
+        evenements = client.changements_de_mot_de_passe(depuis)
+    except DroitManquant as e:
+        raise HTTPException(403, str(e)) from None
+    except Exception as e:
+        raise HTTPException(502, f"Lecture de l'audit Google impossible : {type(e).__name__}: {e}")
+    try:
+        r = changements(session, evenements, depuis=depuis, annee_id=annee_id)
+    except ImpositionImpossible as e:
+        raise HTTPException(400, str(e)) from None
+    return ChangementsOut(**asdict(r))
+
+
+class ImpositionPayload(BaseModel):
+    personne_ids: list[int]
+    confirmation: bool = False
+
+
+class ResultatImpositionOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    adresse: str | None
+    statut: str
+    message: str | None = None
+    releve_koxo: str | None = None
+
+
+@router.post("/mots-de-passe/imposer", response_model=list[ResultatImpositionOut])
+def imposer_mots_de_passe(
+    payload: ImpositionPayload, session: Session = Depends(db_session)
+) -> list[ResultatImpositionOut]:
+    """Donne à Google le mot de passe KoXo des élèves désignés.
+
+    Une écriture : rien ne part sans confirmation, et le coffre doit être
+    ouvert — c'est lui qui garde le relevé de KoXo.
+    """
+    from dataclasses import asdict
+
+    from backend.routers.coffre import _cle_courante
+    from backend.services.mots_de_passe_google import imposer
+
+    if not payload.confirmation:
+        raise HTTPException(400, "Confirmation requise.")
+    if not payload.personne_ids:
+        raise HTTPException(400, "Aucun élève désigné.")
+    cle = _cle_courante()
+    try:
+        client = ClientGoogle(charger_config(session))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+    return [
+        ResultatImpositionOut(**{
+            **asdict(r), "releve_koxo": r.releve_koxo.isoformat() if r.releve_koxo else None,
+        })
+        for r in imposer(session, client, cle, payload.personne_ids)
+    ]

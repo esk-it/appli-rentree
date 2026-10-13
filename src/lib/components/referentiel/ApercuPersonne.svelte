@@ -13,7 +13,7 @@
   import Bouton from "$lib/components/Bouton.svelte";
   import Pastille from "$lib/components/Pastille.svelte";
   import Touche from "$lib/components/Touche.svelte";
-  import { coffreApi, personnes } from "$lib/api.js";
+  import { coffreApi, googleApi, personnes } from "$lib/api.js";
   import { depuisQuand, jour, NOM_SYSTEME } from "$lib/referentiel.js";
   import { notify } from "$lib/toasts.js";
   import logoCharlemagne from "$lib/assets/systemes/charlemagne.png";
@@ -145,6 +145,38 @@
       notify.erreur(libelle(e));
     } finally {
       secretEnCours = false;
+    }
+  }
+
+  /**
+   * Le mot de passe KoXo, imposé au compte Google de cet élève — sur ce
+   * clic seulement, après confirmation. KoXo est LE mot de passe ; Google
+   * n'en a qu'une copie, que rien ne tient à jour.
+   */
+  let imposition = $state(false);
+  let koxoRetenu = $derived(
+    (secrets ?? []).find((s) => s.retenu && !s.autre_base && (s.cible === "koxo" || s.cible === "google")) ?? null,
+  );
+  async function imposerAGoogle() {
+    if (!personne || !koxoRetenu) return;
+    const ok = confirm(
+      `Imposer à Google le mot de passe KoXo de ${personne.prenom} ${personne.nom} ?\n\n`
+        + `${personne.email}\n`
+        + (koxoRetenu.cible === "koxo"
+          ? `Mot de passe relevé dans KoXo le ${jour(koxoRetenu.releve_le)}.\n\n`
+          : "Mot de passe fabriqué par le programme (site sans KoXo).\n\n")
+        + "Son mot de passe Google actuel sera remplacé.",
+    );
+    if (!ok) return;
+    imposition = true;
+    try {
+      const [r] = await googleApi.imposerMotsDePasse({ personneIds: [personne.id] });
+      if (r?.statut === "impose") notify.succes("Mot de passe KoXo imposé à Google.", { duree: 8000 });
+      else notify.avertissement(r?.message ?? "Rien n'a été envoyé.", { duree: 12000 });
+    } catch (e) {
+      notify.erreur(libelle(e), { duree: 12000 });
+    } finally {
+      imposition = false;
     }
   }
 
@@ -385,6 +417,16 @@
                   </li>
                 {/each}
               </ul>
+              {#if koxoRetenu && !koxoRetenu.a_relire && personne.type === "eleve" && personne.email_est_constate}
+                <div class="mt-2 flex flex-wrap items-center gap-2">
+                  <Bouton taille="sm" occupe={imposition} onclick={imposerAGoogle}>
+                    Imposer ce mot de passe à Google
+                  </Bouton>
+                  <span class="text-xs text-stone-500 dark:text-stone-400">
+                    Google ne se vérifie pas : en cas de doute, on lui redonne celui de KoXo.
+                  </span>
+                </div>
+              {/if}
               {#if secrets.some((s) => s.a_relire)}
                 <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">
                   Charlemagne, lu après KoXo, dit autre chose : KoXo a peut-être
