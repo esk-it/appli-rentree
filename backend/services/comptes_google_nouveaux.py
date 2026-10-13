@@ -28,9 +28,9 @@ numéro Charlemagne : un homonyme n'empêche pas un compte.
 
 ## Le mot de passe
 
-Celui du coffre, dans cet ordre : celui fabriqué pour Google là où il n'y a
-pas de KoXo (NDE), celui de KoXo — qui fait foi —, celui que Charlemagne
-porte. Sans mot de passe, pas de création : en inventer un ici ferait un
+Celui du coffre : celui fabriqué pour Google s'il y en a un (NDE), sinon,
+entre KoXo et Charlemagne, le plus récemment relu — le coffre ne garde
+que des relevés datés (voir `coffre.secrets_a_remettre`). Sans mot de passe, pas de création : en inventer un ici ferait un
 troisième mot de passe, que ni KoXo ni la fiche de l'élève ne connaissent.
 
 ## L'unité
@@ -59,10 +59,6 @@ from backend.models import (
     Snapshot,
     TableCorrespondance,
 )
-
-ORDRE_DES_SECRETS = {"google": 0, "koxo": 1, "charlemagne": 2}
-"""Quel mot de passe donner à Google quand le coffre en garde plusieurs."""
-
 
 class CreationImpossible(Exception):
     """La création est refusée, et le message dit pourquoi."""
@@ -134,17 +130,15 @@ def _annee(session: Session, annee_id: int | None) -> AnneeScolaire:
     return annee
 
 
-def _meilleur_secret(secrets: list[SecretConserve], site_nom: str | None):
-    """Le mot de passe à donner à Google, sans l'ouvrir."""
-    # Un mot de passe venu d'une autre base — Google fabriqué pour un autre
-    # site, KoXo d'un autre serveur (l'accès DAO) — ouvre un autre compte.
-    candidats = [
-        s for s in secrets
-        if s.cible in ORDRE_DES_SECRETS
-        and not (s.cible in ("google", "koxo") and s.site not in (None, site_nom))
-    ]
-    candidats.sort(key=lambda s: ORDRE_DES_SECRETS[s.cible])
-    return candidats[0] if candidats else None
+def _meilleur_secret(secrets: list[SecretConserve], site):
+    """Le mot de passe à donner à Google, sans l'ouvrir.
+
+    Celui fabriqué pour Google d'abord, s'il y en a un ; puis, entre KoXo et
+    Charlemagne, le plus récemment relu — voir `coffre.secrets_a_remettre`.
+    """
+    from backend.services.coffre import secret_a_remettre
+
+    return secret_a_remettre(secrets, site, google_d_abord=True)
 
 
 def relever(
@@ -238,7 +232,7 @@ def relever(
             ou = attente if (
                 attente and not comptes_par_ou.get(definitive) and comptes_par_ou.get(attente)
             ) else definitive
-        secret = _meilleur_secret(secrets.get(p.id, []), site.nom if site else None)
+        secret = _meilleur_secret(secrets.get(p.id, []), site)
 
         bloque = None
         if not adresse:
@@ -311,8 +305,7 @@ def creer(
 
         site = session.get(Site, p.site_id) if p.site_id else None
         secret = _meilleur_secret(
-            session.query(SecretConserve).filter_by(personne_id=pid).all(),
-            site.nom if site else None,
+            session.query(SecretConserve).filter_by(personne_id=pid).all(), site
         )
         mot_de_passe = lire_secret(cle, secret)
         r = ResultatCreation(**base, statut="cree", ou=c.ou, groupe=c.groupe)
@@ -392,7 +385,7 @@ def etiquettes(
         élève, `3_nouveaux` sinon : le nom du fichier le reprend —, et les
         élèves sans mot de passe au coffre.
     """
-    from backend.services.coffre import lire_secret
+    from backend.services.coffre import lire_secret, secret_a_remettre
     from backend.services.comptes_sans_koxo import fiches_html
     from backend.services.listes_depuis_koxo import suffixe_eleve
 
@@ -411,8 +404,10 @@ def etiquettes(
         site = sites.get(p.site_id) if p else None
         if p is None or site is None:
             continue
-        secret = _meilleur_secret(
-            session.query(SecretConserve).filter_by(personne_id=pid).all(), site.nom
+        # Une étiquette porte le mot de passe du réseau : celui que
+        # l'élève tape au collège ou au lycée, pas celui fabriqué pour Google.
+        secret = secret_a_remettre(
+            session.query(SecretConserve).filter_by(personne_id=pid).all(), site
         )
         if secret is None:
             sans_mot_de_passe.append(f"{p.prenom} {p.nom}")

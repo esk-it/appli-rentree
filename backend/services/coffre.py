@@ -42,7 +42,8 @@ import os
 import secrets
 import string
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import date, datetime
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
@@ -87,6 +88,15 @@ class SecretLu:
     identifiant: str | None = None
     """L'identifiant que la source associe à ce mot de passe, s'il diffère
     de celui de la personne. Voir `SecretConserve.identifiant`."""
+    releve_le: date | None = None
+    """Le jour où sa source a été lue — un relevé ancien peut être dépassé."""
+    retenu: bool = False
+    """C'est celui qu'une étiquette imprimerait."""
+    ecart: bool = False
+    """Les sources de cette personne disent deux mots de passe différents."""
+    autre_base: bool = False
+    """Un compte KoXo sur la base d'un autre établissement (la DAO) : un
+    autre compte, que l'étiquette ignore."""
 
 
 # ---------------------------------------------------------------------------
@@ -242,18 +252,30 @@ def lire_secret(cle: bytes, secret: SecretConserve) -> str:
     return _dechiffrer(cle, secret)
 
 
-ORDRE_AVEC_KOXO = ("koxo", "charlemagne", "google")
-ORDRE_SANS_KOXO = ("google", "charlemagne", "koxo")
+ORDRE_DES_CIBLES = ("koxo", "charlemagne", "google")
+"""À relevé du même jour, l'ordre de préséance : KoXo tient le compte."""
 
 
-def secrets_a_remettre(secrets: list[SecretConserve], site) -> list[SecretConserve]:
+def secrets_a_remettre(
+    secrets: list[SecretConserve], site, *, google_d_abord: bool = False
+) -> list[SecretConserve]:
     """Les mots de passe de la personne sur son site, le plus sûr d'abord.
 
-    Là où KoXo existe, le sien d'abord : KoXo tient le compte et fait foi.
-    Puis celui que Charlemagne porte — « MDP Réseau Péda », recopié de KoXo
-    à la main —, et en dernier celui que le programme a fabriqué pour Google
-    à l'arrivée d'un élève. Là où il n'y a pas de KoXo, ce mot de passe
-    fabriqué est le seul qui existe : il passe devant.
+    Le coffre ne garde que des **relevés** : ce que KoXo ou Charlemagne
+    disaient d'un mot de passe le jour où on les a lus. Entre les deux, le
+    relevé le plus récent passe devant ; le même jour, KoXo, qui tient le
+    compte.
+
+    Vécu le 13 octobre 2026 : KoXo NDK avait été relu le 31 août. Le
+    15 septembre, les 140 montants de SU y ont retrouvé leur mot de passe du
+    collège ; Charlemagne, relu le 12 octobre, portait le bon. Le coffre
+    préférait KoXo sans regarder la date, et l'étiquette d'Eléanor BRETON a
+    porté un mot de passe qui n'existait plus nulle part.
+
+    Le mot de passe fabriqué pour Google à l'arrivée d'un élève vient en
+    dernier là où KoXo existe ; là où il n'existe pas (NDE), il est le seul
+    et passe devant — comme quand on crée le compte Google lui-même
+    (`google_d_abord`).
 
     Un mot de passe KoXo d'une **autre** base ouvre un autre compte —
     l'accès DAO d'un élève de SU sur le serveur de NDK — et n'en fait pas
@@ -261,7 +283,7 @@ def secrets_a_remettre(secrets: list[SecretConserve], site) -> list[SecretConser
     """
     nom = site.nom if site is not None else None
     base = ((site.base_koxo or "").strip() or None) if site is not None else None
-    ordre = ORDRE_SANS_KOXO if site is not None and not base else ORDRE_AVEC_KOXO
+    google_devant = google_d_abord or (site is not None and not base)
 
     def recevable(s: SecretConserve) -> bool:
         if s.cible == "koxo":
@@ -270,13 +292,93 @@ def secrets_a_remettre(secrets: list[SecretConserve], site) -> list[SecretConser
             return s.site in (None, nom)
         return s.cible == "charlemagne"
 
-    return sorted((s for s in secrets if recevable(s)), key=lambda s: ordre.index(s.cible))
+    retenus = [s for s in secrets if recevable(s)]
+    # Trois tris stables, du critère le plus faible au plus fort.
+    retenus.sort(key=lambda s: ORDRE_DES_CIBLES.index(s.cible))
+    retenus.sort(key=releve_le, reverse=True)
+    retenus.sort(key=lambda s: (s.cible != "google") if google_devant else (s.cible == "google"))
+    return retenus
 
 
-def secret_a_remettre(secrets: list[SecretConserve], site) -> SecretConserve | None:
+def releve_le(secret: SecretConserve) -> date:
+    """Le jour où la source de ce mot de passe a été lue pour la dernière fois.
+
+    Chaque ingestion Charlemagne et chaque versement KoXo réécrivent leurs
+    secrets : `date_maj` est la date du dernier relevé.
+    """
+    return (secret.date_maj or datetime(1970, 1, 1)).date()
+
+
+def secret_a_remettre(
+    secrets: list[SecretConserve], site, *, google_d_abord: bool = False
+) -> SecretConserve | None:
     """Le mot de passe que la personne utilise — voir `secrets_a_remettre`."""
-    recevables = secrets_a_remettre(secrets, site)
+    recevables = secrets_a_remettre(secrets, site, google_d_abord=google_d_abord)
     return recevables[0] if recevables else None
+
+
+@dataclass
+class SourceEcart:
+    cible: str
+    site: str | None
+    releve_le: date
+    retenu: bool
+
+
+@dataclass
+class EcartCoffre:
+    """Une personne dont le coffre garde des mots de passe qui diffèrent."""
+
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str | None
+    site: str | None
+    sources: list[SourceEcart]
+
+
+def ecarts(session: Session, cle: bytes) -> list[EcartCoffre]:
+    """Les personnes pour qui deux sources disent deux mots de passe.
+
+    Ne rend aucun mot de passe : seulement qui, quelles sources, relues
+    quand, et laquelle l'étiquette prendrait. Un écart dit qu'une source
+    est en retard — souvent le coffre lui-même, quand KoXo a changé depuis
+    son dernier versement.
+    """
+    from collections import defaultdict
+
+    from backend.models import Site
+
+    sites = {s.id: s for s in session.query(Site)}
+    siens: dict[int, list[SecretConserve]] = defaultdict(list)
+    for s in session.query(SecretConserve):
+        siens[s.personne_id].append(s)
+    plusieurs = [pid for pid, liste in siens.items() if len(liste) > 1]
+    personnes = {
+        p.id: p for p in session.query(Personne).filter(Personne.id.in_(plusieurs or [0]))
+    }
+
+    resultat: list[EcartCoffre] = []
+    for pid in plusieurs:
+        p = personnes.get(pid)
+        if p is None:
+            continue
+        site = sites.get(p.site_id)
+        recevables = secrets_a_remettre(siens[pid], site)
+        if len(recevables) < 2:
+            continue
+        if len({_dechiffrer(cle, s) for s in recevables}) < 2:
+            continue
+        resultat.append(EcartCoffre(
+            personne_id=pid, nom=p.nom or "", prenom=p.prenom or "", classe=p.classe,
+            site=site.nom if site else None,
+            sources=[
+                SourceEcart(cible=s.cible, site=s.site, releve_le=releve_le(s), retenu=i == 0)
+                for i, s in enumerate(recevables)
+            ],
+        ))
+    resultat.sort(key=lambda e: (e.site or "~", e.classe or "~", e.nom, e.prenom))
+    return resultat
 
 
 def _normaliser(t: str) -> str:
@@ -297,11 +399,17 @@ def chercher(
     if not q:
         return []
 
+    from backend.models import Site
+
     lignes = (
         session.query(SecretConserve, Personne)
         .join(Personne, Personne.id == SecretConserve.personne_id)
         .all()
     )
+    sites = {s.id: s for s in session.query(Site)}
+    tous_les_siens: dict[int, list[SecretConserve]] = {}
+    for secret, personne in lignes:
+        tous_les_siens.setdefault(personne.id, []).append(secret)
     trouves: list[SecretLu] = []
     for secret, personne in lignes:
         foin = _normaliser(
@@ -322,12 +430,22 @@ def chercher(
                 origine=secret.origine,
                 mot_de_passe=_dechiffrer(cle, secret),
                 identifiant=secret.identifiant,
+                releve_le=releve_le(secret),
             )
         )
+        lu = trouves[-1]
+        recevables = secrets_a_remettre(
+            tous_les_siens[personne.id], sites.get(personne.site_id)
+        )
+        lu.retenu = bool(recevables) and recevables[0] is secret
+        lu.autre_base = secret not in recevables
+        lu.ecart = len({_dechiffrer(cle, s) for s in recevables}) > 1
         if len(trouves) >= limite:
             break
-    # KoXo avant Charlemagne : c'est lui qui tient le compte.
-    trouves.sort(key=lambda s: (s.nom, s.prenom, s.cible == "charlemagne"))
+    # Le relevé le plus récent d'abord ; le même jour, KoXo, qui tient le compte.
+    trouves.sort(key=lambda s: (s.cible == "charlemagne"))
+    trouves.sort(key=lambda s: s.releve_le or date(1970, 1, 1), reverse=True)
+    trouves.sort(key=lambda s: (s.nom, s.prenom))
     return trouves
 
 
@@ -345,6 +463,13 @@ class RapportVersement:
     nb_sans_mot_de_passe: int = 0
     nb_retires: int = 0
     """Secrets que cette base contenait et que l'export ne confirme plus."""
+    changes: list[str] = field(default_factory=list)
+    """Ceux dont KoXo dit désormais autre chose que le relevé précédent —
+    nommés, jamais le mot de passe. C'est le nombre qui aurait dû se voir
+    après le 15 septembre : 140 montants dont le coffre gardait le mot de
+    passe de la rentrée."""
+    precedent_releve: date | None = None
+    """Le jour du relevé que celui-ci remplace."""
 
     @property
     def resume(self) -> str:
@@ -352,8 +477,12 @@ class RapportVersement:
             f"{self.nb_deposes} mot(s) de passe rangé(s) sur {self.nb_lignes} "
             f"ligne(s) lues"
         )
-        if self.nb_retires:
-            texte += f", {self.nb_retires} remplacé(s)"
+        if self.changes:
+            depuis = (
+                f" depuis le relevé du {self.precedent_releve:%d/%m}"
+                if self.precedent_releve else ""
+            )
+            texte += f", dont {len(self.changes)} changé(s){depuis}"
         return texte
 
 
@@ -405,7 +534,12 @@ def _mdp_par_id_unique(contenu_csv: bytes) -> dict[int, str]:
 
 
 def verser_export_koxo(
-    session: Session, cle: bytes, contenu_csv: bytes, *, site: str | None = None
+    session: Session,
+    cle: bytes,
+    contenu_csv: bytes,
+    *,
+    site: str | None = None,
+    remplacer: bool = True,
 ) -> RapportVersement:
     """Range les mots de passe d'un export KoXo, rapprochés par ID unique.
 
@@ -418,9 +552,18 @@ def verser_export_koxo(
     ne contient plus n'y est plus. C'est aussi ce qui permet de réparer —
     reverser un export corrige les attributions fautives au lieu de les
     laisser cohabiter avec les bonnes.
+
+    `remplacer=False` relit sans rien retirer : pour un export déposé à
+    une autre fin (la Cohérence), dont on ne sait pas s'il couvre toute la
+    base — un export des seuls élèves effacerait les mots de passe des
+    professeurs.
     """
     par_id = _mdp_par_id_unique(contenu_csv)
     rapport = RapportVersement(site=site, nb_lignes=len(par_id))
+    if not par_id:
+        # Un export pris sans les mots de passe ne dit rien du coffre : il
+        # ne doit surtout pas le vider.
+        return rapport
 
     # Un export KoXo décrit l'**état complet** de sa base. Ce qu'il ne
     # contient plus n'y est plus, et le garder ferait afficher un mot de
@@ -435,10 +578,19 @@ def verser_export_koxo(
         .filter_by(cible="koxo", site=site, origine="koxo")
         .all()
     )
+    avant: dict[int, str] = {}
     for vieux in anciens:
-        session.delete(vieux)
-    rapport.nb_retires = len(anciens)
-    session.flush()
+        try:
+            avant[vieux.personne_id] = _dechiffrer(cle, vieux)
+        except CoffreVerrouille:
+            pass
+    if anciens:
+        rapport.precedent_releve = max(releve_le(s) for s in anciens)
+    if remplacer:
+        for vieux in anciens:
+            session.delete(vieux)
+        rapport.nb_retires = len(anciens)
+        session.flush()
 
     personnes = {p.badge: p for p in session.query(Personne).all() if p.badge}
     for badge, mdp in par_id.items():
@@ -459,6 +611,9 @@ def verser_export_koxo(
             origine="koxo",
         )
         rapport.nb_deposes += 1
+        if personne.id in avant and avant[personne.id] != mdp:
+            rapport.changes.append(f"{personne.prenom} {personne.nom}")
+    rapport.changes.sort()
     return rapport
 
 

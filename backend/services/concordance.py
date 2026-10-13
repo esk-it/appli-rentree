@@ -91,6 +91,8 @@ class RapportConcordance:
     google_consulte: bool = False
     koxo_fourni: bool = False
     koxo_sites: list[str] = field(default_factory=list)
+    site_par_base: list[str | None] = field(default_factory=list)
+    """L'établissement de chaque export KoXo déposé, dans l'ordre du dépôt."""
     """Les établissements dont l'export KoXo déposé parle.
 
     KoXo a une base par établissement : un export ne peut en couvrir qu'un.
@@ -215,6 +217,7 @@ def croiser(
         google_consulte=comptes_google is not None,
         koxo_fourni=bool(bases),
         koxo_sites=sorted(koxo_sites),
+        site_par_base=list(principal_par_base),
     )
 
     # Les comptes posés sur la base d'un autre établissement : un accès

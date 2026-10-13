@@ -18,8 +18,10 @@ Deux sources les donnent :
 - **l'export KoXo pris avec les mots de passe**, comme avant — quand le
   coffre n'est pas à jour, ou pour imprimer exactement ce que KoXo tient.
 
-KoXo fait foi : quand le coffre garde son mot de passe et celui de
-Charlemagne, c'est le sien qui s'imprime, et l'écart est signalé.
+Quand le coffre garde le mot de passe de KoXo et celui de Charlemagne et
+qu'ils diffèrent, c'est le plus récemment relu qui s'imprime, et l'écart est
+signalé : le coffre ne garde que des relevés datés, et KoXo a pu changer
+depuis le sien (voir `coffre.secrets_a_remettre`).
 
 ## Ce que le programme apporte
 
@@ -287,8 +289,8 @@ def listes_depuis_le_coffre(
 ) -> RapportListes:
     """Les mêmes trois documents, avec les mots de passe du coffre.
 
-    Le mot de passe est celui que `secret_a_remettre` désigne : KoXo d'abord
-    là où il existe, puis Charlemagne. L'identifiant est celui qui va avec :
+    Le mot de passe est celui que `secret_a_remettre` désigne : entre KoXo
+    et Charlemagne, le plus récemment relu. L'identifiant est celui qui va avec :
     l'« ID Réseau Péda » que Charlemagne associe à son mot de passe, sinon
     celui que le dernier contrôle KoXo a lu dans la base du site, sinon
     celui du référentiel.
@@ -302,7 +304,7 @@ def listes_depuis_le_coffre(
         Les autres : voir `_listes`.
     """
     from backend.models import LoginReserve, SecretConserve
-    from backend.services.coffre import lire_secret, secrets_a_remettre
+    from backend.services.coffre import lire_secret, releve_le, secrets_a_remettre
 
     site = session.query(Site).filter_by(id=site_id).one_or_none()
     if site is None:
@@ -330,7 +332,11 @@ def listes_depuis_le_coffre(
             constats[c.badge] = c.login
 
     ecarts: dict[int, str] = {}
-    origines = {"koxo": "KoXo", "charlemagne": "Charlemagne", "google": "Google"}
+
+    def source(s) -> str:
+        nom = {"koxo": f"KoXo {s.site or ''}".strip(), "charlemagne": "Charlemagne",
+               "google": "Google (fabriqué)"}.get(s.cible, s.cible)
+        return f"{nom} lu le {releve_le(s):%d/%m}"
 
     def trouver(p: Personne) -> Identifiants | None:
         recevables = secrets_a_remettre(secrets.get(p.id, []), site)
@@ -338,11 +344,11 @@ def listes_depuis_le_coffre(
             return None
         retenu, *suivants = recevables
         mdp = lire_secret(cle, retenu)
-        autres = {s.cible for s in suivants if lire_secret(cle, s) != mdp}
+        autres = [s for s in suivants if lire_secret(cle, s) != mdp]
         if autres:
             ecarts[p.id] = (
-                f"{p.prenom} {p.nom} ({origines[retenu.cible]} ≠ "
-                + ", ".join(origines.get(a, a) for a in sorted(autres)) + ")"
+                f"{p.prenom} {p.nom} ({source(retenu)} ≠ "
+                + ", ".join(source(s) for s in autres) + ")"
             )
         return Identifiants(
             login=(retenu.identifiant or "").strip()
@@ -361,9 +367,11 @@ def listes_depuis_le_coffre(
     if divergents:
         rapport.avertissements.append(
             f"{len(divergents)} élève(s) ont au coffre deux mots de passe qui "
-            "diffèrent — l'étiquette porte le premier nommé, qui fait foi : "
-            + ", ".join(divergents[:8]) + (", …" if len(divergents) > 8 else "")
-            + ". Corrige l'autre source (« MDP Réseau Péda » dans Charlemagne)."
+            "diffèrent — l'étiquette porte le plus récemment relu, nommé en "
+            "premier : " + ", ".join(divergents[:8])
+            + (", …" if len(divergents) > 8 else "")
+            + ". Une source est en retard : verse au coffre un export KoXo "
+            "récent ; s'il reste un écart, c'est Charlemagne qu'il faut corriger."
         )
     return rapport
 

@@ -675,7 +675,7 @@ def test_sans_export_koxo_les_mots_de_passe_viennent_du_coffre(
     assert "Charl111" in r.etiquettes_tous.decode("utf-8")
 
 
-def test_koxo_fait_foi_et_l_ecart_avec_charlemagne_est_dit_sans_mot_de_passe(
+def test_releves_du_meme_jour_koxo_fait_foi_et_l_ecart_est_dit_sans_mot_de_passe(
     session, etab, deux_eleves, cle
 ):
     su, source, cible = etab
@@ -690,7 +690,8 @@ def test_koxo_fait_foi_et_l_ecart_avec_charlemagne_est_dit_sans_mot_de_passe(
 
     assert next(l for l in r.lignes if l.nom == "ABGRALL").mot_de_passe == "Koxo1111"
     (a,) = r.avertissements
-    assert "Lena ABGRALL (KoXo ≠ Charlemagne)" in a and "BIHAN" not in a
+    assert "Lena ABGRALL (KoXo SU lu le " in a and " ≠ Charlemagne lu le " in a
+    assert "BIHAN" not in a
     assert "Koxo1111" not in a and "Charl111" not in a
 
 

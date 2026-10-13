@@ -359,15 +359,35 @@
                     {/if}
                     <button
                       type="button"
-                      class="rounded-md px-1.5 py-0.5 font-mono font-semibold hover:bg-stone-200 dark:hover:bg-stone-800"
+                      class="rounded-md px-1.5 py-0.5 font-mono font-semibold hover:bg-stone-200 dark:hover:bg-stone-800
+                             {s.ecart && !s.retenu && !s.autre_base ? 'text-stone-400 line-through dark:text-stone-500' : ''}"
                       title="Copier"
                       onclick={() => copier(s.mot_de_passe, "Mot de passe copié")}
                     >
                       {s.mot_de_passe}
                     </button>
+                    {#if s.releve_le}
+                      <span class="text-xs tabular-nums text-stone-500 dark:text-stone-400">lu le {jour(s.releve_le)}</span>
+                    {/if}
+                    <!-- Le coffre ne garde que des relevés datés : quand deux
+                         sources diffèrent, le plus récent fait foi. -->
+                    {#if s.autre_base}
+                      <Pastille etat="inconnu" texte="autre base" />
+                    {:else if s.ecart && s.retenu}
+                      <Pastille etat="pret" texte="le plus récent" />
+                    {:else if s.ecart}
+                      <Pastille etat="ecart" texte="relevé dépassé" />
+                    {/if}
                   </li>
                 {/each}
               </ul>
+              {#if secrets.some((s) => s.ecart)}
+                <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">
+                  Deux sources, deux mots de passe : une est en retard. Verse un
+                  export KoXo récent au coffre ; s'il reste un écart, corrige
+                  « MDP Réseau Péda » dans Charlemagne.
+                </p>
+              {/if}
             {/if}
           </div>
         {/if}

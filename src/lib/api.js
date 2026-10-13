@@ -1175,6 +1175,13 @@ export const coffreApi = {
       }),
     );
   },
+  /**
+   * Les personnes pour qui deux sources disent deux mots de passe — qui,
+   * quelles sources, relues quand. Aucun mot de passe dans la réponse.
+   */
+  async ecarts() {
+    return jsonOrThrow(await fetch(`${BASE}/coffre/ecarts`));
+  },
 };
 
 /** Les mouvements d'un seul élève, en cours d'année. */

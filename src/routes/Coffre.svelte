@@ -17,9 +17,12 @@
   import Upload from "@lucide/svelte/icons/upload";
   import Copy from "@lucide/svelte/icons/copy";
   import ShieldAlert from "@lucide/svelte/icons/shield-alert";
+  import GitCompare from "@lucide/svelte/icons/git-compare";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
+  import Pastille from "$lib/components/Pastille.svelte";
   import { coffreApi, sites as sitesApi } from "$lib/api.js";
+  import { jour } from "$lib/referentiel.js";
   import { notify } from "$lib/toasts.js";
 
   let etat = $state(/** @type {any} */ (null));
@@ -37,6 +40,44 @@
   let siteVersement = $state(/** @type {string|null} */ (null));
 
   let minuteur = /** @type {any} */ (null);
+
+  /**
+   * Les écarts entre sources, et le dernier versement.
+   *
+   * Le coffre ne garde que des relevés datés. Le 13 octobre 2026, celui de
+   * KoXo NDK datait du 31 août : les 140 montants de SU y avaient retrouvé
+   * leur mot de passe du collège le 15 septembre, et le coffre gardait
+   * celui de la rentrée. Rien ne le montrait — l'étiquette d'Eléanor BRETON
+   * l'a imprimé. L'écran dit désormais qui diffère, et de quand date chaque
+   * source.
+   */
+  let ecarts = $state(/** @type {any} */ (null));
+  let comparaison = $state(false);
+  let dernierVersement = $state(/** @type {any} */ (null));
+
+  /** Les noms de source, tels qu'on les lit dans KoXo et Charlemagne. */
+  const nomSource = (s) =>
+    s.cible === "koxo" ? `KoXo ${s.site ?? ""}`.trim()
+      : s.cible === "charlemagne" ? "Charlemagne"
+        : "Google (fabriqué)";
+
+  async function comparer() {
+    comparaison = true;
+    try {
+      ecarts = await coffreApi.ecarts();
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""));
+    } finally {
+      comparaison = false;
+    }
+  }
+
+  // Coffre ouvert : les écarts se comparent d'eux-mêmes — un dixième de
+  // seconde, et c'est la première chose à savoir avant d'imprimer.
+  $effect(() => {
+    if (etat?.ouvert && ecarts === null && !comparaison) comparer();
+  });
+
 
   onMount(async () => {
     await relire();
@@ -92,6 +133,8 @@
   }
 
   async function fermer() {
+    ecarts = null;
+    dernierVersement = null;
     resultats = [];
     cherchee = "";
     requete = "";
@@ -123,6 +166,7 @@
     occupe = true;
     try {
       const r = await coffreApi.verser({ fichier: fichierKoxo, site: siteVersement });
+      dernierVersement = r;
       notify.succes(r.resume);
       if (r.nb_sans_correspondance) {
         notify.avertissement(
@@ -131,6 +175,7 @@
       }
       fichierKoxo = null;
       await relire();
+      await comparer();
     } catch (e) {
       notify.erreur(String(e).replace(/^Error:\s*/, ""));
     } finally {
@@ -272,6 +317,7 @@
                 <th class="py-1 pr-3">Personne</th>
                 <th class="py-1 pr-3">Identifiant</th>
                 <th class="py-1 pr-3">Base</th>
+                <th class="py-1 pr-3">Relu le</th>
                 <th class="py-1">Mot de passe</th>
               </tr>
             </thead>
@@ -297,7 +343,7 @@
                   </td>
                   <td class="py-1.5 pr-3 text-xs text-stone-500 dark:text-stone-400">
                     {#if s.cible === "charlemagne"}
-                      <span title="Tel que Charlemagne le garde. KoXo tient le compte : s'ils diffèrent, c'est lui qui fait foi.">
+                      <span title="Tel que Charlemagne le garde. S'il diffère de KoXo, le relevé le plus récent passe devant — et l'écart se règle à la source.">
                         Charlemagne
                       </span>
                     {:else}
@@ -307,21 +353,95 @@
                       <span class="ml-1" title="Fabriqué par le programme : il n'existe nulle part ailleurs">·&nbsp;généré</span>
                     {/if}
                   </td>
+                  <td class="py-1.5 pr-3 text-xs tabular-nums text-stone-500 dark:text-stone-400">
+                    {jour(s.releve_le)}
+                  </td>
                   <td class="py-1.5">
-                    <button
-                      class="group inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 font-mono hover:bg-stone-100 dark:hover:bg-stone-700/50"
-                      onclick={() => copier(s.mot_de_passe)}
-                      title="Copier"
-                    >
-                      {s.mot_de_passe}
-                      <Copy class="h-3 w-3 text-stone-400 opacity-0 transition group-hover:opacity-100" />
-                    </button>
+                    <span class="inline-flex flex-wrap items-center gap-2">
+                      <button
+                        class="group inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 font-mono hover:bg-stone-100 dark:hover:bg-stone-700/50
+                               {s.ecart && !s.retenu && !s.autre_base ? 'text-stone-400 line-through dark:text-stone-500' : ''}"
+                        onclick={() => copier(s.mot_de_passe)}
+                        title="Copier"
+                      >
+                        {s.mot_de_passe}
+                        <Copy class="h-3 w-3 text-stone-400 opacity-0 transition group-hover:opacity-100" />
+                      </button>
+                      <!-- Deux sources, deux mots de passe : le relevé le plus
+                           récent fait foi, l'autre est en retard. -->
+                      {#if s.autre_base}
+                        <Pastille etat="inconnu" texte="autre base" />
+                      {:else if s.ecart && s.retenu}
+                        <Pastille etat="pret" texte="le plus récent" />
+                      {:else if s.ecart}
+                        <Pastille etat="ecart" texte="relevé dépassé" />
+                      {/if}
+                    </span>
                   </td>
                 </tr>
               {/each}
             </tbody>
           </table>
         </div>
+      {/if}
+    </div>
+
+    <!-- Les écarts entre sources -->
+    <div class="card space-y-3 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
+          Mots de passe qui ne concordent pas
+        </h2>
+        <Bouton taille="sm" icon={GitCompare} occupe={comparaison} onclick={comparer}>Comparer</Bouton>
+      </div>
+      <p class="text-sm text-stone-600 dark:text-stone-400">
+        Le coffre garde ce que KoXo et Charlemagne disaient le jour où on les
+        a lus. Quand les deux diffèrent, une étiquette prend le plus récent,
+        mais une source est en retard : verse un export KoXo récent
+        ci-dessous — si KoXo dit comme Charlemagne, l'écart disparaît. S'il
+        reste, c'est « MDP Réseau Péda » qu'il faut corriger dans Charlemagne.
+      </p>
+      {#if ecarts}
+        <p class="text-xs tabular-nums text-stone-500 dark:text-stone-400">
+          {#each Object.entries(ecarts.releves_koxo) as [base, quand], i (base)}
+            {i ? " · " : ""}KoXo {base} relu le <b class="text-stone-700 dark:text-stone-300">{jour(quand)}</b>
+          {/each}
+        </p>
+        {#if ecarts.ecarts.length}
+          <p class="text-sm font-medium text-red-800 dark:text-red-300">
+            {ecarts.ecarts.length} personne(s) avec deux mots de passe différents
+          </p>
+          <div class="max-h-80 overflow-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="text-xs uppercase text-stone-500 dark:text-stone-400">
+                <tr>
+                  <th class="py-1 pr-3">Personne</th>
+                  <th class="py-1 pr-3">Retenu pour les étiquettes</th>
+                  <th class="py-1">En retard</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each ecarts.ecarts as e (e.personne_id)}
+                  <tr class="border-t border-stone-200 dark:border-stone-700">
+                    <td class="py-1.5 pr-3">
+                      {e.nom} {e.prenom}
+                      <span class="ml-1 text-xs text-stone-500 dark:text-stone-400">{[e.site, e.classe].filter(Boolean).join(" · ")}</span>
+                    </td>
+                    {#each [e.sources.filter((s) => s.retenu), e.sources.filter((s) => !s.retenu)] as groupe, i (i)}
+                      <td class="py-1.5 pr-3 text-xs {i ? 'text-red-700 dark:text-red-400' : 'text-stone-600 dark:text-stone-300'}">
+                        {groupe.map((s) => `${nomSource(s)}, relu le ${jour(s.releve_le)}`).join(" · ")}
+                      </td>
+                    {/each}
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {:else}
+          <p class="text-sm text-vert-800 dark:text-vert-300">
+            Toutes les sources concordent : un seul mot de passe par personne.
+          </p>
+        {/if}
       {/if}
     </div>
 
@@ -355,8 +475,23 @@
       </div>
       <p class="text-xs text-stone-500 dark:text-stone-400">
         Le fichier ne quitte pas la machine et n'est pas conservé : seuls
-        les mots de passe sont rangés, chiffrés.
+        les mots de passe sont rangés, chiffrés. À refaire après tout
+        changement de mot de passe dans KoXo — la Cohérence le fait aussi
+        quand on lui dépose un export avec les mots de passe.
       </p>
+      {#if dernierVersement?.changes?.length}
+        <details class="rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-sm dark:border-amber-800 dark:bg-amber-950/40">
+          <summary class="cursor-pointer font-medium text-amber-900 dark:text-amber-200">
+            {dernierVersement.changes.length} mot(s) de passe avaient changé dans KoXo
+            {dernierVersement.precedent_releve ? `depuis le relevé du ${jour(dernierVersement.precedent_releve)}` : ""}
+          </summary>
+          <p class="mt-1.5 text-xs text-amber-900 dark:text-amber-200">
+            Le coffre est maintenant à jour pour eux. Une étiquette imprimée
+            avant ce versement peut porter l'ancien.
+          </p>
+          <p class="mt-1.5 text-xs text-stone-600 dark:text-stone-400">{dernierVersement.changes.join(" · ")}</p>
+        </details>
+      {/if}
     </div>
   {/if}
 </section>

@@ -158,6 +158,15 @@
           { duree: 9000 },
         );
       }
+      // Les exports KoXo déposés tiennent le coffre à jour : ce qu'ils lui
+      // ont appris, et ce qui diverge encore entre KoXo et Charlemagne.
+      for (const m of rapport.mots_de_passe ?? []) notify.info(m, { duree: 12000 });
+      if (rapport.nb_mots_de_passe_divergents) {
+        notify.avertissement(
+          `${rapport.nb_mots_de_passe_divergents} personne(s) ont au coffre deux mots de passe différents — le détail est dans le Coffre.`,
+          { duree: 12000 },
+        );
+      }
     } catch (e) {
       notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 12000 });
     } finally {

@@ -22,6 +22,7 @@ from __future__ import annotations
 import base64
 import time
 from dataclasses import asdict
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -159,6 +160,11 @@ class SecretOut(BaseModel):
     origine: str
     mot_de_passe: str
     identifiant: str | None = None
+    releve_le: date | None = None
+    """Le jour où sa source a été lue : un relevé ancien peut être dépassé."""
+    retenu: bool = False
+    ecart: bool = False
+    autre_base: bool = False
 
 
 @router.get("/chercher", response_model=list[SecretOut])
@@ -189,6 +195,9 @@ class VersementOut(BaseModel):
     nb_sans_correspondance: int
     nb_sans_mot_de_passe: int
     nb_retires: int
+    changes: list[str] = []
+    """Qui a changé de mot de passe dans KoXo depuis le relevé précédent."""
+    precedent_releve: date | None = None
     resume: str
 
 
@@ -285,3 +294,52 @@ def verser(
     r = verser_export_koxo(session, cle, contenu, site=payload.site)
     session.commit()
     return VersementOut(**{**asdict(r), "resume": r.resume})
+
+
+class SourceEcartOut(BaseModel):
+    cible: str
+    site: str | None
+    releve_le: date
+    retenu: bool
+
+
+class EcartOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str | None
+    site: str | None
+    sources: list[SourceEcartOut]
+
+
+class EcartsOut(BaseModel):
+    ecarts: list[EcartOut]
+    releves_koxo: dict[str, date]
+    """Le jour du dernier relevé de chaque base KoXo — `{"NDK": 2026-08-31}`."""
+
+
+@router.get("/ecarts", response_model=EcartsOut)
+def lister_ecarts(session: Session = Depends(db_session)) -> EcartsOut:
+    """Les personnes pour qui deux sources disent deux mots de passe.
+
+    Aucun mot de passe dans la réponse : qui, quelles sources, relues quand,
+    et laquelle une étiquette prendrait. Le coffre doit être ouvert — il
+    faut déchiffrer pour comparer.
+    """
+    from backend.models import SecretConserve
+    from backend.services.coffre import ecarts, releve_le
+
+    cle = _cle_courante()
+    try:
+        trouves = ecarts(session, cle)
+    except CoffreVerrouille as e:
+        raise HTTPException(409, str(e)) from None
+    releves: dict[str, date] = {}
+    for s in session.query(SecretConserve).filter_by(cible="koxo", origine="koxo"):
+        if s.site:
+            jour = releve_le(s)
+            releves[s.site] = max(jour, releves.get(s.site, jour))
+    return EcartsOut(
+        ecarts=[EcartOut(**asdict(e)) for e in trouves],
+        releves_koxo=dict(sorted(releves.items())),
+    )

@@ -92,6 +92,12 @@ class ConcordanceReponse(BaseModel):
     adresses_relevees: int = 0
     """Adresses calculées que l'annuaire, lu pour le croisement, a
     confirmées — enregistrées au référentiel au passage."""
+    mots_de_passe: list[str] = []
+    """Ce que les exports KoXo déposés ont appris au coffre, base par base —
+    ou pourquoi ils n'ont rien pu lui apprendre."""
+    nb_mots_de_passe_divergents: int = 0
+    """Personnes pour qui le coffre garde, après ce relevé, deux mots de
+    passe qui diffèrent. Le détail est dans le Coffre."""
 
 
 def _lire_les_exports_koxo(fichiers: list[str]) -> tuple[list[list], list[str]]:
@@ -190,6 +196,63 @@ def _lire_les_exports_koxo(fichiers: list[str]) -> tuple[list[list], list[str]]:
     return bases, avertissements
 
 
+def _relire_les_mots_de_passe(
+    session: Session, fichiers: list[str], site_par_base: list[str | None]
+) -> tuple[list[str], int]:
+    """Range au coffre les mots de passe des exports KoXo déposés.
+
+    Le coffre ne garde que des relevés : le sien de KoXo datait du 31 août
+    quand, le 15 septembre, les 140 montants de SU ont retrouvé leur mot de
+    passe du collège sur le serveur de NDK. Personne ne l'a relu, et
+    l'étiquette d'Eléanor BRETON a porté l'ancien (13 octobre 2026). Chaque
+    export KoXo qui passe par la Cohérence le tient désormais à jour, sans
+    autre geste — coffre ouvert, et seulement si l'export porte les mots de
+    passe.
+
+    Rien n'est retiré : on ne sait pas si l'export couvre toute la base.
+    """
+    from backend.routers.coffre import cle_si_ouverte
+    from backend.services.coffre import ecarts, verser_export_koxo
+
+    if not fichiers:
+        return [], 0
+    cle = cle_si_ouverte()
+    if cle is None:
+        return ["Coffre fermé : les mots de passe de KoXo n'ont pas été relus."], 0
+
+    lignes: list[str] = []
+    for b64, site in zip(fichiers, site_par_base):
+        if not site:
+            continue
+        try:
+            rapport = verser_export_koxo(
+                session, cle, base64.b64decode(b64), site=site, remplacer=False
+            )
+            session.commit()
+        except Exception as e:  # pragma: no cover - le croisement prime
+            session.rollback()
+            lignes.append(f"KoXo {site} : mots de passe non relus ({type(e).__name__}: {e})")
+            continue
+        if not rapport.nb_lignes:
+            lignes.append(
+                f"KoXo {site} : export sans mots de passe — le coffre garde son "
+                "relevé précédent. Coche « inclure les mots de passe » à l'export."
+            )
+            continue
+        texte = f"KoXo {site} : {rapport.nb_deposes} mot(s) de passe relus au coffre"
+        if rapport.changes:
+            texte += (
+                f", dont {len(rapport.changes)} changé(s) depuis le relevé précédent : "
+                + ", ".join(rapport.changes[:6]) + (", …" if len(rapport.changes) > 6 else "")
+            )
+        lignes.append(texte + ".")
+    try:
+        divergents = len(ecarts(session, cle))
+    except Exception:  # pragma: no cover
+        divergents = 0
+    return lignes, divergents
+
+
 @router.post("", response_model=ConcordanceReponse)
 def croiser_les_sources(
     payload: ConcordancePayload, session: Session = Depends(db_session)
@@ -280,8 +343,14 @@ def croiser_les_sources(
             session.rollback()
             avertissements.append(f"Adresses non relevées : {type(e).__name__}: {e}")
 
+    mots_de_passe, divergents = _relire_les_mots_de_passe(
+        session, payload.koxo_base64, r.site_par_base
+    )
+
     return ConcordanceReponse(
         adresses_relevees=adresses_relevees,
+        mots_de_passe=mots_de_passe,
+        nb_mots_de_passe_divergents=divergents,
         annee_libelle=r.annee_libelle,
         google_consulte=r.google_consulte,
         koxo_fourni=r.koxo_fourni,
