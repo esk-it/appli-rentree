@@ -360,7 +360,7 @@
                     <button
                       type="button"
                       class="rounded-md px-1.5 py-0.5 font-mono font-semibold hover:bg-stone-200 dark:hover:bg-stone-800
-                             {s.ecart && !s.retenu && !s.autre_base ? 'text-stone-400 line-through dark:text-stone-500' : ''}"
+                             {s.ecart && !s.retenu && !s.autre_base && !s.a_relire ? 'text-stone-400 line-through dark:text-stone-500' : ''}"
                       title="Copier"
                       onclick={() => copier(s.mot_de_passe, "Mot de passe copié")}
                     >
@@ -369,23 +369,32 @@
                     {#if s.releve_le}
                       <span class="text-xs tabular-nums text-stone-500 dark:text-stone-400">lu le {jour(s.releve_le)}</span>
                     {/if}
-                    <!-- Le coffre ne garde que des relevés datés : quand deux
-                         sources diffèrent, le plus récent fait foi. -->
+                    <!-- KoXo fait foi ; un relevé KoXo contredit par une
+                         source lue après lui est à relire. -->
                     {#if s.autre_base}
                       <Pastille etat="inconnu" texte="autre base" />
+                    {:else if s.a_relire && s.cible === "koxo"}
+                      <Pastille etat="ecart" texte="à relire dans KoXo" />
+                    {:else if s.a_relire}
+                      <Pastille etat="attente" texte="lu après KoXo" />
                     {:else if s.ecart && s.retenu}
-                      <Pastille etat="pret" texte="le plus récent" />
+                      <Pastille etat="pret" texte="KoXo fait foi" />
                     {:else if s.ecart}
-                      <Pastille etat="ecart" texte="relevé dépassé" />
+                      <Pastille etat="ecart" texte="diffère de KoXo" />
                     {/if}
                   </li>
                 {/each}
               </ul>
-              {#if secrets.some((s) => s.ecart)}
+              {#if secrets.some((s) => s.a_relire)}
                 <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">
-                  Deux sources, deux mots de passe : une est en retard. Verse un
-                  export KoXo récent au coffre ; s'il reste un écart, corrige
-                  « MDP Réseau Péda » dans Charlemagne.
+                  Charlemagne, lu après KoXo, dit autre chose : KoXo a peut-être
+                  changé. Verse au coffre un export KoXo récent avant de donner
+                  ce mot de passe.
+                </p>
+              {:else if secrets.some((s) => s.ecart)}
+                <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">
+                  KoXo fait foi : c'est « MDP Réseau Péda » qu'il faut corriger
+                  dans Charlemagne — la Cohérence en fabrique le fichier.
                 </p>
               {/if}
             {/if}

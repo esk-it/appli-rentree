@@ -74,6 +74,15 @@ class LigneOut(BaseModel):
     propose: str | None
 
 
+class EcartMotDePasseOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str | None
+    site: str | None
+    quoi: list[str]
+
+
 class ConcordanceReponse(BaseModel):
     annee_libelle: str
     google_consulte: bool
@@ -98,6 +107,15 @@ class ConcordanceReponse(BaseModel):
     nb_mots_de_passe_divergents: int = 0
     """Personnes pour qui le coffre garde, après ce relevé, deux mots de
     passe qui diffèrent. Le détail est dans le Coffre."""
+    mots_de_passe_verifies: int = 0
+    """Élèves dont le mot de passe KoXo a été comparé à celui de Charlemagne."""
+    mots_de_passe_non_controles: str | None = None
+    ecarts_mots_de_passe: list[EcartMotDePasseOut] = []
+    """Ceux pour qui Charlemagne ne porte pas ce que KoXo dit — les noms et ce
+    qui diffère, jamais les mots de passe."""
+    nom_fichier_corrections: str = ""
+    corrections_base64: str = ""
+    """Le fichier à importer dans Charlemagne pour l'aligner sur KoXo."""
 
 
 def _lire_les_exports_koxo(fichiers: list[str]) -> tuple[list[list], list[str]]:
@@ -150,7 +168,12 @@ def _lire_les_exports_koxo(fichiers: list[str]) -> tuple[list[list], list[str]]:
             # reconnues, le séparateur, l'encodage, et s'il portait des mots
             # de passe. Prendre le tuple entier pour la liste faisait passer
             # les mille six cent soixante-sept élèves pour absents de KoXo.
-            du_fichier, colonnes, _sep, _enc, _mdp = lire_export_brut(chemin)
+            # Avec les mots de passe : la Cohérence les compare à ceux de
+            # Charlemagne, et les range au coffre. Ils ne sortent jamais de
+            # la réponse — seulement les noms de ceux qui diffèrent.
+            du_fichier, colonnes, _sep, _enc, _mdp = lire_export_brut(
+                chemin, garder_mots_de_passe=True
+            )
         except Exception as e:
             raise HTTPException(
                 400, f"Export KoXo illisible ({rang_dit}) : {e}"
@@ -347,7 +370,20 @@ def croiser_les_sources(
         session, payload.koxo_base64, r.site_par_base
     )
 
+    from backend.services.concordance import fichier_corrections_charlemagne
+
+    corrections = (
+        base64.b64encode(fichier_corrections_charlemagne(r)).decode("ascii")
+        if r.corrections_charlemagne else ""
+    )
     return ConcordanceReponse(
+        mots_de_passe_verifies=r.mots_de_passe_verifies,
+        mots_de_passe_non_controles=r.mots_de_passe_non_controles,
+        ecarts_mots_de_passe=[EcartMotDePasseOut(**vars(e)) for e in r.ecarts_mots_de_passe],
+        nom_fichier_corrections=(
+            f"Charlemagne_ReseauPeda_depuis_KoXo_{r.annee_libelle}.csv" if corrections else ""
+        ),
+        corrections_base64=corrections,
         adresses_relevees=adresses_relevees,
         mots_de_passe=mots_de_passe,
         nb_mots_de_passe_divergents=divergents,

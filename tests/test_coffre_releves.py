@@ -73,59 +73,70 @@ def _export_koxo(*lignes):
 # ---------------------------------------------------------------------------
 
 
-def test_le_releve_le_plus_recent_passe_devant(session, ecole, cle):
-    from backend.services.coffre import lire_secret, secret_a_remettre
+def test_koxo_passe_devant_mais_un_releve_plus_recent_qui_le_contredit_l_arrete(
+    session, ecole, cle
+):
+    """KoXo est LE mot de passe (Johann, 13 octobre 2026). Mais son relevé du
+    31 août, contredit par Charlemagne lu le 12 octobre, n'est plus sûr."""
+    from backend.models import SecretConserve
+    from backend.services.coffre import releve_contredit, secrets_a_remettre
 
     eleanor = ecole["eleve"]("BRETON", "Eléanor", ecole["ndk"], "2_BPMRC2")
     _deposer(session, cle, eleanor, "Ancien11", cible="koxo", site="NDK", quand=AOUT)
     _deposer(session, cle, eleanor, "Collège2", cible="charlemagne", quand=OCTOBRE)
 
-    from backend.models import SecretConserve
-
     siens = session.query(SecretConserve).filter_by(personne_id=eleanor.id).all()
-    assert lire_secret(cle, secret_a_remettre(siens, ecole["ndk"])) == "Collège2"
+    recevables = secrets_a_remettre(siens, ecole["ndk"])
+    assert [s.cible for s in recevables] == ["koxo", "charlemagne"]
+    assert releve_contredit(recevables, cle).cible == "charlemagne"
 
 
-def test_le_meme_jour_koxo_passe_devant(session, ecole, cle):
-    """Relus le même jour, les deux sont frais : KoXo tient le compte, et un
-    écart dit alors une faute de copie dans Charlemagne."""
+def test_koxo_relu_le_meme_jour_ou_apres_fait_foi(session, ecole, cle):
+    """Un écart dit alors une faute de copie dans Charlemagne : c'est lui
+    qu'on corrige."""
     from backend.models import SecretConserve
-    from backend.services.coffre import lire_secret, secret_a_remettre
+    from backend.services.coffre import lire_secret, releve_contredit, secrets_a_remettre
 
     lea = ecole["eleve"]("ROUE", "Léa", ecole["ndk"], "2_1")
     _deposer(session, cle, lea, "Copie111", cible="charlemagne", quand=datetime(2026, 10, 12, 8))
     _deposer(session, cle, lea, "Koxo2222", cible="koxo", site="NDK", quand=datetime(2026, 10, 12, 7))
-    siens = session.query(SecretConserve).filter_by(personne_id=lea.id).all()
-    assert lire_secret(cle, secret_a_remettre(siens, ecole["ndk"])) == "Koxo2222"
+    recevables = secrets_a_remettre(
+        session.query(SecretConserve).filter_by(personne_id=lea.id).all(), ecole["ndk"]
+    )
+    assert lire_secret(cle, recevables[0]) == "Koxo2222"
+    assert releve_contredit(recevables, cle) is None
 
 
-def test_l_etiquette_d_eleanor_porte_le_bon_mot_de_passe_et_dit_l_ecart(session, ecole, cle):
+def test_l_etiquette_d_eleanor_ne_sort_pas_tant_que_koxo_n_est_pas_relu(session, ecole, cle):
     from backend.services.listes_depuis_koxo import listes_depuis_le_coffre
 
     eleanor = ecole["eleve"]("BRETON", "Eléanor", ecole["ndk"], "2_BPMRC2")
     _deposer(session, cle, eleanor, "Ancien11", cible="koxo", site="NDK", quand=AOUT)
     _deposer(session, cle, eleanor, "Collège2", cible="charlemagne", quand=OCTOBRE,
              identifiant="ebreton")
+    tom = ecole["eleve"]("BIHAN", "Tom", ecole["ndk"], "2_1")
+    _deposer(session, cle, tom, "Pareil22", cible="koxo", site="NDK", quand=AOUT)
 
     r = listes_depuis_le_coffre(session, cle, site_id=ecole["ndk"].id,
                                 annee_cible_id=ecole["an"].id)
     page = r.etiquettes_tous.decode("utf-8")
-    assert "Collège2" in page and "Ancien11" not in page
+    assert "BIHAN" in page and "BRETON" not in page
+    assert r.absents_de_la_source == [], "elle a deux mots de passe, pas aucun"
     (a,) = r.avertissements
-    assert "Charlemagne lu le 12/10 ≠ KoXo NDK lu le 31/08" in a
+    assert "Eléanor BRETON (KoXo NDK lu le 31/08 ≠ Charlemagne lu le 12/10)" in a
+    assert "relevé KoXo est contredit" in a
     assert "Ancien11" not in a and "Collège2" not in a
 
 
-def test_la_creation_google_prend_aussi_le_plus_recent(session, ecole, cle):
-    from backend.models import SecretConserve
-    from backend.services.comptes_google_nouveaux import _meilleur_secret
-    from backend.services.coffre import lire_secret
+def test_seule_eleanor_retenue_le_refus_dit_de_relire_koxo(session, ecole, cle):
+    from backend.services.listes_depuis_koxo import ListesImpossibles, listes_depuis_le_coffre
 
     eleanor = ecole["eleve"]("BRETON", "Eléanor", ecole["ndk"], "2_BPMRC2")
     _deposer(session, cle, eleanor, "Ancien11", cible="koxo", site="NDK", quand=AOUT)
     _deposer(session, cle, eleanor, "Collège2", cible="charlemagne", quand=OCTOBRE)
-    siens = session.query(SecretConserve).filter_by(personne_id=eleanor.id).all()
-    assert lire_secret(cle, _meilleur_secret(siens, ecole["ndk"])) == "Collège2"
+    with pytest.raises(ListesImpossibles, match="relevé KoXo est contredit"):
+        listes_depuis_le_coffre(session, cle, site_id=ecole["ndk"].id,
+                                annee_cible_id=ecole["an"].id, personne_ids=[eleanor.id])
 
 
 # ---------------------------------------------------------------------------
@@ -202,20 +213,20 @@ def test_les_ecarts_nomment_qui_et_quand_jamais_quoi(session, ecole, cle):
     _deposer(session, cle, dao, "Su444444", cible="charlemagne")
 
     (e,) = ecarts(session, cle)
-    assert e.personne_id == eleanor.id
-    assert [(s.cible, s.retenu) for s in e.sources] == [("charlemagne", True), ("koxo", False)]
+    assert (e.personne_id, e.a_relire) == (eleanor.id, True)
+    assert [(s.cible, s.retenu) for s in e.sources] == [("koxo", True), ("charlemagne", False)]
     assert "Ancien11" not in str(asdict(e)) and "Collège2" not in str(asdict(e))
 
 
-def test_la_recherche_dit_lequel_est_le_plus_recent(session, ecole, cle):
+def test_la_recherche_dit_que_koxo_est_a_relire(session, ecole, cle):
     from backend.services.coffre import chercher
 
     eleanor = ecole["eleve"]("BRETON", "Eléanor", ecole["ndk"], "2_BPMRC2")
     _deposer(session, cle, eleanor, "Ancien11", cible="koxo", site="NDK", quand=AOUT)
     _deposer(session, cle, eleanor, "Collège2", cible="charlemagne", quand=OCTOBRE)
     trouves = chercher(session, cle, "breton")
-    assert [(s.cible, s.retenu, s.ecart, str(s.releve_le)) for s in trouves] == [
-        ("charlemagne", True, True, "2026-10-12"), ("koxo", False, True, "2026-08-31"),
+    assert [(s.cible, s.retenu, s.ecart, s.a_relire, str(s.releve_le)) for s in trouves] == [
+        ("koxo", True, True, True, "2026-08-31"), ("charlemagne", False, True, True, "2026-10-12"),
     ]
 
 
@@ -261,3 +272,69 @@ def test_la_coherence_tient_le_coffre_a_jour(session, ecole, cle, tmp_db_path):
     session.expire_all()
     (s,) = session.query(SecretConserve).filter_by(personne_id=eleanor.id, cible="koxo").all()
     assert lire_secret(cle, s) == "Collège2"
+
+
+# ---------------------------------------------------------------------------
+# KoXo ↔ Charlemagne, dans la Cohérence
+# ---------------------------------------------------------------------------
+
+
+def test_la_coherence_compare_koxo_et_charlemagne_et_fabrique_la_correction(
+    session, ecole, tmp_db_path
+):
+    """KoXo est LE mot de passe ; Charlemagne en garde une copie. Le fichier
+    recopie KoXo dans « ID/MDP Réseau Péda » pour ceux qui diffèrent."""
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    eleanor = ecole["eleve"]("BRETON", "Eléanor", ecole["ndk"], "2_BPMRC2", login="ebreton")
+    tom = ecole["eleve"]("BIHAN", "Tom", ecole["ndk"], "2_1", login="tbihan")
+    charlemagne = (
+        "\ufeffNum Badge;Nom;Prénom;Code classe;ID Réseau Péda;MDP Réseau Péda\r\n"
+        f"{eleanor.badge};BRETON;Eléanor;2_BPMRC2;ebreton;Ancien11\r\n"
+        f"{tom.badge};BIHAN;Tom;2_1;tbihan;Pareil22\r\n"
+    ).encode("utf-8")
+    koxo = _export_koxo((eleanor, "2_BPMRC2", "Collège2"), (tom, "2_1", "Pareil22"))
+
+    with TestClient(app) as client:
+        client.post("/api/coffre/verrouiller")
+        r = client.post("/api/concordance", json={
+            "fichier_base64": base64.b64encode(charlemagne).decode(),
+            "annee_id": ecole["an"].id, "interroger_google": False,
+            "koxo_base64": [base64.b64encode(koxo).decode()],
+        })
+    assert r.status_code == 200, r.text
+    corps = r.json()
+    assert corps["mots_de_passe_verifies"] == 2
+    assert [(e["nom"], e["quoi"]) for e in corps["ecarts_mots_de_passe"]] == [
+        ("BRETON", ["mot de passe différent"]),
+    ]
+    sans_fichier = {k: v for k, v in corps.items() if k != "corrections_base64"}
+    assert "Collège2" not in str(sans_fichier) and "Ancien11" not in str(sans_fichier)
+
+    fichier = base64.b64decode(corps["corrections_base64"])
+    assert fichier == (
+        f"Identifiant;ID Réseau Péda;MDP Réseau Péda\r\n{eleanor.id_charlemagne};ebreton;Collège2\r\n"
+    ).encode("cp1252")
+    assert corps["nom_fichier_corrections"] == "Charlemagne_ReseauPeda_depuis_KoXo_2026-2027.csv"
+
+
+def test_un_export_koxo_sans_mots_de_passe_le_dit(session, ecole, tmp_db_path):
+    from fastapi.testclient import TestClient
+
+    from backend.main import app
+
+    tom = ecole["eleve"]("BIHAN", "Tom", ecole["ndk"], "2_1", login="tbihan")
+    charlemagne = (
+        "\ufeffNum Badge;Nom;Prénom;Code classe;ID Réseau Péda;MDP Réseau Péda\r\n"
+        f"{tom.badge};BIHAN;Tom;2_1;tbihan;Pareil22\r\n"
+    ).encode("utf-8")
+    with TestClient(app) as client:
+        r = client.post("/api/concordance", json={
+            "fichier_base64": base64.b64encode(charlemagne).decode(),
+            "annee_id": ecole["an"].id, "interroger_google": False,
+            "koxo_base64": [base64.b64encode(_export_koxo((tom, "2_1", ""))).decode()],
+        }).json()
+    assert "ne portent pas les mots de passe" in r["mots_de_passe_non_controles"]
+    assert r["corrections_base64"] == ""

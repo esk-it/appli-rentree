@@ -86,6 +86,27 @@ class LigneConcordance:
 
 
 @dataclass
+class EcartMotDePasse:
+    """Un élève dont Charlemagne ne porte pas l'identifiant ou le mot de passe
+    de KoXo. Jamais le mot de passe lui-même : seulement ce qui diffère."""
+
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str | None
+    site: str | None
+    quoi: list[str]
+    """`mot de passe différent`, `mot de passe vide`, `identifiant différent`,
+    `identifiant vide`."""
+
+
+ENTETE_RESEAU_PEDA = "Identifiant;ID Réseau Péda;MDP Réseau Péda"
+"""L'import des informations complémentaires de Charlemagne, tel qu'il a été
+accepté le 15 septembre 2026 : l'identifiant élève en premier, CSV
+point-virgule, cp1252, CRLF, sans BOM."""
+
+
+@dataclass
 class RapportConcordance:
     annee_libelle: str
     google_consulte: bool = False
@@ -113,6 +134,16 @@ class RapportConcordance:
     L'écran Cohérence en concluait que presque tout clochait, et la
     colonne « Cohérent » du référentiel ne pouvait jamais passer au vert
     par une Concordance."""
+
+    mots_de_passe_verifies: int = 0
+    """Élèves dont KoXo et Charlemagne ont pu être comparés."""
+    mots_de_passe_non_controles: str | None = None
+    """Pourquoi la comparaison n'a pas eu lieu, quand elle n'a pas eu lieu."""
+    ecarts_mots_de_passe: list[EcartMotDePasse] = field(default_factory=list)
+    corrections_charlemagne: list[tuple[int, str, str]] = field(default_factory=list, repr=False)
+    """`(identifiant élève, identifiant KoXo, mot de passe KoXo)` pour le fichier
+    qui aligne Charlemagne sur KoXo. Ne quitte le service que dans ce
+    fichier — jamais dans la réponse affichée."""
 
     acces_secondaires: list[str] = field(default_factory=list)
     """Les élèves qui ont aussi un compte sur la base d'un **autre**
@@ -204,12 +235,22 @@ def croiser(
     # qu'ils l'étaient parfaitement.
     principal_par_base = [_site_principal(session, b, par_badge) for b in bases]
     koxo_par_site: dict[str, dict[str, str]] = {}
+    lignes_koxo_par_site: dict[str, dict[str, object]] = {}
     for base, site_base in zip(bases, principal_par_base):
         if site_base is None:
             continue
         index = koxo_par_site.setdefault(site_base, {})
         for ident, groupe in _index_koxo(base).items():
             index.setdefault(ident, groupe)
+        lignes = lignes_koxo_par_site.setdefault(site_base, {})
+        for l in base:
+            ident = (getattr(l, "id_unique", "") or "").strip()
+            if ident:
+                lignes.setdefault(ident, l)
+    avec_mots_de_passe = any(
+        (getattr(l, "mot_de_passe", "") or "").strip()
+        for lignes in lignes_koxo_par_site.values() for l in lignes.values()
+    )
     koxo_sites = set(koxo_par_site)
 
     rapport = RapportConcordance(
@@ -270,6 +311,12 @@ def croiser(
         )
         _classer(ligne, groupes_par_adresse.get(adresse, set()), groupe_vers_classe,
                  rapport)
+        if p is not None and avec_mots_de_passe:
+            site_eleve = sites.get(p.site_id)
+            _comparer_mots_de_passe(
+                rapport, p, enr, site_eleve, classe_ch,
+                lignes_koxo_par_site.get(site_eleve or "", {}).get(badge),
+            )
         if ligne.a_corriger:
             rapport.lignes.append(ligne)
         else:
@@ -277,7 +324,69 @@ def croiser(
             rapport.accords.append(ligne)
 
     rapport.lignes.sort(key=lambda l: (l.propose or "", l.nom, l.prenom))
+    if not bases:
+        rapport.mots_de_passe_non_controles = (
+            "Aucun export KoXo déposé : les mots de passe n'ont pas été comparés."
+        )
+    elif not avec_mots_de_passe:
+        rapport.mots_de_passe_non_controles = (
+            "Les exports KoXo déposés ne portent pas les mots de passe : coche "
+            "« inclure les mots de passe » à l'export pour les comparer à Charlemagne."
+        )
+    elif source and source[0].get("mdp_reseau") is None:
+        rapport.mots_de_passe_non_controles = (
+            "L'export Charlemagne ne porte pas « MDP Réseau Péda » : prends "
+            "l'export enrichi pour comparer les mots de passe."
+        )
+    rapport.ecarts_mots_de_passe.sort(key=lambda e: (e.site or "~", e.classe or "~", e.nom, e.prenom))
     return rapport
+
+
+def _comparer_mots_de_passe(rapport, p, enr, site, classe, k) -> None:
+    """KoXo dit-il la même chose que Charlemagne pour cet élève ?
+
+    KoXo est **le** mot de passe : il ouvre la session sur le réseau, et
+    Charlemagne en garde une copie saisie à la main (Johann, 13 octobre
+    2026). Seule la base KoXo de l'établissement de l'élève compte — un
+    compte DAO sur l'autre serveur est un autre compte.
+    """
+    if k is None or enr.get("mdp_reseau") is None:
+        return
+    mdp_koxo = (getattr(k, "mot_de_passe", "") or "").strip()
+    login_koxo = (getattr(k, "login", "") or "").strip()
+    if not mdp_koxo:
+        return
+    rapport.mots_de_passe_verifies += 1
+    quoi = []
+    mdp_ch = (enr.get("mdp_reseau") or "").strip()
+    login_ch = (enr.get("id_reseau") or "").strip()
+    if not mdp_ch:
+        quoi.append("mot de passe vide")
+    elif mdp_ch != mdp_koxo:
+        quoi.append("mot de passe différent")
+    if enr.get("id_reseau") is not None and login_koxo:
+        if not login_ch:
+            quoi.append("identifiant vide")
+        elif login_ch.lower() != login_koxo.lower():
+            quoi.append("identifiant différent")
+    if not quoi:
+        return
+    rapport.ecarts_mots_de_passe.append(EcartMotDePasse(
+        personne_id=p.id, nom=p.nom or "", prenom=p.prenom or "",
+        classe=classe or p.classe, site=site, quoi=quoi,
+    ))
+    rapport.corrections_charlemagne.append(
+        (p.id_charlemagne, login_koxo or login_ch, mdp_koxo)
+    )
+
+
+def fichier_corrections_charlemagne(rapport: RapportConcordance) -> bytes:
+    """Le fichier qui recopie dans Charlemagne l'identifiant et le mot de
+    passe de KoXo, pour les seuls élèves en écart."""
+    lignes = [ENTETE_RESEAU_PEDA] + [
+        f"{ident};{login};{mdp}" for ident, login, mdp in rapport.corrections_charlemagne
+    ]
+    return ("\r\n".join(lignes) + "\r\n").encode("cp1252", errors="replace")
 
 
 def _lire_source(contenu: bytes) -> list[dict]:
@@ -317,6 +426,11 @@ def _via_csv(contenu: bytes) -> list[dict]:
     i_badge, i_classe = entete.index("Num Badge"), entete.index("Code classe")
     i_nom = entete.index("Nom") if "Nom" in entete else None
     i_prenom = entete.index("Prénom") if "Prénom" in entete else None
+    from backend.services.parser_charlemagne import COLONNES_NORMALISEES, _normaliser_libelle
+
+    normalisees = [COLONNES_NORMALISEES.get(_normaliser_libelle(c)) for c in entete]
+    i_id_reseau = normalisees.index("login_charlemagne") if "login_charlemagne" in normalisees else None
+    i_mdp_reseau = normalisees.index("mdp_charlemagne") if "mdp_charlemagne" in normalisees else None
 
     out = []
     for brute in lignes[1:]:
@@ -330,6 +444,9 @@ def _via_csv(contenu: bytes) -> list[dict]:
             "nom": lire(cellules, i_nom),
             "prenom": lire(cellules, i_prenom),
             "classe": lire(cellules, i_classe),
+            # `None` : la colonne manque ; `""` : la case est vide.
+            "id_reseau": lire(cellules, i_id_reseau) if i_id_reseau is not None else None,
+            "mdp_reseau": lire(cellules, i_mdp_reseau) if i_mdp_reseau is not None else None,
         })
     return out
 
@@ -390,6 +507,8 @@ def _via_pandas(contenu: bytes, suffixe: str) -> list[dict]:
             "nom": texte(r.get("nom")),
             "prenom": texte(r.get("prenom")),
             "classe": texte(r.get("code_classe")),
+            "id_reseau": texte(r.get("login_charlemagne")) if "login_charlemagne" in df.columns else None,
+            "mdp_reseau": texte(r.get("mdp_charlemagne")) if "mdp_charlemagne" in df.columns else None,
         })
     return out
 

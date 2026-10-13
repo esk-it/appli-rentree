@@ -97,6 +97,9 @@ class SecretLu:
     autre_base: bool = False
     """Un compte KoXo sur la base d'un autre établissement (la DAO) : un
     autre compte, que l'étiquette ignore."""
+    a_relire: bool = False
+    """Le relevé KoXo de cette personne est contredit par une source lue
+    après lui : KoXo a peut-être changé, il faut le relire."""
 
 
 # ---------------------------------------------------------------------------
@@ -253,24 +256,20 @@ def lire_secret(cle: bytes, secret: SecretConserve) -> str:
 
 
 ORDRE_DES_CIBLES = ("koxo", "charlemagne", "google")
-"""À relevé du même jour, l'ordre de préséance : KoXo tient le compte."""
+"""KoXo d'abord : c'est **le** mot de passe. Il ouvre la session sur le
+réseau pédagogique ; Charlemagne en garde une copie saisie à la main, et
+Google en a reçu une à la création du compte (Johann, 13 octobre 2026)."""
 
 
 def secrets_a_remettre(
     secrets: list[SecretConserve], site, *, google_d_abord: bool = False
 ) -> list[SecretConserve]:
-    """Les mots de passe de la personne sur son site, le plus sûr d'abord.
+    """Les mots de passe de la personne sur son site, KoXo d'abord.
 
-    Le coffre ne garde que des **relevés** : ce que KoXo ou Charlemagne
-    disaient d'un mot de passe le jour où on les a lus. Entre les deux, le
-    relevé le plus récent passe devant ; le même jour, KoXo, qui tient le
-    compte.
-
-    Vécu le 13 octobre 2026 : KoXo NDK avait été relu le 31 août. Le
-    15 septembre, les 140 montants de SU y ont retrouvé leur mot de passe du
-    collège ; Charlemagne, relu le 12 octobre, portait le bon. Le coffre
-    préférait KoXo sans regarder la date, et l'étiquette d'Eléanor BRETON a
-    porté un mot de passe qui n'existait plus nulle part.
+    KoXo est **le** mot de passe ; Charlemagne en est une copie, Google
+    aussi. Mais le coffre ne garde que des **relevés** : ce que chaque
+    source disait le jour où on l'a lue. Un relevé KoXo peut donc être
+    dépassé — voir `releve_contredit`, qui le dit avant qu'on l'imprime.
 
     Le mot de passe fabriqué pour Google à l'arrivée d'un élève vient en
     dernier là où KoXo existe ; là où il n'existe pas (NDE), il est le seul
@@ -293,11 +292,38 @@ def secrets_a_remettre(
         return s.cible == "charlemagne"
 
     retenus = [s for s in secrets if recevable(s)]
-    # Trois tris stables, du critère le plus faible au plus fort.
     retenus.sort(key=lambda s: ORDRE_DES_CIBLES.index(s.cible))
-    retenus.sort(key=releve_le, reverse=True)
     retenus.sort(key=lambda s: (s.cible != "google") if google_devant else (s.cible == "google"))
     return retenus
+
+
+def releve_contredit(recevables: list[SecretConserve], cle: bytes) -> SecretConserve | None:
+    """Le relevé plus récent qui contredit celui de KoXo, s'il y en a un.
+
+    Vécu le 13 octobre 2026 : KoXo NDK avait été relu le 31 août. Le
+    15 septembre, les 140 montants de SU y ont retrouvé leur mot de passe du
+    collège ; Charlemagne, relu le 12 octobre, portait le bon. Le coffre
+    imprimait le relevé KoXo sans regarder sa date — et l'étiquette d'Eléanor
+    BRETON a porté un mot de passe qui n'existait plus nulle part.
+
+    KoXo reste prioritaire, mais un relevé KoXo contredit par une source lue
+    **après lui** n'est plus sûr : KoXo a peut-être changé depuis. On ne
+    l'imprime pas, on ne le donne pas à Google — on demande de relire KoXo.
+    Relu le même jour ou après, KoXo l'emporte, et l'écart dit qu'il faut
+    corriger l'autre source.
+    """
+    if not recevables or recevables[0].cible != "koxo":
+        return None
+    premier = recevables[0]
+    valeur = None
+    for s in recevables[1:]:
+        if releve_le(s) <= releve_le(premier):
+            continue
+        if valeur is None:
+            valeur = _dechiffrer(cle, premier)
+        if _dechiffrer(cle, s) != valeur:
+            return s
+    return None
 
 
 def releve_le(secret: SecretConserve) -> date:
@@ -335,15 +361,18 @@ class EcartCoffre:
     classe: str | None
     site: str | None
     sources: list[SourceEcart]
+    a_relire: bool = False
+    """KoXo est contredit par un relevé plus récent : rien ne s'imprime pour
+    elle tant que KoXo n'est pas relu."""
 
 
 def ecarts(session: Session, cle: bytes) -> list[EcartCoffre]:
     """Les personnes pour qui deux sources disent deux mots de passe.
 
     Ne rend aucun mot de passe : seulement qui, quelles sources, relues
-    quand, et laquelle l'étiquette prendrait. Un écart dit qu'une source
-    est en retard — souvent le coffre lui-même, quand KoXo a changé depuis
-    son dernier versement.
+    quand. KoXo fait foi : relu le plus récemment, l'écart dit que
+    Charlemagne est à corriger ; relu avant l'autre source, il dit que le
+    coffre est peut-être en retard sur KoXo, et qu'il faut le relire.
     """
     from collections import defaultdict
 
@@ -372,6 +401,7 @@ def ecarts(session: Session, cle: bytes) -> list[EcartCoffre]:
         resultat.append(EcartCoffre(
             personne_id=pid, nom=p.nom or "", prenom=p.prenom or "", classe=p.classe,
             site=site.nom if site else None,
+            a_relire=releve_contredit(recevables, cle) is not None,
             sources=[
                 SourceEcart(cible=s.cible, site=s.site, releve_le=releve_le(s), retenu=i == 0)
                 for i, s in enumerate(recevables)
@@ -440,12 +470,11 @@ def chercher(
         lu.retenu = bool(recevables) and recevables[0] is secret
         lu.autre_base = secret not in recevables
         lu.ecart = len({_dechiffrer(cle, s) for s in recevables}) > 1
+        lu.a_relire = lu.ecart and releve_contredit(recevables, cle) is not None
         if len(trouves) >= limite:
             break
-    # Le relevé le plus récent d'abord ; le même jour, KoXo, qui tient le compte.
-    trouves.sort(key=lambda s: (s.cible == "charlemagne"))
-    trouves.sort(key=lambda s: s.releve_le or date(1970, 1, 1), reverse=True)
-    trouves.sort(key=lambda s: (s.nom, s.prenom))
+    # KoXo avant Charlemagne : c'est lui, le mot de passe.
+    trouves.sort(key=lambda s: (s.nom, s.prenom, s.cible == "charlemagne"))
     return trouves
 
 

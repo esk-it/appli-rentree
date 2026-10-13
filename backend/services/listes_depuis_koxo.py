@@ -304,7 +304,12 @@ def listes_depuis_le_coffre(
         Les autres : voir `_listes`.
     """
     from backend.models import LoginReserve, SecretConserve
-    from backend.services.coffre import lire_secret, releve_le, secrets_a_remettre
+    from backend.services.coffre import (
+        lire_secret,
+        releve_contredit,
+        releve_le,
+        secrets_a_remettre,
+    )
 
     site = session.query(Site).filter_by(id=site_id).one_or_none()
     if site is None:
@@ -332,6 +337,9 @@ def listes_depuis_le_coffre(
             constats[c.badge] = c.login
 
     ecarts: dict[int, str] = {}
+    a_relire: dict[int, tuple[str, str, str]] = {}
+    """`{personne: (nom affiché, détail, classe de l'année)}`."""
+    classe_de = _classes_de_lannee(session, annee_cible_id)
 
     def source(s) -> str:
         nom = {"koxo": f"KoXo {s.site or ''}".strip(), "charlemagne": "Charlemagne",
@@ -343,6 +351,16 @@ def listes_depuis_le_coffre(
         if not recevables:
             return None
         retenu, *suivants = recevables
+        contredit = releve_contredit(recevables, cle)
+        if contredit is not None:
+            # KoXo a peut-être changé depuis son relevé : imprimer l'un ou
+            # l'autre serait deviner. Rien ne sort tant qu'on ne l'a pas relu.
+            a_relire[p.id] = (
+                f"{p.prenom} {p.nom}",
+                f"{p.prenom} {p.nom} ({source(retenu)} ≠ {source(contredit)})",
+                classe_de.get(p.id) or (p.classe or ""),
+            )
+            return None
         mdp = lire_secret(cle, retenu)
         autres = [s for s in suivants if lire_secret(cle, s) != mdp]
         if autres:
@@ -357,21 +375,51 @@ def listes_depuis_le_coffre(
             mot_de_passe=mdp,
         )
 
-    rapport = _listes(
-        session, trouver, source="coffre", site_id=site_id,
-        annee_cible_id=annee_cible_id, annee_source_id=annee_source_id,
-        classes=classes, personne_ids=personne_ids, documents=documents,
-        modele=modele, par_page=par_page, police=police,
-    )
+    def a_relire_dans_la_selection() -> str | None:
+        concernes = [
+            detail for pid, (_, detail, classe) in a_relire.items()
+            if (not personne_ids or pid in personne_ids) and (not classes or classe in classes)
+        ]
+        if not concernes:
+            return None
+        return (
+            f"{len(concernes)} élève(s) sans étiquette : leur relevé KoXo est "
+            "contredit par une source lue après lui — KoXo a peut-être changé. "
+            + ", ".join(concernes[:8]) + (", …" if len(concernes) > 8 else "")
+            + ". Verse au coffre un export KoXo récent (Coffre, ou la Cohérence), "
+            "puis relance."
+        )
+
+    try:
+        rapport = _listes(
+            session, trouver, source="coffre", site_id=site_id,
+            annee_cible_id=annee_cible_id, annee_source_id=annee_source_id,
+            classes=classes, personne_ids=personne_ids, documents=documents,
+            modele=modele, par_page=par_page, police=police,
+        )
+    except ListesImpossibles:
+        # Rien à imprimer parce que KoXo est à relire : le dire, plutôt
+        # que « aucun mot de passe au coffre ».
+        message = a_relire_dans_la_selection()
+        if message:
+            raise ListesImpossibles(message) from None
+        raise
+    if a_relire:
+        # Ils ne sont pas « sans mot de passe » : ils en ont deux, et le
+        # plus sûr n'est pas encore connu.
+        noms = {nom for nom, _, _ in a_relire.values()}
+        rapport.absents_de_la_source = [n for n in rapport.absents_de_la_source if n not in noms]
+        message = a_relire_dans_la_selection()
+        if message:
+            rapport.avertissements.append(message)
     divergents = [ecarts[l.personne_id] for l in rapport.lignes if l.personne_id in ecarts]
     if divergents:
         rapport.avertissements.append(
-            f"{len(divergents)} élève(s) ont au coffre deux mots de passe qui "
-            "diffèrent — l'étiquette porte le plus récemment relu, nommé en "
-            "premier : " + ", ".join(divergents[:8])
-            + (", …" if len(divergents) > 8 else "")
-            + ". Une source est en retard : verse au coffre un export KoXo "
-            "récent ; s'il reste un écart, c'est Charlemagne qu'il faut corriger."
+            f"{len(divergents)} élève(s) : Charlemagne ne dit pas comme KoXo — "
+            "l'étiquette porte celui de KoXo, qui fait foi : "
+            + ", ".join(divergents[:8]) + (", …" if len(divergents) > 8 else "")
+            + ". Corrige « MDP Réseau Péda » dans Charlemagne (la Cohérence en "
+            "fabrique le fichier)."
         )
     return rapport
 

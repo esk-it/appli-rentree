@@ -39,9 +39,12 @@
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import StatCard from "$lib/components/StatCard.svelte";
+  import KeyRound from "@lucide/svelte/icons/key-round";
+  import Download from "@lucide/svelte/icons/download";
   import {
     annees as anneesApi,
     concordance as concordanceApi,
+    enregistrerFichierBase64,
     mouvementsApi,
   } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
@@ -130,6 +133,15 @@
       (l) => l.personne_id && !l.genres.every((g) => HORS_PORTEE.has(g)),
     ),
   );
+
+  /** Le fichier qui aligne Charlemagne sur KoXo — il porte des mots de passe. */
+  async function enregistrerCorrections() {
+    if (!rapport?.corrections_base64) return;
+    const { chemin, annule } = await enregistrerFichierBase64(
+      rapport.nom_fichier_corrections, rapport.corrections_base64, "text/csv",
+    );
+    if (!annule) notify.succes(`${rapport.nom_fichier_corrections} — ${chemin ?? "Téléchargements"}`);
+  }
 
   async function croiser() {
     if (!fichier || !anneeId) return;
@@ -405,6 +417,68 @@
                 : "export KoXo non reconnu")
             : "sans KoXo"}
         />
+      </div>
+
+      <!-- Les mots de passe : KoXo est LE mot de passe — il ouvre la session
+           sur le réseau ; Charlemagne en garde une copie saisie à la main.
+           On compare les deux fichiers déposés, et on fabrique de quoi
+           recopier KoXo dans Charlemagne là où ils diffèrent. -->
+      <div class="card space-y-3 p-4">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-stone-600 dark:text-stone-400">
+            <KeyRound class="h-4 w-4" />
+            Mots de passe : KoXo ↔ Charlemagne
+          </h2>
+          {#if rapport.corrections_base64}
+            <Bouton taille="sm" icon={Download} onclick={enregistrerCorrections}>
+              {rapport.nom_fichier_corrections}
+            </Bouton>
+          {/if}
+        </div>
+        {#if rapport.mots_de_passe_non_controles}
+          <p class="text-sm text-stone-600 dark:text-stone-400">{rapport.mots_de_passe_non_controles}</p>
+        {:else if !rapport.ecarts_mots_de_passe?.length}
+          <p class="flex items-center gap-2 text-sm text-vert-800 dark:text-vert-300">
+            <CheckCircle2 class="h-4 w-4" />
+            {rapport.mots_de_passe_verifies} élève(s) comparés : Charlemagne porte partout
+            l'identifiant et le mot de passe de KoXo.
+          </p>
+        {:else}
+          <p class="text-sm text-stone-700 dark:text-stone-300">
+            {rapport.mots_de_passe_verifies} élève(s) comparés —
+            <strong class="text-red-700 dark:text-red-400">{rapport.ecarts_mots_de_passe.length}</strong>
+            où Charlemagne ne porte pas ce que KoXo dit. KoXo fait foi : le fichier
+            ci-dessus recopie son identifiant et son mot de passe dans « ID Réseau
+            Péda » et « MDP Réseau Péda », pour ceux-là seulement — il s'importe
+            dans Charlemagne comme celui du 15 septembre. Il contient des mots de
+            passe : supprime-le une fois importé.
+          </p>
+          <div class="max-h-72 overflow-auto">
+            <table class="w-full text-left text-sm">
+              <thead class="text-xs uppercase text-stone-500 dark:text-stone-400">
+                <tr>
+                  <th class="py-1 pr-3">Élève</th>
+                  <th class="py-1 pr-3">Classe</th>
+                  <th class="py-1">Dans Charlemagne</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each rapport.ecarts_mots_de_passe as e (e.personne_id)}
+                  <tr class="border-t border-stone-200 dark:border-stone-700">
+                    <td class="py-1.5 pr-3">{e.nom} {e.prenom}</td>
+                    <td class="py-1.5 pr-3 text-xs text-stone-500 dark:text-stone-400">{[e.site, e.classe].filter(Boolean).join(" · ")}</td>
+                    <td class="py-1.5 text-xs text-red-700 dark:text-red-400">{e.quoi.join(", ")}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+        <p class="text-xs text-stone-500 dark:text-stone-400">
+          Google ne se vérifie pas : il ne rend aucun mot de passe, et aucun
+          appel ne permet d'en éprouver un. Ce qu'il porte se constate à la
+          connexion de l'élève — ou s'impose en lui redonnant celui de KoXo.
+        </p>
       </div>
 
       {#if rapport.acces_secondaires?.length}

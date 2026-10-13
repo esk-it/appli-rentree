@@ -28,9 +28,11 @@ numéro Charlemagne : un homonyme n'empêche pas un compte.
 
 ## Le mot de passe
 
-Celui du coffre : celui fabriqué pour Google s'il y en a un (NDE), sinon,
-entre KoXo et Charlemagne, le plus récemment relu — le coffre ne garde
-que des relevés datés (voir `coffre.secrets_a_remettre`). Sans mot de passe, pas de création : en inventer un ici ferait un
+Celui du coffre : celui fabriqué pour Google s'il y en a un (NDE), sinon
+celui de KoXo — c'est **le** mot de passe —, sinon la copie que
+Charlemagne en garde. Un relevé KoXo contredit par une source lue après
+lui ne part pas chez Google : il faut d'abord le relire
+(`coffre.releve_contredit`). Sans mot de passe, pas de création : en inventer un ici ferait un
 troisième mot de passe, que ni KoXo ni la fiche de l'élève ne connaissent.
 
 ## L'unité
@@ -133,8 +135,8 @@ def _annee(session: Session, annee_id: int | None) -> AnneeScolaire:
 def _meilleur_secret(secrets: list[SecretConserve], site):
     """Le mot de passe à donner à Google, sans l'ouvrir.
 
-    Celui fabriqué pour Google d'abord, s'il y en a un ; puis, entre KoXo et
-    Charlemagne, le plus récemment relu — voir `coffre.secrets_a_remettre`.
+    Celui fabriqué pour Google d'abord, s'il y en a un ; puis KoXo, puis
+    Charlemagne — voir `coffre.secrets_a_remettre`.
     """
     from backend.services.coffre import secret_a_remettre
 
@@ -278,7 +280,7 @@ def creer(
     sont maintenant : entre l'aperçu et le clic, quelqu'un a pu créer le
     compte à la main.
     """
-    from backend.services.coffre import lire_secret
+    from backend.services.coffre import lire_secret, releve_contredit, secrets_a_remettre
     from backend.services.google_api import payload_creation_utilisateur
     from backend.services.journal import journaliser
 
@@ -304,9 +306,18 @@ def creer(
             continue
 
         site = session.get(Site, p.site_id) if p.site_id else None
-        secret = _meilleur_secret(
-            session.query(SecretConserve).filter_by(personne_id=pid).all(), site
-        )
+        siens = session.query(SecretConserve).filter_by(personne_id=pid).all()
+        secret = _meilleur_secret(siens, site)
+        contredit = releve_contredit(secrets_a_remettre(siens, site, google_d_abord=True), cle)
+        if contredit is not None:
+            # Donner à Google un mot de passe KoXo peut-être dépassé ferait un
+            # troisième mot de passe : on attend qu'il soit relu.
+            resultats.append(ResultatCreation(
+                **base, statut="ignore",
+                message="Son relevé KoXo est contredit par une source lue après lui : "
+                        "verse au coffre un export KoXo récent, puis recommence.",
+            ))
+            continue
         mot_de_passe = lire_secret(cle, secret)
         r = ResultatCreation(**base, statut="cree", ou=c.ou, groupe=c.groupe)
         identifiant_google = None
@@ -385,7 +396,7 @@ def etiquettes(
         élève, `3_nouveaux` sinon : le nom du fichier le reprend —, et les
         élèves sans mot de passe au coffre.
     """
-    from backend.services.coffre import lire_secret, secret_a_remettre
+    from backend.services.coffre import lire_secret, releve_contredit, secrets_a_remettre
     from backend.services.comptes_sans_koxo import fiches_html
     from backend.services.listes_depuis_koxo import suffixe_eleve
 
@@ -406,12 +417,16 @@ def etiquettes(
             continue
         # Une étiquette porte le mot de passe du réseau : celui que
         # l'élève tape au collège ou au lycée, pas celui fabriqué pour Google.
-        secret = secret_a_remettre(
+        recevables = secrets_a_remettre(
             session.query(SecretConserve).filter_by(personne_id=pid).all(), site
         )
-        if secret is None:
+        if not recevables:
             sans_mot_de_passe.append(f"{p.prenom} {p.nom}")
             continue
+        if releve_contredit(recevables, cle) is not None:
+            sans_mot_de_passe.append(f"{p.prenom} {p.nom} (relevé KoXo à relire)")
+            continue
+        secret = recevables[0]
         classe = classes.get(pid) or p.classe or ""
         par_site.setdefault(site.id, []).append({
             "nom": p.nom or "", "prenom": p.prenom or "",

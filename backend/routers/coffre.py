@@ -165,6 +165,7 @@ class SecretOut(BaseModel):
     retenu: bool = False
     ecart: bool = False
     autre_base: bool = False
+    a_relire: bool = False
 
 
 @router.get("/chercher", response_model=list[SecretOut])
@@ -310,6 +311,7 @@ class EcartOut(BaseModel):
     classe: str | None
     site: str | None
     sources: list[SourceEcartOut]
+    a_relire: bool = False
 
 
 class EcartsOut(BaseModel):

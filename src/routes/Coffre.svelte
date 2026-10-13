@@ -360,21 +360,25 @@
                     <span class="inline-flex flex-wrap items-center gap-2">
                       <button
                         class="group inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 font-mono hover:bg-stone-100 dark:hover:bg-stone-700/50
-                               {s.ecart && !s.retenu && !s.autre_base ? 'text-stone-400 line-through dark:text-stone-500' : ''}"
+                               {s.ecart && !s.retenu && !s.autre_base && !s.a_relire ? 'text-stone-400 line-through dark:text-stone-500' : ''}"
                         onclick={() => copier(s.mot_de_passe)}
                         title="Copier"
                       >
                         {s.mot_de_passe}
                         <Copy class="h-3 w-3 text-stone-400 opacity-0 transition group-hover:opacity-100" />
                       </button>
-                      <!-- Deux sources, deux mots de passe : le relevé le plus
-                           récent fait foi, l'autre est en retard. -->
+                      <!-- KoXo fait foi. Contredit par une source lue après
+                           lui, son relevé est peut-être dépassé : à relire. -->
                       {#if s.autre_base}
                         <Pastille etat="inconnu" texte="autre base" />
+                      {:else if s.a_relire && s.cible === "koxo"}
+                        <Pastille etat="ecart" texte="à relire dans KoXo" />
+                      {:else if s.a_relire}
+                        <Pastille etat="attente" texte="lu après KoXo" />
                       {:else if s.ecart && s.retenu}
-                        <Pastille etat="pret" texte="le plus récent" />
+                        <Pastille etat="pret" texte="KoXo fait foi" />
                       {:else if s.ecart}
-                        <Pastille etat="ecart" texte="relevé dépassé" />
+                        <Pastille etat="ecart" texte="diffère de KoXo" />
                       {/if}
                     </span>
                   </td>
@@ -395,11 +399,13 @@
         <Bouton taille="sm" icon={GitCompare} occupe={comparaison} onclick={comparer}>Comparer</Bouton>
       </div>
       <p class="text-sm text-stone-600 dark:text-stone-400">
-        Le coffre garde ce que KoXo et Charlemagne disaient le jour où on les
-        a lus. Quand les deux diffèrent, une étiquette prend le plus récent,
-        mais une source est en retard : verse un export KoXo récent
-        ci-dessous — si KoXo dit comme Charlemagne, l'écart disparaît. S'il
-        reste, c'est « MDP Réseau Péda » qu'il faut corriger dans Charlemagne.
+        KoXo est <strong>le</strong> mot de passe ; Charlemagne en garde une
+        copie. Mais le coffre ne garde que ce que chacun disait le jour où on
+        l'a lu. Quand Charlemagne a été lu <em>après</em> KoXo et dit autre
+        chose, KoXo a peut-être changé : rien ne s'imprime pour cet élève
+        tant qu'on n'a pas reversé un export KoXo récent ci-dessous. Lu le
+        même jour ou après, KoXo l'emporte — et c'est Charlemagne qu'il faut
+        corriger (la Cohérence en fabrique le fichier).
       </p>
       {#if ecarts}
         <p class="text-xs tabular-nums text-stone-500 dark:text-stone-400">
@@ -416,8 +422,8 @@
               <thead class="text-xs uppercase text-stone-500 dark:text-stone-400">
                 <tr>
                   <th class="py-1 pr-3">Personne</th>
-                  <th class="py-1 pr-3">Retenu pour les étiquettes</th>
-                  <th class="py-1">En retard</th>
+                  <th class="py-1 pr-3">KoXo</th>
+                  <th class="py-1">Ce qui diffère</th>
                 </tr>
               </thead>
               <tbody>
@@ -430,6 +436,11 @@
                     {#each [e.sources.filter((s) => s.retenu), e.sources.filter((s) => !s.retenu)] as groupe, i (i)}
                       <td class="py-1.5 pr-3 text-xs {i ? 'text-red-700 dark:text-red-400' : 'text-stone-600 dark:text-stone-300'}">
                         {groupe.map((s) => `${nomSource(s)}, relu le ${jour(s.releve_le)}`).join(" · ")}
+                        {#if !i}
+                          <span class="block font-semibold {e.a_relire ? 'text-red-700 dark:text-red-400' : 'text-vert-700 dark:text-vert-300'}">
+                            {e.a_relire ? "à relire dans KoXo — rien ne s'imprime" : "fait foi — corriger Charlemagne"}
+                          </span>
+                        {/if}
                       </td>
                     {/each}
                   </tr>

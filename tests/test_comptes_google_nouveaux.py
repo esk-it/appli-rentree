@@ -260,3 +260,22 @@ def test_rien_ne_se_cree_sans_confirmation_ni_coffre_ouvert(client):
         "/api/google/nouveaux-sans-compte/creer", json={"personne_ids": [1], "confirmation": True}
     )
     assert r.status_code == 401, "coffre fermé : pas de mot de passe, pas de compte"
+
+
+def test_un_releve_koxo_contredit_ne_part_pas_chez_google(session, ecole, cle):
+    """KoXo est LE mot de passe, mais un relevé KoXo contredit par Charlemagne
+    lu après lui est peut-être dépassé : Google n'en reçoit pas de copie."""
+    from backend.models import SecretConserve
+    from backend.services.comptes_google_nouveaux import creer
+
+    lea = ecole["eleve"]("ROUE", "Léa", 8761)
+    _deposer(session, cle, lea, "Ancien11", cible="koxo", site="NDK")
+    _deposer(session, cle, lea, "Collège2")
+    for s in session.query(SecretConserve).filter_by(personne_id=lea.id):
+        s.date_maj = datetime(2026, 8, 31) if s.cible == "koxo" else datetime(2026, 10, 12)
+    session.commit()
+    google = FauxGoogle([_compte("camarade@lekreisker.fr")])
+
+    (r,) = creer(session, google, cle, [lea.id])
+    assert r.statut == "ignore" and "relevé KoXo" in r.message
+    assert google.creations == []
