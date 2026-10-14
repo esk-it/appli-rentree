@@ -350,6 +350,10 @@
         // personne n'allait la chercher.
         { id: "cartes", label: "Les cartes", icon: CreditCard },
         { id: "produire", label: "Produire un fichier", icon: FileDown },
+        // Les mots de passe servent toute l'année — une étiquette perdue, un
+        // compte Google à réaligner sur KoXo. Le coffre n'avait pas de
+        // porte : on ne le trouvait que par la recherche (Johann, 14/10).
+        { id: "coffre", label: "Coffre", icon: KeyRound },
         // « Pourquoi ce compte est-il là ? » se pose des mois après :
         // le journal existait, il n'avait simplement pas de porte.
         { id: "sodexo", label: "Sodexo", icon: UtensilsCrossed },
@@ -418,7 +422,6 @@
     { id: "nouveaux", label: "Nouveaux arrivants", icon: UserPlus },
     { id: "arrivees", label: "Arrivée", icon: UserPlus },
     { id: "bilan", label: "Bilan de rentrée", icon: ClipboardCheck },
-    { id: "coffre", label: "Coffre", icon: KeyRound },
     { id: "statistiques", label: "Statistiques", icon: BarChart3 },
     { id: "suivi", label: "Suivi", icon: Activity },
   ];
