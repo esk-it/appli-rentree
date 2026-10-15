@@ -9,6 +9,7 @@ from backend.models.arbitrage import Arbitrage
 from backend.models.compte_cible import CompteCible
 from backend.models.envoi import Envoi, LigneEnvoi
 from backend.models.etablissement import Etablissement
+from backend.models.etape_rentree import EtapeRentree
 from backend.models.fiche_fusionnee import FicheFusionnee
 from backend.models.generation import Generation
 from backend.models.login_reserve import LoginReserve
@@ -33,6 +34,7 @@ __all__ = [
     "CompteCible",
     "Envoi",
     "Etablissement",
+    "EtapeRentree",
     "FicheFusionnee",
     "LigneEnvoi",
     "Generation",

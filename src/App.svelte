@@ -72,6 +72,7 @@
   import Statistiques from "./routes/Statistiques.svelte";
   import OuCaCoince from "./routes/OuCaCoince.svelte";
   import Parcours from "./routes/Parcours.svelte";
+  import Rentree from "./routes/Rentree.svelte";
   import Atelier from "./routes/Atelier.svelte";
   import Ts1000 from "./routes/Ts1000.svelte";
   import Photos from "./routes/Photos.svelte";
@@ -318,7 +319,10 @@
       label: "La rentrée",
       icon: Rocket,
       resume: "La campagne conduite étape par étape",
-      ecrans: [{ id: "parcours", label: "Le parcours", icon: Rocket }],
+      // Un long tutoriel, étape par étape, chaque étape validée sur ce qui
+      // se constate (Johann, 15/10/2026). L'ancien parcours reste dans les
+      // outils le temps qu'on s'en passe.
+      ecrans: [{ id: "rentree", label: "La rentrée pas à pas", icon: Rocket }],
     },
     {
       id: "annee",
@@ -394,6 +398,7 @@
    * recherche, simplement hors du chemin.
    */
   const OUTILS = [
+    { id: "parcours", label: "Ancien parcours", icon: Rocket },
     { id: "sites", label: "Sites", icon: Building2 },
     { id: "table_correspondance", label: "Table de correspondance", icon: TableIcon },
     { id: "amorcage", label: "Amorçage KoXo", icon: Rocket },
@@ -931,6 +936,8 @@
           <Statistiques />
         {:else if page === "ou_ca_coince"}
           <OuCaCoince onNaviguer={(p) => (page = p)} />
+        {:else if page === "rentree"}
+          <Rentree onNaviguer={(p) => (page = p)} />
         {:else if page === "parcours"}
           <Parcours etats={etapesEtats} onRelireAvancement={relireAvancement} />
         {:else if page === "bouge"}

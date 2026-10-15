@@ -1233,6 +1233,39 @@ export const mouvementsApi = {
   },
 };
 
+/**
+ * La rentrée guidée : l'état de la campagne et les gestes sur ses étapes.
+ * Une campagne se désigne par sa rentrée, « 2027-2028 ». Google n'est lu
+ * que sur demande (`google: true`), jamais à la navigation.
+ */
+async function _rentreePost(chemin, corps) {
+  return jsonOrThrow(
+    await fetch(`${BASE}/rentree/${chemin}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(corps),
+    }),
+  );
+}
+
+export const rentreeApi = {
+  /** Sans `annee` : la rentrée qui se prépare. */
+  async etat(annee = null) {
+    const q = annee ? `?annee=${encodeURIComponent(annee)}` : "";
+    return jsonOrThrow(await fetch(`${BASE}/rentree/etat${q}`));
+  },
+  commencer: (libelle) => _rentreePost("commencer", { libelle }),
+  ouvrir: (etape, { annee, google = false }) =>
+    _rentreePost(`etapes/${etape}/ouvrir`, { annee, google }),
+  declarer: (etape, { annee, geste, fait = true }) =>
+    _rentreePost(`etapes/${etape}/gestes`, { annee, geste, fait }),
+  valider: (etape, { annee, forcer = false, note = null }) =>
+    _rentreePost(`etapes/${etape}/valider`, { annee, forcer, note, google: true }),
+  reporter: (etape, { annee, note = null }) =>
+    _rentreePost(`etapes/${etape}/reporter`, { annee, note }),
+  rouvrir: (etape, { annee }) => _rentreePost(`etapes/${etape}/rouvrir`, { annee }),
+};
+
 /** Où en est la rentrée, étape par étape. */
 export const parcoursApi = {
   /** Ce qui se lit sans réseau. Rejoué à chaque navigation. */

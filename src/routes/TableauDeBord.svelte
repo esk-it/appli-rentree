@@ -2,16 +2,14 @@
   import { onMount } from "svelte";
   import Search from "@lucide/svelte/icons/search";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
-  import Cloud from "@lucide/svelte/icons/cloud";
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
   import Rocket from "@lucide/svelte/icons/rocket";
   import Squelette from "$lib/components/Squelette.svelte";
   import Bouton from "$lib/components/Bouton.svelte";
   import Progression from "$lib/components/Progression.svelte";
-  import { annees, parcoursApi, statistiques } from "$lib/api.js";
+  import { annees, rentreeApi, statistiques } from "$lib/api.js";
   import { TEINTES, teinte } from "$lib/familles.js";
-  import { annee, courante } from "$lib/annee.svelte.js";
-  import { notify } from "$lib/toasts.js";
+  import { courante } from "$lib/annee.svelte.js";
 
   /**
    * L'accueil : où l'on est, ce qui cloche, et où aller.
@@ -47,8 +45,7 @@
   let listeAnnees = $state([]);
   let anomalies = $state(/** @type {null | any} */ (null));
   let chargement = $state(true);
-  let etats = $state(/** @type {Record<string, any>} */ ({}));
-  let interrogationGoogle = $state(false);
+  let campagne = $state(/** @type {any} */ (null));
 
   /** L'année de travail choisie dans l'en-tête, et non une devinée ici. */
   let anneeCourante = $derived(courante());
@@ -68,48 +65,15 @@
     }
   });
 
-  // Le parcours suit l'année choisie : en changer doit relire l'avancement,
-  // sans quoi l'écran afficherait l'état d'une autre année sous son titre.
-  $effect(() => {
-    const id = annee.id;
-    if (!id) return;
-    parcoursApi
-      .avancement(id)
-      .then((r) => {
-        etats = Object.fromEntries(r.etapes.map((e) => [e.id, e]));
-      })
-      .catch(() => {
-        etats = {};
-      });
+  // La rentrée qui se prépare, telle que l'assistant la tient : une lecture
+  // locale, sans Google.
+  onMount(() => {
+    rentreeApi
+      .etat()
+      .then((r) => (campagne = r))
+      .catch(() => (campagne = null));
   });
 
-  /**
-   * Les cinq étapes que seul Google peut trancher.
-   *
-   * Plusieurs appels réseau : c'est un geste qu'on demande, jamais un
-   * effet de bord de l'affichage.
-   */
-  async function interrogerGoogle() {
-    if (!annee.id) return;
-    interrogationGoogle = true;
-    try {
-      const r = await parcoursApi.avancementGoogle({ anneeId: annee.id });
-      etats = Object.fromEntries(r.etapes.map((e) => [e.id, e]));
-      notify.succes(`${r.nb_faites} étape(s) faites sur ${r.etapes.length}`);
-    } catch (e) {
-      notify.erreur(String(e).replace(/^Error:\s*/, ""));
-    } finally {
-      interrogationGoogle = false;
-    }
-  }
-
-  let nbFaites = $derived(
-    Object.values(etats).filter((e) => e.etat === "faite").length,
-  );
-  let nbEtapes = $derived(Object.keys(etats).length);
-  let nbInconnues = $derived(
-    Object.values(etats).filter((e) => e.etat === "inconnu").length,
-  );
   let bloquants = $derived(
     (anomalies?.anomalies ?? []).filter((a) => a.gravite === "bloquant"),
   );
@@ -199,15 +163,14 @@
     {/if}
 
     <!-- ----------------------------------------------------------------
-         La rentrée : un bandeau, et le parcours à côté.
+         La rentrée : un bandeau, et la porte de l'assistant.
 
-         La liste des quinze étapes vivait ici en double de l'écran du
-         parcours, qui les montre en entier avec leurs pièges et leur
-         outil. Deux listes pour la même chose, dont une tronquée : celle
-         qui ne sert à rien est celle-ci. Reste ce que l'accueil doit
-         dire — où l'on en est — et la porte pour y aller.
+         La liste des étapes vivait ici en double de l'écran de la
+         rentrée, qui les montre en entier avec leurs gestes et leurs
+         pièges. Reste ce que l'accueil doit dire — où l'on en est — et la
+         porte pour y aller.
          ---------------------------------------------------------------- -->
-    {#if nbEtapes > 0}
+    {#if campagne}
       <section
         class="rounded-3xl p-6"
         style="background: color-mix(in oklab, {TEINTES.rentree} 9%, transparent);"
@@ -222,42 +185,37 @@
           </span>
           <div class="min-w-0">
             <h2 class="titre-affiche text-xl" style="color: {TEINTES.rentree};">
-              La rentrée {anneeCourante?.libelle ?? ""}
+              La rentrée {campagne.annee}
             </h2>
             <p class="text-[13px] text-stone-600 dark:text-stone-300">
-              <strong class="tabular-nums">{nbFaites}</strong> étape{nbFaites > 1 ? "s" : ""}
-              faite{nbFaites > 1 ? "s" : ""} sur {nbEtapes}
-              {#if nbInconnues > 0}
-                · <span class="tabular-nums">{nbInconnues}</span> qui ne se
-                constatent que dans Google
+              {#if campagne.commencee}
+                <strong class="tabular-nums">{campagne.nb_validees}</strong>
+                étape{campagne.nb_validees > 1 ? "s" : ""} validée{campagne.nb_validees > 1 ? "s" : ""}
+                sur {campagne.etapes.length}
+              {:else if campagne.trop_tot}
+                S'ouvre le {campagne.s_ouvre_le.split("-").reverse().join("/")} — d'ici là, elle se visite
+              {:else}
+                Pas encore commencée
               {/if}
             </p>
           </div>
           <div class="ml-auto flex flex-wrap items-center gap-2">
-            {#if nbInconnues > 0}
-              <Bouton
-                taille="sm"
-                icon={Cloud}
-                occupe={interrogationGoogle}
-                onclick={interrogerGoogle}
-              >
-                Interroger Google
-              </Bouton>
-            {/if}
             <Bouton
               variante="primary"
               taille="sm"
               icon={ArrowRight}
-              onclick={() => aller("parcours")}
+              onclick={() => aller("rentree")}
             >
-              Ouvrir le parcours
+              Ouvrir la rentrée
             </Bouton>
           </div>
         </div>
 
-        <div class="mt-5">
-          <Progression valeur={nbFaites} total={nbEtapes} teinte={TEINTES.rentree} />
-        </div>
+        {#if campagne.commencee}
+          <div class="mt-5">
+            <Progression valeur={campagne.nb_validees} total={campagne.etapes.length} teinte={TEINTES.rentree} />
+          </div>
+        {/if}
       </section>
     {/if}
 

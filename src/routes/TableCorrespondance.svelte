@@ -85,7 +85,7 @@
       if (mode === "reel") {
         notify.succes(`${rapportRotation.nb_lignes_modifiees} ligne(s) mises à jour`);
         rotationOuverte = false;
-        await rafraichir();
+        await recharger();
       }
     } catch (e) {
       notify.erreur(String(e).replace(/^Error:\s*/, ""));
