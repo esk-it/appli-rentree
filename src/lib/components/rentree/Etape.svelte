@@ -7,6 +7,7 @@
   import Bouton from "$lib/components/Bouton.svelte";
   import BandeChapitres from "./BandeChapitres.svelte";
   import KoxoImport from "./schemas/KoxoImport.svelte";
+  import KoxoExport from "./schemas/KoxoExport.svelte";
   import CaptureAttendue from "./schemas/CaptureAttendue.svelte";
   import Repere from "./schemas/Repere.svelte";
   import { CONTENU, gesteCourant } from "$lib/rentree/etapes.js";
@@ -41,7 +42,7 @@
   /** @type {Props} */
   let { etat, etapeId, visite = false, outils, onEtat, onAller, onNaviguer } = $props();
 
-  const SCHEMAS = { koxo_import: KoxoImport };
+  const SCHEMAS = { koxo_import: KoxoImport, koxo_export: KoxoExport };
   const libelle = (e) => String(e).replace(/^Error:\s*/, "");
 
   let etape = $derived(etat.etapes.find((e) => e.id === etapeId));
@@ -183,7 +184,7 @@
     );
 
   const logicielDe = (g) =>
-    g.schema === "koxo_import" ? "KoXo" : (g.capture ?? "").split(" :")[0] || "ce logiciel";
+    g.schema?.startsWith("koxo") ? "KoXo" : (g.capture ?? "").split(" :")[0] || "ce logiciel";
 
   const heure = (iso) => (iso ? iso.slice(11, 16).replace(":", " h ") : "");
   const jour = (iso) => (iso ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : "");
@@ -354,13 +355,15 @@
           </div>
         {/if}
 
+        <!-- Un geste peut passer par un autre logiciel puis par le programme :
+             exporter de KoXo, puis déposer l'export ici. -->
         <div class="flex min-w-0 flex-col gap-4">
-          {#if affiche.type === "externe"}
+          {#if (affiche.schema && SCHEMAS[affiche.schema]) || (affiche.type === "externe" && affiche.capture)}
             <h2 class="libelle-champ">Où cliquer dans {logicielDe(affiche)}</h2>
             {#if affiche.schema && SCHEMAS[affiche.schema]}
               {@const Schema = SCHEMAS[affiche.schema]}
-              <Schema {...affiche.schemaProps ?? {}} />
-            {:else if affiche.capture}
+              {#key affiche.id}<Schema {...affiche.schemaProps ?? {}} />{/key}
+            {:else}
               <CaptureAttendue capture={affiche.capture} />
             {/if}
             {#if affiche.attendu}
@@ -369,9 +372,10 @@
                 <p class="titre-affiche text-xl text-stone-900 dark:text-stone-100">{affiche.attendu}</p>
               </div>
             {/if}
-          {:else if affiche.outil}
+          {/if}
+          {#if affiche.outil}
             {@const entree = outils[affiche.outil.page]}
-            <h2 class="libelle-champ">Dans le programme{entree ? ` · ${entree.label}` : ""}</h2>
+            <h2 class="libelle-champ {affiche.schema ? 'mt-4' : ''}">{affiche.schema ? "Puis dans le programme" : "Dans le programme"}{entree ? ` · ${entree.label}` : ""}</h2>
             {#if visite || !entree}
               <div class="grid min-h-[160px] place-items-center rounded-xl border-2 border-dashed border-stone-300 px-6 text-center text-sm text-stone-500 dark:border-stone-700 dark:text-stone-400">
                 {visite ? `Ici s'ouvrira « ${entree?.label ?? affiche.outil.page} », le jour venu.` : "Cet outil n'est pas disponible ici."}

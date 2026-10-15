@@ -45,6 +45,75 @@ export const CALENDRIER = {
   clore: { debut: "09-08", fin: "09-12" },
 };
 
+/**
+ * Les quatre gestes KoXo d'une base — les mêmes pour NDK et pour SU.
+ *
+ * Les consignes suivent les fenêtres de KoXo Administrator V4.0, d'après
+ * les captures de Johann (16 octobre 2026) ; les repères ①… renvoient
+ * aux planches des schémas `koxo_import` et `koxo_export`.
+ *
+ * @param {"NDK"|"SU"} base
+ * @returns {Geste[]}
+ */
+function gestesKoxo(base) {
+  const b = base.toLowerCase();
+  return [
+    {
+      id: `fichier_${b}`,
+      titre: `Récupérer le fichier pour ${base}`,
+      type: "programme",
+      consignes: [`Site ${base}, élèves, « Tous (état complet visé) ».`, "Enregistre le fichier : c'est lui que KoXo va lire."],
+      outil: { page: "exports", props: { cibleInitiale: "koxo" } },
+      fait: `J'ai le fichier ${base}`,
+    },
+    {
+      id: `importer_${b}`,
+      titre: `Le synchroniser dans KoXo ${base}`,
+      type: "externe",
+      consignes: [
+        `Ouvre KoXo Administrator sur le serveur de ${base}.`,
+        "Dans l'arbre, clic droit sur le groupe « Elèves » ①.",
+        "« Synchroniser les groupes secondaires et les utilisateurs » ②, puis « A partir d'un fichier texte CSV ».",
+        "Étape 1/8 : coche « Synchronisation non destructive » ③, laisse l'archivage décoché, « Suivant », et choisis le fichier.",
+        "Étape 2/8 : les champs doivent être ceux du schéma ④ — l'ID unique en priorité, la virgule, la première ligne ignorée.",
+        "Étape 6/8 : lis les opérations annoncées ⑤ avant de continuer.",
+      ],
+      schema: "koxo_import",
+      schemaProps: { base },
+      attendu: `Créer : les entrants de ${base}. Jamais des désactivations par centaines.`,
+      fait: `C'est synchronisé dans KoXo ${base}`,
+    },
+    {
+      id: `relire_${b}`,
+      titre: `Exporter KoXo ${base} et le redonner au programme`,
+      type: "programme",
+      consignes: [
+        `Dans KoXo ${base} : Général › Exporter › des utilisateurs › au format texte CSV ①.`,
+        "KoXo passe en MODE SELECTION : fais glisser le groupe « Elèves » de l'arbre vers la liste ②, en laissant coché « Ne pas glisser-déposer les comptes désactivés ».",
+        "« Exporter » ③, le filtre « Complet Utilisateur » ④, OK, et enregistre le fichier.",
+        "« Quitter le Mode sélection ».",
+        `Dépose le fichier ci-dessous, en désignant la base ${base} : c'est ce qui prouve que c'est fait.`,
+      ],
+      schema: "koxo_export",
+      schemaProps: { base },
+      outil: { page: "controle_koxo" },
+      fait: `L'export ${base} est relu`,
+    },
+    {
+      id: `verser_${b}`,
+      titre: `Ranger ses mots de passe au coffre`,
+      type: "programme",
+      consignes: [
+        "Coffre ouvert, « Verser un export KoXo » : le même fichier, la même base.",
+        "Le coffre dit combien de mots de passe ont changé depuis le dernier relevé.",
+        "Puis supprime le fichier : il contient les mots de passe en clair.",
+      ],
+      outil: { page: "coffre" },
+      fait: `Les mots de passe ${base} sont au coffre`,
+    },
+  ];
+}
+
 /** @type {Record<string, ContenuEtape>} */
 export const CONTENU = {
   mise_en_place: {
@@ -205,77 +274,18 @@ export const CONTENU = {
   },
 
   koxo: {
-    duree: "≈ 30 min",
-    but: "KoXo crée les comptes réseau des entrants et range chacun dans sa classe. C'est lui qui fabrique LE mot de passe de l'élève. NDK d'abord, SU ensuite.",
+    duree: "≈ 40 min",
+    but: "KoXo crée les comptes réseau des entrants et range chacun dans sa classe. C'est lui qui fabrique LE mot de passe de l'élève — et le coffre doit en garder la copie fraîche. NDK d'abord, SU ensuite.",
     gestes: [
-      {
-        id: "fichier_ndk",
-        titre: "Récupérer le fichier pour NDK",
-        type: "programme",
-        consignes: ["Site NDK, élèves, « Tous (état complet visé) ».", "Enregistre le fichier."],
-        outil: { page: "exports", props: { cibleInitiale: "koxo" } },
-        fait: "J'ai le fichier NDK",
-      },
-      {
-        id: "importer_ndk",
-        titre: "L'importer dans KoXo NDK",
-        type: "externe",
-        consignes: [
-          "Ouvre KoXo Administrateur sur le serveur de NDK.",
-          "Utilisateurs › Importer ①, choisis le fichier.",
-          "Mode Synchronisation non destructive ②.",
-          "Compare le résumé ③ à ce que le programme attend, avant de lancer.",
-        ],
-        schema: "koxo_import",
-        schemaProps: { base: "NDK" },
-        attendu: "Désactiver 0 — toujours. Créer : les entrants de NDK.",
-        fait: "C'est importé dans KoXo NDK",
-      },
-      {
-        id: "relire_ndk",
-        titre: "Redonner au programme l'export de KoXo NDK",
-        type: "programme",
-        consignes: [
-          "Dans KoXo NDK : exporte tous les comptes, mots de passe inclus.",
-          "Dépose l'export ici, en désignant la base NDK : c'est ce qui prouve que c'est fait.",
-        ],
-        outil: { page: "controle_koxo" },
-        fait: "L'export NDK est relu",
-      },
-      {
-        id: "fichier_su",
-        titre: "Récupérer le fichier pour SU",
-        type: "programme",
-        consignes: ["Site SU, élèves, « Tous (état complet visé) »."],
-        outil: { page: "exports", props: { cibleInitiale: "koxo" } },
-        fait: "J'ai le fichier SU",
-      },
-      {
-        id: "importer_su",
-        titre: "L'importer dans KoXo SU",
-        type: "externe",
-        consignes: [
-          "Les mêmes gestes, sur le serveur de SU.",
-          "Mode Synchronisation non destructive, et Désactiver 0.",
-        ],
-        schema: "koxo_import",
-        schemaProps: { base: "SU" },
-        attendu: "Désactiver 0 — toujours. Créer : les entrants de SU.",
-        fait: "C'est importé dans KoXo SU",
-      },
-      {
-        id: "relire_su",
-        titre: "Redonner au programme l'export de KoXo SU",
-        type: "programme",
-        consignes: ["Exporte, mots de passe inclus, et dépose ici en désignant SU."],
-        outil: { page: "controle_koxo" },
-        fait: "L'export SU est relu",
-      },
+      ...gestesKoxo("NDK"),
+      ...gestesKoxo("SU"),
     ],
     pieges: [
       "KoXo lit le fichier comme un ÉTAT COMPLET : tout compte absent du fichier est désactivé. Un essai sur une seule ligne désactive tous les autres.",
-      "Toujours en mode non destructif. Si KoXo annonce « Désactiver » plus que 0, n'appuie pas sur Lancer.",
+      "Toujours « Synchronisation non destructive » : le mode destructif supprime ce qui manque au fichier, à commencer par les comptes que la reconnaissance a manqués.",
+      "À l'étape 6/8, lis le nombre de désactivations avant de continuer : il doit correspondre aux départs attendus, jamais à la taille de la base.",
       "La synchronisation reconnaît un compte par son ID unique, pas par la date de naissance : un compte non reconnu est recréé sous un autre identifiant.",
+      "Un mot de passe changé dans KoXo et pas reversé au coffre, c'est une étiquette fausse (Eléanor, septembre 2026).",
     ],
   },
 
