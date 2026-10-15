@@ -48,16 +48,41 @@ export const CALENDRIER = {
 /**
  * Les quatre gestes KoXo d'une base — les mêmes pour NDK et pour SU.
  *
+ * Une seule passe, « Tous » : non destructive, orphelins désactivés. Les
+ * sortants sont désactivés, pas supprimés — c'est ainsi que Johann règle
+ * KoXo (16 octobre 2026). La première rentrée en faisait deux (les
+ * sortants d'abord, dans un groupe à part) : la seconde n'apportait rien
+ * que la désactivation des orphelins ne fasse déjà.
+ *
  * Les consignes suivent les fenêtres de KoXo Administrator V4.0, d'après
- * les captures de Johann (16 octobre 2026) ; les repères ①… renvoient
- * aux planches des schémas `koxo_import` et `koxo_export`.
+ * ses captures ; les repères ①… renvoient aux planches des schémas
+ * `koxo_import` et `koxo_export`.
  *
  * @param {"NDK"|"SU"} base
  * @returns {Geste[]}
  */
 function gestesKoxo(base) {
   const b = base.toLowerCase();
+  const exporter = [
+    `Dans KoXo ${base} : Général › Exporter › des utilisateurs › au format texte CSV ①.`,
+    "KoXo passe en MODE SELECTION : fais glisser le groupe « Elèves » de l'arbre vers la liste ②, en laissant coché « Ne pas glisser-déposer les comptes désactivés ».",
+    "« Exporter » ③, le filtre « Complet Utilisateur » ④, OK, et enregistre le fichier. Puis « Quitter le Mode sélection ».",
+  ];
   return [
+    {
+      id: `controler_${b}`,
+      titre: `Exporter KoXo ${base} et le contrôler`,
+      type: "programme",
+      consignes: [
+        ...exporter,
+        `Dépose l'export ci-dessous : élèves, site ${base}, l'année de la rentrée.`,
+        "Corrige dans KoXo ce que le contrôle signale, et note ce que la synchronisation annoncera : Créer, Désactiver.",
+      ],
+      schema: "koxo_export",
+      schemaProps: { base },
+      outil: { page: "controle_koxo" },
+      fait: "C'est contrôlé, j'ai noté les chiffres",
+    },
     {
       id: `fichier_${b}`,
       titre: `Récupérer le fichier pour ${base}`,
@@ -74,40 +99,27 @@ function gestesKoxo(base) {
         `Ouvre KoXo Administrator sur le serveur de ${base}.`,
         "Dans l'arbre, clic droit sur le groupe « Elèves » ①.",
         "« Synchroniser les groupes secondaires et les utilisateurs » ②, puis « A partir d'un fichier texte CSV ».",
-        "Étape 1/8 : coche « Synchronisation non destructive » ③, laisse l'archivage décoché, « Suivant », et choisis le fichier.",
+        "Étape 1/8 : coche « Synchronisation non destructive » et laisse « Désactiver les comptes orphelins » coché ③ — les sortants seront désactivés, pas supprimés. L'archivage reste décoché. « Suivant », et choisis le fichier.",
         "Étape 2/8 : les champs doivent être ceux du schéma ④ — l'ID unique en priorité, la virgule, la première ligne ignorée.",
-        "Étape 6/8 : lis les opérations annoncées ⑤ avant de continuer.",
+        "Étapes 3 à 6 : garde ce que KoXo propose, « Suivant ».",
+        "Étape 7/8 : KoXo annonce ses opérations ⑤. Créer et Désactiver doivent être ceux que le contrôle a annoncés : alors « Oui ». Sinon, « Non ».",
       ],
       schema: "koxo_import",
       schemaProps: { base },
-      attendu: `Créer : les entrants de ${base}. Jamais des désactivations par centaines.`,
+      attendu: "Créer et Désactiver : les chiffres du contrôle, au geste 1.",
       fait: `C'est synchronisé dans KoXo ${base}`,
     },
     {
-      id: `relire_${b}`,
-      titre: `Exporter KoXo ${base} et le redonner au programme`,
+      id: `verser_${b}`,
+      titre: `Réexporter KoXo ${base} et le verser au coffre`,
       type: "programme",
       consignes: [
-        `Dans KoXo ${base} : Général › Exporter › des utilisateurs › au format texte CSV ①.`,
-        "KoXo passe en MODE SELECTION : fais glisser le groupe « Elèves » de l'arbre vers la liste ②, en laissant coché « Ne pas glisser-déposer les comptes désactivés ».",
-        "« Exporter » ③, le filtre « Complet Utilisateur » ④, OK, et enregistre le fichier.",
-        "« Quitter le Mode sélection ».",
-        `Dépose le fichier ci-dessous, en désignant la base ${base} : c'est ce qui prouve que c'est fait.`,
+        ...exporter,
+        `Coffre ouvert, « Verser un export KoXo », base ${base} : les nouveaux comptes y laissent leur mot de passe, et le coffre dit lesquels ont changé.`,
+        "Puis supprime le fichier : il contient les mots de passe en clair.",
       ],
       schema: "koxo_export",
       schemaProps: { base },
-      outil: { page: "controle_koxo" },
-      fait: `L'export ${base} est relu`,
-    },
-    {
-      id: `verser_${b}`,
-      titre: `Ranger ses mots de passe au coffre`,
-      type: "programme",
-      consignes: [
-        "Coffre ouvert, « Verser un export KoXo » : le même fichier, la même base.",
-        "Le coffre dit combien de mots de passe ont changé depuis le dernier relevé.",
-        "Puis supprime le fichier : il contient les mots de passe en clair.",
-      ],
       outil: { page: "coffre" },
       fait: `Les mots de passe ${base} sont au coffre`,
     },
@@ -274,8 +286,8 @@ export const CONTENU = {
   },
 
   koxo: {
-    duree: "≈ 40 min",
-    but: "KoXo crée les comptes réseau des entrants et range chacun dans sa classe. C'est lui qui fabrique LE mot de passe de l'élève — et le coffre doit en garder la copie fraîche. NDK d'abord, SU ensuite.",
+    duree: "≈ 45 min",
+    but: "KoXo crée les comptes réseau des entrants, range chacun dans sa classe et désactive les sortants. C'est lui qui fabrique LE mot de passe de l'élève — et le coffre doit en garder la copie fraîche. NDK d'abord, SU ensuite.",
     gestes: [
       ...gestesKoxo("NDK"),
       ...gestesKoxo("SU"),
@@ -283,8 +295,8 @@ export const CONTENU = {
     pieges: [
       "KoXo lit le fichier comme un ÉTAT COMPLET : tout compte absent du fichier est désactivé. Un essai sur une seule ligne désactive tous les autres.",
       "Toujours « Synchronisation non destructive » : le mode destructif supprime ce qui manque au fichier, à commencer par les comptes que la reconnaissance a manqués.",
-      "À l'étape 6/8, lis le nombre de désactivations avant de continuer : il doit correspondre aux départs attendus, jamais à la taille de la base.",
-      "La synchronisation reconnaît un compte par son ID unique, pas par la date de naissance : un compte non reconnu est recréé sous un autre identifiant.",
+      "Des centaines de désactivations en août, ce sont les sortants : c'est normal. Ce qui ne l'est pas, c'est un chiffre différent de celui que le contrôle a annoncé (le 27 août 2026, un fichier de 382 sortants en annonçait 600).",
+      "La synchronisation reconnaît un compte par son ID unique, pas par la date de naissance : un compte non reconnu est recréé sous un autre identifiant. C'est ce que le contrôle du geste 1 fait corriger avant.",
       "Un mot de passe changé dans KoXo et pas reversé au coffre, c'est une étiquette fausse (Eléanor, septembre 2026).",
     ],
   },

@@ -385,6 +385,37 @@ def test_reverser_une_base_nefface_pas_lautre(session, coffre, personne_factory)
     assert chercher(session, coffre, "pdupont")[0].mot_de_passe == "Aaa111"
 
 
+def test_reverser_les_seuls_eleves_nefface_pas_les_professeurs(
+    session, coffre, personne_factory
+):
+    """KoXo n'exporte que les groupes glissés dans sa liste.
+
+    L'assistant de rentrée fait exporter le groupe « Elèves » : le versement
+    remplaçait tout ce que la base avait déposé, professeurs compris.
+    """
+    prof = personne_factory(type="adulte", nom="ESSAI", prenom="Paul", login="pessai",
+                            id_charlemagne=40)
+    parti = personne_factory(nom="FICTIF", prenom="Bruno", login="bfictif",
+                             id_charlemagne=90001)
+    reste = personne_factory(nom="EXEMPLE", prenom="Alice", login="aexemple",
+                             id_charlemagne=90002)
+    for p, mdp in ((prof, "Prof1111"), (parti, "Parti222"), (reste, "Ancien33")):
+        deposer(session, coffre, personne_id=p.id, mot_de_passe=mdp,
+                cible="koxo", site="NDK", origine="koxo")
+    session.commit()
+
+    r = verser_export_koxo(session, coffre, _export_koxo([
+        ["Elèves", "2_1", "", "EXEMPLE", "Alice", "aexemple", reste.badge,
+         "Nouveau4", "", ""],
+    ]), site="NDK")
+    session.commit()
+
+    assert chercher(session, coffre, "pessai")[0].mot_de_passe == "Prof1111"
+    assert chercher(session, coffre, "bfictif") == [], "l'élève parti n'y est plus"
+    assert chercher(session, coffre, "aexemple")[0].mot_de_passe == "Nouveau4"
+    assert r.nb_retires == 2 and r.changes == ["Alice EXEMPLE"]
+
+
 def test_reverser_nefface_pas_un_mot_de_passe_fabrique(session, coffre,
                                                        personne_factory):
     """NDE n'a pas d'export qui le confirme : l'effacer le perdrait."""

@@ -420,6 +420,35 @@
       </p>
     </div>
 
+    <!-- Ce que KoXo annoncera à l'étape 7/8, « Opérations à effectuer ».
+         Sans chiffre en regard, 386 désactivations normales (les sortants)
+         ressemblent à un fichier qui vide la base. -->
+    {#if rapport.prevision}
+      {@const p = rapport.prevision}
+      <div class="card p-4">
+        <p class="libelle-champ">Ce que la synchronisation annoncera</p>
+        <p class="mt-1 text-xs text-stone-500 dark:text-stone-400">
+          Si tu lui donnes maintenant le fichier « Tous » du programme, KoXo affichera à
+          l'étape 7/8 : compare avant de répondre « Oui ».
+        </p>
+        <div class="mt-3 flex flex-wrap gap-x-10 gap-y-3 tabular-nums">
+          <div><p class="text-2xl font-semibold text-vert-700 dark:text-vert-300">{p.creer}</p><p class="text-xs text-stone-500 dark:text-stone-400">Créer</p></div>
+          <div><p class="text-2xl font-semibold text-red-700 dark:text-red-400">{p.desactiver}</p><p class="text-xs text-stone-500 dark:text-stone-400">Désactiver</p></div>
+          <div><p class="text-2xl font-semibold text-sky-700 dark:text-sky-400">{p.deplacer}</p><p class="text-xs text-stone-500 dark:text-stone-400">Déplacer (intra-GP)</p></div>
+          <div class="text-xs text-stone-500 dark:text-stone-400">
+            <p>{p.dans_koxo} dans KoXo aujourd'hui</p>
+            <p>{p.dans_le_fichier} dans le fichier</p>
+          </div>
+        </div>
+        {#if p.a_desactiver.length}
+          <details class="mt-3 text-sm text-stone-600 dark:text-stone-300">
+            <summary class="cursor-pointer font-semibold text-stone-800 dark:text-stone-200">Qui sera désactivé ({p.a_desactiver.length})</summary>
+            <p class="mt-1.5 leading-relaxed">{p.a_desactiver.join(", ")}</p>
+          </details>
+        {/if}
+      </div>
+    {/if}
+
     {#each rapport.avertissements as a}
       <p class="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
         <Info class="mt-0.5 h-3.5 w-3.5 shrink-0" />

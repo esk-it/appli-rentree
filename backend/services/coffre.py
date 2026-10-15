@@ -582,10 +582,12 @@ def verser_export_koxo(
     reverser un export corrige les attributions fautives au lieu de les
     laisser cohabiter avec les bonnes.
 
+    Le remplacement ne touche que la population que l'export contient :
+    un export des seuls élèves laisse les professeurs en place.
+
     `remplacer=False` relit sans rien retirer : pour un export déposé à
     une autre fin (la Cohérence), dont on ne sait pas s'il couvre toute la
-    base — un export des seuls élèves effacerait les mots de passe des
-    professeurs.
+    population — quelques classes seulement effaceraient les autres.
     """
     par_id = _mdp_par_id_unique(contenu_csv)
     rapport = RapportVersement(site=site, nb_lignes=len(par_id))
@@ -602,11 +604,22 @@ def verser_export_koxo(
     # Seuls les secrets relevés dans KoXo sont concernés — ceux que le
     # programme a fabriqués pour un site sans KoXo n'ont pas d'export qui
     # les confirme, et les effacer les perdrait pour de bon.
-    anciens = (
-        session.query(SecretConserve)
+    #
+    # Et seulement pour la population que l'export couvre. On n'exporte que
+    # les groupes qu'on a glissés dans la liste de KoXo : un export des
+    # seuls élèves ne dit rien des professeurs, et vidait leurs mots de
+    # passe du coffre (constaté le 16 octobre 2026, en écrivant la rentrée
+    # guidée).
+    toutes = session.query(Personne).all()
+    personnes = {p.badge: p for p in toutes if p.badge}
+    type_de = {p.id: p.type for p in toutes}
+    couverts = {personnes[b].type for b in par_id if b in personnes}
+    anciens = [
+        s for s in session.query(SecretConserve)
         .filter_by(cible="koxo", site=site, origine="koxo")
         .all()
-    )
+        if type_de.get(s.personne_id) in couverts
+    ]
     avant: dict[int, str] = {}
     for vieux in anciens:
         try:
@@ -621,7 +634,6 @@ def verser_export_koxo(
         rapport.nb_retires = len(anciens)
         session.flush()
 
-    personnes = {p.badge: p for p in session.query(Personne).all() if p.badge}
     for badge, mdp in par_id.items():
         if not mdp:
             rapport.nb_sans_mot_de_passe += 1

@@ -11,6 +11,11 @@
    * fenêtre par fenêtre — redessinée d'après les captures de Johann
    * (16 octobre 2026). Les groupes, les noms et les chiffres sont inventés.
    *
+   * L'étape 1/8 se règle comme Johann la règle : non destructive, et les
+   * orphelins — les sortants — désactivés plutôt que supprimés. Les étapes
+   * 3 à 6 ne sont pas dessinées (pas de capture) : on y garde ce que KoXo
+   * propose. La fenêtre « Opérations à effectuer » s'ouvre à l'étape 7/8.
+   *
    * Les champs de l'étape 2/8 sont ceux du fichier que le programme écrit
    * (`backend/services/exports_koxo.py`, `COLONNES_KOXO`) : si l'ordre des
    * colonnes change là-bas, il change ici.
@@ -25,7 +30,7 @@
     { id: "menu", titre: "Le menu", reperes: [1, 2] },
     { id: "etape1", titre: "Étape 1/8", reperes: [3] },
     { id: "etape2", titre: "Étape 2/8", reperes: [4] },
-    { id: "etape6", titre: "Étape 6/8", reperes: [5] },
+    { id: "etape7", titre: "Étape 7/8", reperes: [5] },
   ];
   let actuelle = $state("menu");
 
@@ -121,7 +126,7 @@
             <C genre="case" coche marque texte="Synchronisation non destructive (pas de suppression d'utilisateurs)" />
             <Repere n={3} />
           </span>
-          <span class="ml-5"><C genre="case" coche texte="Désactiver les comptes orphelins (comptes non référencés dans la base fournie)" /></span>
+          <span class="ml-5"><C genre="case" coche marque texte="Désactiver les comptes orphelins (comptes non référencés dans la base fournie)" /></span>
           <C genre="case" texte="Archivage des utilisateurs dans un autre groupe primaire" />
           <div class="ml-5 flex max-w-[480px] flex-col gap-1 text-[#8E8E8E]">
             <span>Groupe primaire de l'archivage</span>
@@ -186,17 +191,64 @@
       6 Identifiant · 7 ID unique · 8 Mot de passe · 9 Date de naissance · 10 Email.
     </p>
   {:else}
-    <div class="grid min-h-[260px] place-items-center rounded-xl border-2 border-dashed border-stone-300 bg-stone-50 px-6 py-8 text-center dark:border-stone-700 dark:bg-stone-900/50">
-      <div class="max-w-md">
-        <p class="flex items-center justify-center gap-2 text-sm font-semibold text-stone-700 dark:text-stone-200">
-          <Repere n={5} /> Étape 6/8 — « Affichage des opérations à effectuer »
-        </p>
-        <p class="mt-2 text-sm text-stone-500 dark:text-stone-400">
-          C'est ici que KoXo annonce ce qu'il va créer, déplacer et désactiver. Lis-le
-          avant de continuer : des désactivations par centaines, c'est le fichier
-          qui ne va pas — Annuler.
-        </p>
+    <!-- Étape 7/8 : la fenêtre qui s'ouvre au-dessus du journal, et qui
+         décide de tout. Chiffres inventés, dans les proportions d'une rentrée
+         de NDK (le 27 août 2026 : 383 créés, 386 désactivés). -->
+    <div role="img" aria-label="Étape 7 sur 8 : Opérations à effectuer — comparer Créer et Désactiver à la prévision du contrôle, puis Oui ou Non">
+      <div
+        class="overflow-hidden rounded-[3px] border border-[#8C99AA] bg-white text-[12px] text-black shadow-[0_6px_20px_-8px_rgba(0,0,0,0.35)]"
+        style="font-family: 'Segoe UI', Tahoma, sans-serif;"
+      >
+        <p class="px-3 py-2 text-[12.5px]">Synchronisation de groupe primaire : Opérations à effectuer</p>
+        <div class="grid grid-cols-4 bg-[#F0F0F0] px-1 py-2.5">
+          {#each [["Groupe primaire", "Elèves"], ["Utilisateurs actuels", "1000"], ["Dans le fichier", "1008"], ["À traiter", "1008"]] as [l, v], i (l)}
+            <div class="px-3 {i ? 'border-l border-[#CFCFCF]' : ''}">
+              <p class="text-[11px] text-[#555]">{l}</p>
+              <p class="mt-1 text-[19px] font-bold">{v}</p>
+            </div>
+          {/each}
+        </div>
+        <div class="grid grid-cols-[150px_minmax(0,1fr)_140px] border-t border-[#D5D5D5]">
+          <div class="flex flex-col gap-2 border-r border-[#D5D5D5] p-2.5">
+            <p class="text-[10px] tracking-wide text-[#666]">SOURCES</p>
+            <div class="rounded-[3px] bg-[#E8F0FB] px-2.5 py-1.5"><p class="text-[19px] font-bold text-[#2059A8]">1000</p><p class="text-[11px] text-[#555]">Base KoXo actuelle</p></div>
+            <div class="rounded-[3px] bg-[#EEF7E8] px-2.5 py-1.5"><p class="text-[19px] font-bold text-[#3D7A1F]">1008</p><p class="text-[11px] text-[#555]">Fichier CSV importé</p></div>
+          </div>
+          <div class="relative flex flex-col gap-1.5 p-2.5">
+            <p class="text-[10px] tracking-wide text-[#666]">OPÉRATIONS PLANIFIÉES</p>
+            <span class="absolute top-6 -right-3 z-10"><Repere n={5} /></span>
+            {#each [
+              ["+", "Créer", 308, "#EEF7E8", "#3D7A1F", true],
+              ["−", "Désactiver", 300, "#FBECEC", "#B42828", true],
+              ["⇄", "Déplacer (intra-GP)", 650, "#E8F0FB", "#2059A8", false],
+              ["↩", "Réintégrer (autre GP)", 0, "#F0ECFA", "#4B3A9A", false],
+              ["■", "Ne pas supprimer", 0, "#FBF1E4", "#8A5300", false],
+              ["↻", "Mettre à jour", 50, "#EAF6F0", "#1F6E4C", false],
+            ] as [signe, libelle, n, fond, encre, cle] (libelle)}
+              <div class="flex items-center gap-3 rounded-[3px] px-2.5 py-[5px] {cle ? 'outline outline-2 outline-[#FF7A59]' : ''}" style="background: {fond};">
+                <span class="w-3 text-center" style="color: {encre};">{signe}</span>
+                <span class="flex-1">{libelle}</span>
+                <span class="font-bold" style="color: {encre};">{n}</span>
+              </div>
+            {/each}
+          </div>
+          <div class="border-l border-[#D5D5D5] p-2.5">
+            <p class="text-[10px] tracking-wide text-[#666]">RÉSULTAT</p>
+            <div class="mt-2 rounded-[3px] bg-[#EFEFEF] px-2 py-2 text-center"><p class="text-[11px] text-[#555]">Après synchronisation</p><p class="text-[21px] font-bold">1308</p></div>
+          </div>
+        </div>
+        <div class="flex items-center justify-between border-t border-[#D5D5D5] bg-[#F7F7F7] px-3 py-2">
+          <span class="text-[#555]">Lancer l'opération ?</span>
+          <span class="flex gap-2">
+            <span class="w-24 rounded-[2px] border border-[#ADADAD] bg-white py-1 text-center"><span class="underline">O</span>ui</span>
+            <span class="w-24 rounded-[2px] border border-[#ADADAD] bg-white py-1 text-center"><span class="underline">N</span>on</span>
+          </span>
+        </div>
       </div>
     </div>
+    <p class="mt-2 text-xs text-stone-500 dark:text-stone-400">
+      Créer, ce sont les entrants ; Désactiver, les sortants — des centaines en août, c'est
+      normal. Ce qui ne l'est pas : un chiffre différent de celui que le contrôle a annoncé.
+    </p>
   {/if}
 </Planches>

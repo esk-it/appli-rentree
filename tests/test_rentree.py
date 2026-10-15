@@ -304,3 +304,37 @@ def test_une_rentree_lointaine_est_trop_tot(client):
     assert e["trop_tot"] and e["s_ouvre_le"] == "2099-07-01"
     r = client.post("/api/rentree/commencer", json={"libelle": "2099-2100"})
     assert r.status_code == 400 and "01/07/2099" in r.json()["detail"]
+
+
+def test_les_eleves_absents_de_koxo_se_constatent_au_coffre(
+    session, annee_factory, site_factory, personne_factory
+):
+    """Verser l'export d'après la synchronisation clôt l'étape KoXo."""
+    from backend.services.coffre import deposer, initialiser
+    from backend.services.rentree import ouvrir
+
+    annee = annee_factory(LIB)
+    ndk = site_factory("NDK")
+    ndk.base_koxo = "NDK"
+    session.commit()
+    lea = personne_factory(type="eleve", nom="ROUE", prenom="Léa", site_id=ndk.id, classe="2_1")
+    hugo = personne_factory(type="eleve", nom="MORVAN", prenom="Hugo", site_id=ndk.id, classe="2_1")
+    for p in (lea, hugo):
+        _photographier(session, annee, p)
+    _valider_jusqu_a(session, "koxo")
+
+    (m,) = ouvrir(session, _ctx(session), "koxo")
+    assert m.valeur is None and "versant au coffre" in m.detail
+
+    cle = initialiser(session, "sardine-clavier-molybdene-1789")
+    deposer(session, cle, personne_id=lea.id, mot_de_passe="Essai111", cible="koxo",
+            site="NDK", origine="koxo")
+    session.commit()
+    (m,) = ouvrir(session, _ctx(session), "koxo")
+    assert (m.valeur, m.bonne) == (1, False)
+
+    deposer(session, cle, personne_id=hugo.id, mot_de_passe="Essai222", cible="koxo",
+            site="NDK", origine="koxo")
+    session.commit()
+    (m,) = ouvrir(session, _ctx(session), "koxo")
+    assert (m.valeur, m.bonne) == (0, True)

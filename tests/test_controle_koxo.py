@@ -710,3 +710,89 @@ def test_une_vraie_ambiguite_sur_le_meme_serveur_reste_signalee(
     )
     assert "rapprochement_ambigu" in {e.genre for e in r.ecarts}
     assert not r.est_sain
+
+
+# ---------------------------------------------------------------------------
+# Ce que la synchronisation annoncera
+# ---------------------------------------------------------------------------
+
+
+def test_la_prevision_annonce_ce_que_koxo_affichera():
+    """Le 27 août 2026, « Désactiver 386 » a fait reculer : c'étaient les sortants.
+
+    La prévision met en regard ce que KoXo annoncera, et nomme ceux qu'il
+    désactivera — lui ne donne que le nombre.
+    """
+    from backend.services.controle_koxo import LigneKoxo, prevoir_synchronisation
+
+    koxo = [
+        LigneKoxo(ligne=2, nom="RESTE", prenom="Alice", login="areste", id_unique="910",
+                  groupe_primaire="Elèves", groupe_secondaire="2_1"),
+        LigneKoxo(ligne=3, nom="MONTE", prenom="Bruno", login="bmonte", id_unique="920",
+                  groupe_primaire="Elèves", groupe_secondaire="2_1"),
+        LigneKoxo(ligne=4, nom="PARTI", prenom="Chloé", login="cparti", id_unique="930",
+                  groupe_primaire="Elèves", groupe_secondaire="T_1"),
+        LigneKoxo(ligne=5, nom="PROF", prenom="Paul", login="pprof", id_unique="40",
+                  groupe_primaire="Professeurs", groupe_secondaire="MATHS"),
+    ]
+    tous = (
+        "Groupe primaire,Groupe secondaire,Titre,Nom,Prénom,Identifiant,ID unique,"
+        "Mot de passe,Date de naissance,Email\r\n"
+        "Elèves,2_1,,RESTE,Alice,areste,910,,,\r\n"
+        "Elèves,1_1,,MONTE,Bruno,bmonte,920,,,\r\n"
+        "Elèves,2_2,,ENTRE,Damien,dentre,940,,,\r\n"
+    ).encode("cp1252")
+
+    p = prevoir_synchronisation(koxo, tous, type_personne="eleve")
+
+    assert (p.dans_koxo, p.dans_le_fichier) == (3, 3), "le professeur ne compte pas"
+    assert (p.creer, p.desactiver, p.deplacer) == (1, 1, 1)
+    assert p.a_desactiver == ["Chloé PARTI"]
+
+
+def test_le_controle_donne_la_prevision_quand_le_site_et_lannee_sont_connus(
+    tmp_db_path, tmp_path
+):
+    import base64
+
+    from fastapi.testclient import TestClient
+
+    from backend.database import _SessionLocal
+    from backend.main import app
+    from backend.models import AnneeScolaire, Personne, Site, Snapshot, TableCorrespondance
+
+    with TestClient(app) as client:
+        s = _SessionLocal()
+        ndk = Site(nom="NDK", nom_complet="Essai", domaine_mail="essai.fr",
+                   prefixe_annee_ou="NDK", numero_ordre=3, base_koxo="NDK")
+        s.add(ndk)
+        s.flush()
+        s.add(TableCorrespondance(site_id=ndk.id, classe_charlemagne_long="2_1",
+                                  classe_code_court="2_1", ou_pre_rentree="/NDK",
+                                  ou_definitive="/NDK/2_1"))
+        an = AnneeScolaire(libelle="2026-2027", est_active=True)
+        s.add(an)
+        s.flush()
+        alice = Personne(type="eleve", id_charlemagne=91, badge=Personne.calculer_badge("eleve", 91),
+                         login="areste", nom="RESTE", prenom="Alice", site_id=ndk.id, classe="2_1")
+        s.add(alice)
+        s.flush()
+        s.add(Snapshot(personne_id=alice.id, annee_scolaire_id=an.id, nom="RESTE",
+                       prenom="Alice", classe="2_1"))
+        s.commit()
+        badge, site_id, annee_id = alice.badge, ndk.id, an.id
+        s.close()
+
+        f = _export(tmp_path, [
+            ["Elèves", "2_1", "RESTE", "Alice", "areste", badge, "", ""],
+            ["Elèves", "T_1", "PARTI", "Chloé", "cparti", 99990, "", ""],
+        ])
+        r = client.post("/api/koxo/controle", json={
+            "fichier_base64": base64.b64encode(f.read_bytes()).decode(),
+            "nom_fichier": "k.csv", "type_personne": "eleve",
+            "site_id": site_id, "annee_id": annee_id,
+        })
+        assert r.status_code == 200, r.text
+        p = r.json()["prevision"]
+        assert (p["creer"], p["desactiver"], p["deplacer"]) == (0, 1, 0)
+        assert p["a_desactiver"] == ["Chloé PARTI"]

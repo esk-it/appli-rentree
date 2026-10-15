@@ -20,8 +20,11 @@ from sqlalchemy.orm import Session
 from backend.database import db_session
 from backend.models import Site
 from backend.services.controle_koxo import (
+    PrevisionSynchro,
     RapportControle,
     controler_export_koxo,
+    lire_export_brut,
+    prevoir_synchronisation,
     retenir_identifiants_constates,
 )
 from backend.services.aligner_sur_koxo import aligner_sur_koxo
@@ -55,6 +58,25 @@ class ControleOut(BaseModel):
     avertissements: list[str]
     nb_par_genre: dict[str, int]
     est_sain: bool
+    prevision: dict | None = None
+    """Ce que KoXo annoncera à l'étape 7/8 — quand le site et l'année sont donnés."""
+
+
+def _prevision(session: Session, chemin: Path, payload: "ControlePayload") -> PrevisionSynchro | None:
+    """Compare cet export au fichier « Tous » que le programme produira."""
+    if payload.site_id is None or payload.annee_id is None:
+        return None
+    from backend.services.exports_koxo import generer_csv_koxo
+
+    try:
+        fichier, _ = generer_csv_koxo(
+            session, site_id=payload.site_id, type_personne=payload.type_personne,
+            categorie="tous", annee_cible_id=payload.annee_id,
+        )
+    except ValueError:
+        return None
+    lignes, _, _, _, _ = lire_export_brut(chemin)
+    return prevoir_synchronisation(lignes, fichier, type_personne=payload.type_personne)
 
 
 def _to_out(r: RapportControle) -> ControleOut:
@@ -119,6 +141,8 @@ def controler(
         retenir_identifiants_constates(
             session, chemin, site=site.nom if site else None
         )
+        session.flush()
+        prevision = _prevision(session, chemin, payload)
         session.commit()
     except ValueError as e:
         raise HTTPException(400, str(e)) from None
@@ -140,7 +164,9 @@ def controler(
             "identifiant constaté ne fait autorité que dans la base d'où il "
             "vient. Refais le contrôle en désignant le site de ce fichier."
         )
-    return _to_out(rapport)
+    sortie = _to_out(rapport)
+    sortie.prevision = asdict(prevision) if prevision else None
+    return sortie
 
 
 class RendrePayload(BaseModel):

@@ -910,3 +910,79 @@ def retenir_identifiants_constates(
 
     session.flush()
     return retenus
+
+
+# ---------------------------------------------------------------------------
+# Ce que la synchronisation annoncera
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class PrevisionSynchro:
+    """Les chiffres que KoXo affichera dans « Opérations à effectuer ».
+
+    À l'étape 7/8 de sa synchronisation, KoXo annonce « Créer 383,
+    Désactiver 386, Déplacer 596 » et demande « Lancer l'opération ? ».
+    Le 27 août 2026, ces 386 désactivations ont fait reculer Johann — à
+    raison de se méfier, à tort sur le fond : c'étaient les sortants. Sans
+    chiffre attendu en regard, on ne distingue pas une rentrée normale d'un
+    fichier qui vide la base.
+
+    On compare l'export KoXo (l'état de la base) au fichier « Tous » que le
+    programme lui donnera (l'état visé) — par ID unique, comme KoXo :
+    absent de KoXo, il le crée ; absent du fichier, il le désactive ;
+    présent des deux côtés dans une autre classe, il le déplace.
+    """
+
+    dans_koxo: int
+    dans_le_fichier: int
+    creer: int
+    desactiver: int
+    deplacer: int
+    a_desactiver: list[str] = field(default_factory=list)
+    """Qui sera désactivé, nommé — KoXo ne donne que le nombre."""
+
+
+GROUPES_PRIMAIRES = {"eleve": "eleves", "adulte": "professeurs"}
+
+
+def prevoir_synchronisation(
+    lignes_koxo: list[LigneKoxo], fichier_tous: bytes, *, type_personne: str
+) -> PrevisionSynchro:
+    """Compare l'état de la base KoXo à l'état complet visé.
+
+    Seules comptent les lignes du groupe primaire de la population : un
+    export qui porte aussi les professeurs ne doit pas les faire compter
+    parmi les élèves à désactiver.
+    """
+    groupe = GROUPES_PRIMAIRES.get(type_personne, "")
+    koxo: dict[int, LigneKoxo] = {}
+    for l in lignes_koxo:
+        gp = _plat(l.groupe_primaire)
+        if gp and gp != groupe:
+            continue
+        if l.id_unique.strip().isdigit():
+            koxo[int(l.id_unique)] = l
+
+    texte = fichier_tous.decode("cp1252")
+    vise: dict[int, str] = {}
+    for ligne in csv.DictReader(io.StringIO(texte), delimiter=","):
+        idu = (ligne.get("ID unique") or "").strip()
+        if idu.isdigit():
+            vise[int(idu)] = (ligne.get("Groupe secondaire") or "").strip()
+
+    partants = sorted(
+        (koxo[b] for b in koxo.keys() - vise.keys()),
+        key=lambda l: (_plat(l.nom), _plat(l.prenom)),
+    )
+    return PrevisionSynchro(
+        dans_koxo=len(koxo),
+        dans_le_fichier=len(vise),
+        creer=len(vise.keys() - koxo.keys()),
+        desactiver=len(partants),
+        deplacer=sum(
+            1 for b in vise.keys() & koxo.keys()
+            if _plat(koxo[b].groupe_secondaire) != _plat(vise[b])
+        ),
+        a_desactiver=[f"{l.prenom} {l.nom}".strip() or l.login for l in partants],
+    )

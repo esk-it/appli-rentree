@@ -51,8 +51,8 @@ from backend.models import (
     Arbitrage,
     CompteCible,
     EtapeRentree,
-    LoginReserve,
     Personne,
+    SecretConserve,
     Site,
     Snapshot,
     TableCorrespondance,
@@ -275,26 +275,36 @@ def _adultes_inscrits(ctx: Contexte) -> Mesure:
 
 
 def _eleves_absents_koxo(ctx: Contexte) -> Mesure:
+    """Les élèves de NDK et SU dont la base KoXo n'a pas encore de compte.
+
+    Constaté dans le coffre, sans rien déchiffrer : un élève a un compte
+    dans la base quand le dernier export versé de cette base porte son mot
+    de passe. C'est le geste qui clôt l'étape — verser l'export pris après
+    la synchronisation —, et un versement remplace le précédent : ce qu'il
+    ne contient plus n'y est plus.
+    """
     if ctx.annee is None:
         return _pas_ingeree("eleves_absents_koxo", "Élèves absents de KoXo", "zero", True, ctx)
-    sites ={s.id: s for s in ctx.session.query(Site)}
+    sites = {s.id: s for s in ctx.session.query(Site)}
     avec_koxo = {sid for sid, s in sites.items() if (s.base_koxo or "").strip()}
     eleves = [p for p in _inscrits(ctx, "eleve") if p.site_id in avec_koxo]
-    vus: dict[str, set[int]] = {}
-    for c in ctx.session.query(LoginReserve).filter(LoginReserve.badge.isnot(None)):
-        vus.setdefault(c.site or "", set()).add(c.badge)
-    if not vus:
+    detenus: dict[str, set[int]] = {}
+    for pid, site in ctx.session.query(SecretConserve.personne_id, SecretConserve.site).filter_by(
+        cible="koxo", origine="koxo"
+    ):
+        detenus.setdefault(site or "", set()).add(pid)
+    if not detenus:
         return Mesure("eleves_absents_koxo", "Élèves absents de KoXo", None, "zero", True,
-                      "Se constate en redonnant au programme l'export de chaque base KoXo.")
+                      "Se constate en versant au coffre l'export de chaque base KoXo.")
     absents = [
         p for p in eleves
-        if p.badge not in vus.get(sites[p.site_id].nom, set())
-        and p.badge not in vus.get((sites[p.site_id].base_koxo or "").strip(), set())
+        if p.id not in detenus.get(sites[p.site_id].nom, set())
+        and p.id not in detenus.get((sites[p.site_id].base_koxo or "").strip(), set())
     ]
     return Mesure(
         "eleves_absents_koxo", "Élèves absents de KoXo", len(absents), "zero", True,
-        f"Les {len(eleves)} élèves de NDK et SU sont dans KoXo." if not absents
-        else f"{len(absents)} élève(s) absent(s) du dernier export KoXo relu.",
+        f"Les {len(eleves)} élèves de NDK et SU ont leur compte KoXo." if not absents
+        else f"{len(absents)} élève(s) absent(s) du dernier export KoXo versé au coffre.",
     )
 
 
