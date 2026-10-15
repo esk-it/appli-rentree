@@ -101,6 +101,8 @@
   import Sun from "@lucide/svelte/icons/sun";
   import Moon from "@lucide/svelte/icons/moon";
   import { attendreBackend } from "$lib/api.js";
+  import BandeauRepetition from "$lib/components/BandeauRepetition.svelte";
+  import { relireRepetition, pageApresRechargement } from "$lib/repetition.svelte.js";
   import { verifierMaj, installerMaj } from "$lib/updater.js";
 
   let backendOk = $state(/** @type {null | boolean} */ (null));
@@ -270,6 +272,12 @@
     // 2. L'année de travail, avant tout le reste : c'est elle qui donne
     //    son sens à ce que les écrans afficheront.
     chargerAnnees();
+
+    // Une répétition en cours (sur une copie de la base) se signale
+    // partout ; entrer ou sortir recharge la page et ramène à la rentrée.
+    relireRepetition();
+    const apres = pageApresRechargement();
+    if (apres && TOUS_LES_ECRANS.some((e) => e.id === apres)) page = apres;
 
     // 3. Vérification de mise à jour (en parallèle de l'app qui démarre)
     await verifierMiseAJour();
@@ -844,6 +852,7 @@
 
   <!-- Zone principale -->
   <main class="flex-1 overflow-auto bg-stone-50 dark:bg-stone-950">
+    <BandeauRepetition />
     <!-- La frise a disparu : le parcours porte désormais son propre rail,
          qui dit la même chose en mieux — l'étape ouverte y est en entier,
          pas seulement pointée. Deux rails empilés diraient deux fois la

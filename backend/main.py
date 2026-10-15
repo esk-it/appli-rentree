@@ -48,6 +48,7 @@ from backend.routers import (
     mouvements as mouvements_router,
     parcours as parcours_router,
     rentree as rentree_router,
+    repetition as repetition_router,
     parc as parc_router,
     ts1000 as ts1000_router,
     cartes as cartes_router,
@@ -269,3 +270,4 @@ app.include_router(ts1000_router.router)
 app.include_router(cartes_router.router)
 app.include_router(envois_router.router)
 app.include_router(rentree_router.router)
+app.include_router(repetition_router.router)

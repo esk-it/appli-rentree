@@ -9,7 +9,7 @@
   /**
    * La synchronisation d'une base KoXo depuis le fichier du programme,
    * fenêtre par fenêtre — redessinée d'après les captures de Johann
-   * (16 octobre 2026). Les groupes, les noms et les chiffres sont inventés.
+   * (15 octobre 2026). Les groupes, les noms et les chiffres sont inventés.
    *
    * L'étape 1/8 se règle comme Johann la règle : non destructive, et les
    * orphelins — les sortants — désactivés plutôt que supprimés. Les étapes

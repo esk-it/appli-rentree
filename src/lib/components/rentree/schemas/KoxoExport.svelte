@@ -8,7 +8,7 @@
 
   /**
    * L'export de tous les comptes élèves d'une base KoXo, mots de passe
-   * compris — redessiné d'après les captures de Johann (16 octobre 2026).
+   * compris — redessiné d'après les captures de Johann (15 octobre 2026).
    * Les noms et les chiffres sont inventés.
    *
    * @typedef {Object} Props

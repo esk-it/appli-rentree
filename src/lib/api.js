@@ -1266,6 +1266,29 @@ export const rentreeApi = {
   rouvrir: (etape, { annee }) => _rentreePost(`etapes/${etape}/rouvrir`, { annee }),
 };
 
+/**
+ * La répétition : tout le programme sur une copie de la base, Google en
+ * lecture seule. Quitter — ou relancer le programme — ramène à la vraie.
+ */
+export const repetitionApi = {
+  async etat() {
+    return jsonOrThrow(await fetch(`${BASE}/repetition`));
+  },
+  commencer: ({ neuve = false } = {}) => _repetitionPost("commencer", { neuve }),
+  quitter: () => _repetitionPost("quitter"),
+  jeter: () => _repetitionPost("jeter"),
+};
+
+async function _repetitionPost(geste, corps = {}) {
+  return jsonOrThrow(
+    await fetch(`${BASE}/repetition/${geste}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(corps),
+    }),
+  );
+}
+
 /** Où en est la rentrée, étape par étape. */
 export const parcoursApi = {
   /** Ce qui se lit sans réseau. Rejoué à chaque navigation. */

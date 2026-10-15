@@ -1,6 +1,9 @@
 <script>
   import Lock from "@lucide/svelte/icons/lock";
+  import FlaskConical from "@lucide/svelte/icons/flask-conical";
   import Bouton from "$lib/components/Bouton.svelte";
+  import { repetition, entrerEnRepetition, dateCopie } from "$lib/repetition.svelte.js";
+  import { notify } from "$lib/toasts.js";
 
   /**
    * Avant la toute première étape : ce qui attend, ce qu'il faut sous la
@@ -20,6 +23,17 @@
   let { annee, chapitres, occupe = false, tropTot = false, ouvreLe = "", onCommencer, onVisiter } = $props();
 
   const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+  let entree = $state(false);
+  async function repeter(neuve) {
+    entree = true;
+    try {
+      await entrerEnRepetition({ neuve });
+    } catch (e) {
+      notify.erreur(String(e).replace(/^Error:\s*/, ""), { duree: 10000 });
+      entree = false;
+    }
+  }
+
   let ouverture = $derived.by(() => {
     if (!ouvreLe) return "";
     const [a, m, j] = ouvreLe.split("-").map(Number);
@@ -41,15 +55,15 @@
   ];
 </script>
 
-<div class="grid min-h-[calc(100vh-9rem)] overflow-hidden rounded-2xl border border-stone-200 bg-white lg:grid-cols-[minmax(0,1fr)_480px] dark:border-stone-800 dark:bg-stone-950">
+<div class="grid min-h-[calc(100vh-9rem)] overflow-hidden rounded-2xl border border-stone-200 bg-white lg:grid-cols-[minmax(0,1fr)_380px] xl:grid-cols-[minmax(0,1fr)_480px] dark:border-stone-800 dark:bg-stone-950">
   <section class="flex flex-col px-8 py-10 lg:px-16 lg:py-14">
     <div class="flex gap-1.5">
       {#each chapitres as c (c.id)}
         <span class="h-1.5 w-10 rounded-full" style="background: {c.couleur};"></span>
       {/each}
     </div>
-    <h1 class="titre-affiche mt-6 text-5xl leading-[1.02] text-stone-900 dark:text-stone-100">
-      Ta rentrée {annee}&nbsp;?<br />On la fait ensemble.
+    <h1 class="titre-affiche mt-6 text-4xl leading-[1.04] text-balance text-stone-900 xl:text-5xl dark:text-stone-100">
+      Ta rentrée <span class="whitespace-nowrap">{annee}&nbsp;?</span><br />On la fait ensemble.
     </h1>
     <p class="mt-5 max-w-xl text-[17px] leading-relaxed text-stone-600 dark:text-stone-300">
       Six chapitres, dix-huit étapes, toujours dans le même ordre. À chaque
@@ -66,7 +80,7 @@
         <p class="max-w-xl text-sm text-stone-600 dark:text-stone-300">
           La rentrée {annee} s'ouvre le <b class="text-stone-900 dark:text-stone-100">{ouverture}</b> :
           avant, ses étapes viseraient l'année qui tourne encore. D'ici là, tu peux
-          la visiter — les dix-huit étapes, sans rien toucher.
+          la visiter — les dix-huit étapes, sans rien toucher —, ou la répéter.
         </p>
         <div><Bouton variante="primary" onclick={onVisiter}>Visiter les étapes →</Bouton></div>
       {:else}
@@ -77,6 +91,36 @@
           <button type="button" class="text-sm font-semibold text-stone-600 hover:underline dark:text-stone-300" onclick={onVisiter}>
             Visiter d'abord, sans rien toucher
           </button>
+        </div>
+      {/if}
+
+      <!-- La répétition générale : tout pour de vrai, sur une copie. -->
+      {#if !repetition.active}
+        <div class="mt-5 max-w-2xl rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 dark:border-amber-800/70 dark:bg-amber-950/30">
+          <p class="flex items-center gap-2 font-bold text-amber-950 dark:text-amber-100">
+            <FlaskConical class="h-4 w-4" /> La répétition générale
+          </p>
+          <p class="mt-1 text-sm leading-relaxed text-amber-950/80 dark:text-amber-100/80">
+            Sur une copie de ta base, tu fais tout pour de vrai dans le programme —
+            ingérer un export, valider les étapes, verser au coffre — sans attendre
+            juillet. Google n'est que lu, ta vraie base ne bouge pas. Les gestes dans
+            KoXo ou Charlemagne, tu ne les fais pas : tu les déclares.
+          </p>
+          <div class="mt-3 flex flex-wrap items-center gap-4">
+            {#if repetition.copie_existe}
+              <button type="button" class="rounded-full bg-amber-950 px-5 py-2 text-sm font-bold text-amber-50 hover:bg-amber-900 disabled:opacity-50" disabled={entree} onclick={() => repeter(false)}>
+                Reprendre la répétition →
+              </button>
+              <button type="button" class="text-sm font-semibold text-amber-950 hover:underline disabled:opacity-50 dark:text-amber-100" disabled={entree} onclick={() => repeter(true)}>
+                Repartir d'une copie neuve
+              </button>
+              <span class="text-xs text-amber-950/70 dark:text-amber-100/70">copie du {dateCopie(repetition.copiee_le)}</span>
+            {:else}
+              <button type="button" class="rounded-full bg-amber-950 px-5 py-2 text-sm font-bold text-amber-50 hover:bg-amber-900 disabled:opacity-50" disabled={entree} onclick={() => repeter(false)}>
+                Répéter la rentrée {annee} →
+              </button>
+            {/if}
+          </div>
         </div>
       {/if}
     </div>

@@ -4,6 +4,8 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import Eye from "@lucide/svelte/icons/eye";
+  import FlaskConical from "@lucide/svelte/icons/flask-conical";
+  import { repetition } from "$lib/repetition.svelte.js";
   import Bouton from "$lib/components/Bouton.svelte";
   import BandeChapitres from "./BandeChapitres.svelte";
   import KoxoImport from "./schemas/KoxoImport.svelte";
@@ -269,6 +271,18 @@
                         </li>
                       {/each}
                     </ol>
+                    {#if repetition.active && (g.ecrit || g.google || g.enRepetition)}
+                      <p class="mt-3 flex gap-2 rounded-lg bg-amber-100 px-3 py-2 text-[13px] leading-snug text-amber-950 dark:bg-amber-900/40 dark:text-amber-100">
+                        <FlaskConical class="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        {#if g.ecrit}
+                          Répétition : ne le fais pas dans {logicielDe(g)}, ce serait pour de vrai. Dis seulement que c'est fait.
+                        {:else if g.google}
+                          Répétition : l'outil lit Google et montre ce qu'il ferait ; appliquer est refusé. Valide ensuite l'étape en disant pourquoi.
+                        {:else}
+                          {g.enRepetition}
+                        {/if}
+                      </p>
+                    {/if}
                     {#if fait && etape.gestes_le?.[g.id]}
                       <p class="mt-2.5 text-xs text-stone-500 dark:text-stone-400">Fait le {jour(etape.gestes_le[g.id])} à {heure(etape.gestes_le[g.id])}.</p>
                     {/if}

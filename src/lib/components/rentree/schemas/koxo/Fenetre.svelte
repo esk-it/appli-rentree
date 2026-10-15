@@ -1,7 +1,7 @@
 <script>
   /**
    * La fenêtre de KoXo Administrator, telle que Windows la dessine —
-   * redessinée d'après les captures de Johann (16 octobre 2026), noms et
+   * redessinée d'après les captures de Johann (15 octobre 2026), noms et
    * chiffres inventés. Toujours en clair, quel que soit le thème : c'est
    * l'écran d'un autre logiciel.
    *

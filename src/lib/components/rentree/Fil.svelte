@@ -3,6 +3,7 @@
   import Lock from "@lucide/svelte/icons/lock";
   import Clock from "@lucide/svelte/icons/clock";
   import { CALENDRIER, CONTENU } from "$lib/rentree/etapes.js";
+  import { entrerEnRepetition } from "$lib/repetition.svelte.js";
 
   /**
    * Le fil de la rentrée : où l'on en est, la prochaine étape, et le
@@ -96,9 +97,14 @@
       <div class="rounded-2xl bg-stone-50 px-5 py-4 dark:bg-stone-900">
         <p class="libelle-champ">La visite</p>
         <p class="mt-1 text-lg font-bold text-stone-900 dark:text-stone-100">Les 18 étapes, sans rien toucher</p>
-        <button type="button" class="mt-3 rounded-full bg-stone-900 px-6 py-2.5 text-sm font-bold text-white hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-900" onclick={() => onAller({ type: "etape", id: etat.etapes[0].id })}>
-          Commencer la visite →
-        </button>
+        <div class="mt-3 flex flex-wrap items-center gap-4">
+          <button type="button" class="rounded-full bg-stone-900 px-6 py-2.5 text-sm font-bold text-white hover:bg-stone-800 dark:bg-stone-100 dark:text-stone-900" onclick={() => onAller({ type: "etape", id: etat.etapes[0].id })}>
+            Commencer la visite →
+          </button>
+          <button type="button" class="text-sm font-semibold text-stone-600 hover:underline dark:text-stone-300" onclick={() => entrerEnRepetition({ neuve: false })}>
+            Ou la répéter sur une copie
+          </button>
+        </div>
       </div>
     {:else if courante}
       {@const c = chapitreCourant}

@@ -61,6 +61,8 @@ class EtatOut(BaseModel):
     s_ouvre_le: str
     """Le jour où la campagne peut commencer (ISO)."""
     trop_tot: bool
+    repetition: bool = False
+    """Sur une copie de la base : la campagne se commence sans attendre juillet."""
 
 
 def _mesure_out(m) -> MesureOut:
@@ -68,6 +70,7 @@ def _mesure_out(m) -> MesureOut:
 
 
 def _etat_out(session: Session, libelle: str | None) -> EtatOut:
+    from backend.services.repetition import est_active
     from backend.services.rentree import RentreeImpossible, etat, s_ouvre_le
 
     try:
@@ -80,7 +83,9 @@ def _etat_out(session: Session, libelle: str | None) -> EtatOut:
         etapes=[EtapeOut(**asdict(x)) for x in e.etapes], courante=e.courante,
         nb_validees=e.nb_validees,
         commencee=any(x.statut != "a_faire" and x.statut != "fermee" for x in e.etapes),
-        s_ouvre_le=ouverture.isoformat(), trop_tot=date.today() < ouverture,
+        s_ouvre_le=ouverture.isoformat(),
+        trop_tot=date.today() < ouverture and not est_active(),
+        repetition=est_active(),
     )
 
 
@@ -96,11 +101,17 @@ class CommencerPayload(BaseModel):
 
 @router.post("/commencer", response_model=EtatOut)
 def commencer_rentree(payload: CommencerPayload, session: Session = Depends(db_session)):
-    """Ouvre la campagne. Ne crée pas l'année : l'ingestion s'en charge."""
-    from backend.services.rentree import RentreeImpossible, commencer
+    """Ouvre la campagne. Ne crée pas l'année : l'ingestion s'en charge.
+
+    En répétition, sur une copie de la base, elle s'ouvre sans attendre
+    juillet : c'est tout l'intérêt de répéter.
+    """
+    from backend.services.repetition import est_active
+    from backend.services.rentree import RentreeImpossible, commencer, s_ouvre_le
 
     try:
-        libelle = commencer(session, payload.libelle)
+        jour = s_ouvre_le(payload.libelle) if est_active() else None
+        libelle = commencer(session, payload.libelle, aujourd_hui=jour)
     except RentreeImpossible as e:
         raise HTTPException(400, str(e)) from None
     return _etat_out(session, libelle)

@@ -608,7 +608,7 @@ def verser_export_koxo(
     # Et seulement pour la population que l'export couvre. On n'exporte que
     # les groupes qu'on a glissés dans la liste de KoXo : un export des
     # seuls élèves ne dit rien des professeurs, et vidait leurs mots de
-    # passe du coffre (constaté le 16 octobre 2026, en écrivant la rentrée
+    # passe du coffre (constaté le 15 octobre 2026, en écrivant la rentrée
     # guidée).
     toutes = session.query(Personne).all()
     personnes = {p.badge: p for p in toutes if p.badge}

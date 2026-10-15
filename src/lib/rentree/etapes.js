@@ -27,6 +27,9 @@
  * @property {Record<string, any>} [schemaProps]
  * @property {string} [capture]     - la capture qu'il faut pour le dessiner
  * @property {string} [attendu]     - ce qu'on doit voir, à comparer
+ * @property {boolean} [ecrit]      - modifie le logiciel tiers : à ne pas faire en répétition
+ * @property {boolean} [google]     - l'outil écrit dans Google : refusé en répétition
+ * @property {string} [enRepetition] - ce qu'il faut savoir pour le répéter
  *
  * @typedef {Object} ContenuEtape
  * @property {string} duree
@@ -50,7 +53,7 @@ export const CALENDRIER = {
  *
  * Une seule passe, « Tous » : non destructive, orphelins désactivés. Les
  * sortants sont désactivés, pas supprimés — c'est ainsi que Johann règle
- * KoXo (16 octobre 2026). La première rentrée en faisait deux (les
+ * KoXo (15 octobre 2026). La première rentrée en faisait deux (les
  * sortants d'abord, dans un groupe à part) : la seconde n'apportait rien
  * que la désactivation des orphelins ne fasse déjà.
  *
@@ -93,6 +96,7 @@ function gestesKoxo(base) {
     },
     {
       id: `importer_${b}`,
+      ecrit: true,
       titre: `Le synchroniser dans KoXo ${base}`,
       type: "externe",
       consignes: [
@@ -208,6 +212,7 @@ export const CONTENU = {
       },
       {
         id: "ingerer",
+        enRepetition: "Pas encore d'export 2027-2028 ? Reprends l'export Charlemagne actuel et ingère-le en le déclarant 2027-2028 : tout se passe dans la copie.",
         titre: "Le donner au programme",
         type: "programme",
         consignes: [
@@ -273,6 +278,7 @@ export const CONTENU = {
       },
       {
         id: "ingerer",
+        enRepetition: "Pas encore d'export 2027-2028 ? Reprends l'export Charlemagne actuel et ingère-le en le déclarant 2027-2028 : tout se passe dans la copie.",
         titre: "Le donner au programme",
         type: "programme",
         consignes: ["Dépose le fichier, vérifie l'aperçu, applique."],
@@ -318,6 +324,7 @@ export const CONTENU = {
       },
       {
         id: "importer",
+        ecrit: true,
         titre: "Importer la correction dans Charlemagne",
         type: "externe",
         consignes: [
@@ -348,6 +355,7 @@ export const CONTENU = {
     gestes: [
       {
         id: "creer",
+        google: true,
         titre: "Créer les comptes",
         type: "programme",
         consignes: [
@@ -369,6 +377,7 @@ export const CONTENU = {
     gestes: [
       {
         id: "ranger",
+        google: true,
         titre: "Ranger les sortants",
         type: "programme",
         consignes: [
@@ -390,6 +399,7 @@ export const CONTENU = {
     gestes: [
       {
         id: "preparer",
+        google: true,
         titre: "Renommer et créer les unités",
         type: "programme",
         consignes: ["Analyse, puis applique les renommages et les créations proposés."],
@@ -408,6 +418,7 @@ export const CONTENU = {
     gestes: [
       {
         id: "basculer",
+        google: true,
         titre: "Basculer les élèves",
         type: "programme",
         consignes: ["Calcule le plan, lis-le, applique."],
@@ -426,6 +437,7 @@ export const CONTENU = {
     gestes: [
       {
         id: "synchroniser",
+        google: true,
         titre: "Créer et synchroniser les groupes",
         type: "programme",
         consignes: ["Analyse, lis qui entre et qui sort, puis synchronise."],
@@ -474,6 +486,7 @@ export const CONTENU = {
       },
       {
         id: "imprimer",
+        ecrit: true,
         titre: "L'importer dans CardStudio et imprimer",
         type: "externe",
         consignes: [
@@ -503,6 +516,7 @@ export const CONTENU = {
       },
       {
         id: "importer",
+        ecrit: true,
         titre: "Les importer dans la centrale",
         type: "externe",
         consignes: ["Dans l'ordre des numéros."],
@@ -530,6 +544,7 @@ export const CONTENU = {
       },
       {
         id: "pmb_import",
+        ecrit: true,
         titre: "Les importer dans PMB",
         type: "externe",
         consignes: ["Les cases à cocher comptent : voir l'aide de l'écran PMB."],
