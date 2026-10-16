@@ -65,17 +65,20 @@ def test_la_repetition_travaille_sur_une_copie(base):
     assert _sites() == ["NDK"]
 
 
-def test_google_n_est_que_lu_pendant_la_repetition(base):
+def _requete(methode):
+    """Une requête Google qui ne part nulle part : un faux transport répond."""
     from googleapiclient.http import HttpMockSequence, HttpRequest
 
+    http = HttpMockSequence([({"status": "200"}, "{}")])
+    return HttpRequest(http, lambda reponse, contenu: contenu,
+                       "https://admin.googleapis.com/admin/directory/v1/users",
+                       method=methode)
+
+
+def test_google_n_est_que_lu_pendant_la_repetition(base):
     from backend.services import repetition
 
-    def requete(methode):
-        http = HttpMockSequence([({"status": "200"}, "{}")])
-        return HttpRequest(http, lambda reponse, contenu: contenu,
-                           "https://admin.googleapis.com/admin/directory/v1/users",
-                           method=methode)
-
+    requete = _requete
     assert requete("POST").execute() is not None, "hors répétition, rien n'est bloqué"
     repetition.commencer()
     assert requete("GET").execute() is not None, "les lectures passent"
@@ -101,3 +104,23 @@ def test_la_rentree_se_commence_sans_attendre_en_repetition(base):
         assert not client.post("/api/repetition/quitter", json={}).json()["active"]
         e = client.get("/api/rentree/etat", params={"annee": "2099-2100"}).json()
         assert not e["commencee"] and e["trop_tot"], "la vraie base n'a pas de campagne"
+
+
+def test_deux_copies_du_module_disent_la_meme_chose(base):
+    """Les tests rechargent les services ; en CI, une copie posait « répétition »
+    pendant que la garde Google en consultait une autre (v0.193.0)."""
+    import importlib
+    import sys
+
+    ancien = importlib.import_module("backend.services.repetition")
+    sys.modules.pop("backend.services.repetition", None)
+    neuf = importlib.import_module("backend.services.repetition")
+    assert neuf is not ancien
+    try:
+        ancien.commencer()
+        assert neuf.est_active(), "les deux copies lisent le même état"
+        with pytest.raises(neuf.EcritureGoogleEnRepetition):
+            _requete("POST").execute()
+    finally:
+        neuf.jeter()
+    assert not ancien.est_active()

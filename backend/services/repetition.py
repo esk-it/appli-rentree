@@ -38,6 +38,8 @@ from pathlib import Path
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from backend import repetition_etat as E
+
 
 class EcritureGoogleEnRepetition(RuntimeError):
     """Une écriture vers Google, refusée parce qu'une répétition est en cours."""
@@ -51,9 +53,6 @@ class EtatRepetition:
     """Quand la copie a été prise (ISO) : ce qu'elle sait de la vraie base."""
 
 
-_active = False
-_reel: tuple | None = None
-"""`(_engine, _SessionLocal)` de la vraie base, le temps de la répétition."""
 
 
 def _dossier() -> Path:
@@ -71,7 +70,7 @@ def _fiche() -> Path:
 
 
 def est_active() -> bool:
-    return _active
+    return E.active
 
 
 def etat() -> EtatRepetition:
@@ -81,7 +80,7 @@ def etat() -> EtatRepetition:
             copiee_le = json.loads(_fiche().read_text(encoding="utf-8")).get("copiee_le")
         except (OSError, ValueError):
             copiee_le = None
-    return EtatRepetition(active=_active, copie_existe=_copie().exists(), copiee_le=copiee_le)
+    return EtatRepetition(active=E.active, copie_existe=_copie().exists(), copiee_le=copiee_le)
 
 
 def _oublier_les_caches() -> None:
@@ -119,17 +118,16 @@ def _copier_la_base() -> None:
 
 def commencer(*, neuve: bool = False) -> EtatRepetition:
     """Bascule le programme sur la copie — neuve, ou celle d'une répétition précédente."""
-    global _active, _reel
     from backend import database
 
-    if _active:
+    if E.active:
         if not neuve:
             return etat()
         quitter()
     if neuve or not _copie().exists():
         _copier_la_base()
 
-    _reel = (database._engine, database._SessionLocal)
+    E.reel = (database._engine, database._SessionLocal)
     moteur = create_engine(
         f"sqlite:///{_copie()}", echo=False, future=True,
         connect_args={"check_same_thread": False},
@@ -138,7 +136,7 @@ def commencer(*, neuve: bool = False) -> EtatRepetition:
     database._SessionLocal = sessionmaker(
         bind=moteur, autocommit=False, autoflush=False, future=True
     )
-    _active = True
+    E.active = True
     _oublier_les_caches()
     # Une copie reprise après une mise à jour du programme : même
     # migration que la vraie base au démarrage.
@@ -148,16 +146,15 @@ def commencer(*, neuve: bool = False) -> EtatRepetition:
 
 def quitter() -> EtatRepetition:
     """Revient à la vraie base. La copie reste, pour reprendre plus tard."""
-    global _active, _reel
     from backend import database
 
-    if _active and _reel is not None:
+    if E.active and E.reel is not None:
         moteur = database._engine
-        database._engine, database._SessionLocal = _reel
+        database._engine, database._SessionLocal = E.reel
         moteur.dispose()
         _oublier_les_caches()
-    _active = False
-    _reel = None
+    E.active = False
+    E.reel = None
     return etat()
 
 
@@ -184,19 +181,21 @@ def _installer_la_garde() -> None:
         from googleapiclient import http as gh
     except ImportError:  # pragma: no cover — la bibliothèque est une dépendance
         return
-    if getattr(gh.HttpRequest.execute, "_garde_repetition", False):
-        return
-    reel = gh.HttpRequest.execute
+    # Un module rechargé (les tests le font à chaque fois) remplace la garde
+    # de l'ancien plutôt que de l'empiler. L'état, lui, vit dans
+    # `backend.repetition_etat` : toutes les copies lisent le même.
+    actuel = gh.HttpRequest.execute
+    reel = getattr(actuel, "_execute_reel", actuel)
 
     def execute(self, *args, **kwargs):
-        if _active and (self.method or "GET").upper() != "GET":
+        if E.active and (self.method or "GET").upper() != "GET":
             raise EcritureGoogleEnRepetition(
                 "Répétition : rien n'est envoyé à Google — Google n'y est que lu. "
                 "Hors répétition, ce geste partirait pour de vrai."
             )
         return reel(self, *args, **kwargs)
 
-    execute._garde_repetition = True
+    execute._execute_reel = reel
     gh.HttpRequest.execute = execute
 
 
