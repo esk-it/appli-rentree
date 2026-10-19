@@ -67,6 +67,21 @@ def test_un_code_que_le_portail_ne_connait_pas_arrete_le_fichier():
     assert r.pret, "un profil créé chez Sodexo s'ajoute aux paramètres"
 
 
+def test_un_code_tape_a_la_main_prend_l_orthographe_du_portail():
+    """Charlemagne se remplit à la main : « Gratuité » est GRATUITE."""
+    from backend.services.sodexo_fichier import en_csv, fabriquer
+
+    r = fabriquer(None, _edition(
+        _ligne(90010, "FICTIF", "Alice", passage="Gratuité"),
+        _ligne(90020, "EXEMPLE", "Bruno", passage="gratuite"),
+        _ligne(90030, "MODELE", "Chloé", passage="10 POGEC"),
+    ), "edition.csv")
+    assert r.pret
+    assert [e.code for e in r.eleves] == ["GRATUITE", "GRATUITE", "10POGEC"]
+    assert any("« Gratuité » (1 élève) : envoyé « GRATUITE »" in a for a in r.avertissements)
+    assert b";GRATUITE;" in en_csv(r) and "Gratuit" not in en_csv(r).decode()
+
+
 def test_les_doublons():
     from backend.services.sodexo_fichier import fabriquer
 
@@ -154,6 +169,34 @@ def test_le_referentiel_en_regard(session, annee_factory, site_factory, personne
     assert r.absents == ["Damien OUBLIE (NDK, 2_1)"]
     assert r.inconnus == ["Emma INCONNU (2_1, badge 99990)"]
     assert r.pret, "des avertissements, pas des erreurs"
+    assert r.referentiel_du is not None
+    assert any("au référentiel (dernier export lu le" in a for a in r.avertissements)
+
+
+def test_un_absent_qui_n_est_pas_encore_arrive(session, annee_factory, site_factory,
+                                               personne_factory):
+    """Charlemagne ne sort un élève qu'à partir de sa date d'entrée."""
+    from datetime import date
+
+    from backend.models import Snapshot
+    from backend.services.sodexo_fichier import _recouper, fabriquer
+
+    annee = annee_factory("2026-2027")
+    ndk = site_factory("NDK")
+    present = personne_factory(type="eleve", nom="FICTIF", prenom="Alice", site_id=ndk.id, classe="2_1")
+    attendue = personne_factory(type="eleve", nom="FUTURE", prenom="Berthe", site_id=ndk.id,
+                                classe="2_3", date_entree=date(2026, 11, 2))
+    for p in (present, attendue):
+        session.add(Snapshot(personne_id=p.id, annee_scolaire_id=annee.id, nom=p.nom,
+                             prenom=p.prenom, classe=p.classe))
+    session.commit()
+
+    r = fabriquer(None, _edition(_ligne(present.badge, "FICTIF", "Alice")), "edition.csv")
+    _recouper(session, r, None, aujourd_hui=date(2026, 10, 19))
+    assert r.absents == ["Berthe FUTURE (NDK, 2_3, entrée le 02/11/2026)"]
+    r.absents = []
+    _recouper(session, r, None, aujourd_hui=date(2026, 11, 3))
+    assert r.absents == ["Berthe FUTURE (NDK, 2_3)"], "arrivée : un absent comme un autre"
 
 
 @pytest.fixture()

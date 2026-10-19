@@ -6,6 +6,7 @@
   import Send from "@lucide/svelte/icons/send";
   import Bouton from "$lib/components/Bouton.svelte";
   import AccesSodexo from "./AccesSodexo.svelte";
+  import { libelleProfil } from "$lib/sodexo.js";
   import { sodexoApi, enregistrerFichierBase64 } from "$lib/api.js";
   import { lire, ecrire } from "$lib/memoire.svelte.js";
   import { notify } from "$lib/toasts.js";
@@ -35,6 +36,8 @@
 
   const libelle = (e) => String(e).replace(/^Error:\s*/, "");
   const REGIMES = ["D", "E", "P"];
+  /** @param {string} jour - AAAA-MM-JJ */
+  const jourMois = (jour) => jour.slice(8, 10) + "/" + jour.slice(5, 7);
 
   async function fabriquer() {
     if (!fichier) return;
@@ -95,19 +98,30 @@
         <p class="titre-affiche text-3xl leading-none text-stone-900 dark:text-stone-100">{rapport.nb_eleves.toLocaleString("fr-FR")}</p>
         <p class="mt-1 text-xs text-stone-600 dark:text-stone-400">élèves dans le fichier</p>
       </div>
-      <div class="flex flex-wrap gap-2">
-        {#each Object.entries(rapport.par_code) as [code, n] (code)}
-          <span
-            class="inline-flex items-baseline gap-1.5 rounded-full px-3 py-1 text-sm
-              {REGIMES.includes(code)
-              ? 'bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-200'
-              : 'bg-vert-100 font-semibold text-vert-800 dark:bg-vert-900/40 dark:text-vert-200'}"
-          >
-            <span class="font-mono">{code}</span><span class="tabular-nums">{n}</span>
-          </span>
-        {/each}
-      </div>
+      <table class="text-sm">
+        <thead>
+          <tr class="text-left text-xs text-stone-500 dark:text-stone-400">
+            <th class="pr-4 pb-1 font-semibold">Code Régime</th>
+            <th class="pr-6 pb-1 font-semibold">Profil au portail</th>
+            <th class="pb-1 text-right font-semibold">Élèves</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each Object.entries(rapport.par_code) as [code, n] (code)}
+            {@const particulier = !REGIMES.includes(code)}
+            <tr class={particulier ? "font-semibold text-vert-800 dark:text-vert-200" : "text-stone-700 dark:text-stone-300"}>
+              <td class="py-0.5 pr-4 font-mono">{code}</td>
+              <td class="py-0.5 pr-6">{libelleProfil(code)}</td>
+              <td class="py-0.5 text-right tabular-nums">{n.toLocaleString("fr-FR")}</td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
     </div>
+    <p class="-mt-2 max-w-3xl text-xs text-stone-500 dark:text-stone-400">
+      Seul Charlemagne fait foi : un profil posé à la main au portail — une gratuité,
+      un 50 % — que la colonne PassageS ne porte pas repasse en D, E ou P à l'import.
+    </p>
 
     {#if rapport.erreurs.length}
       <div class="rounded-xl border border-red-300 bg-red-50 px-4 py-3 dark:border-red-900 dark:bg-red-950/30" role="alert">
@@ -142,7 +156,8 @@
                 <th class="py-1.5 pr-4 font-semibold">Classe</th>
                 <th class="py-1.5 pr-4 font-semibold">Badge</th>
                 <th class="py-1.5 pr-4 font-semibold">Régime</th>
-                <th class="py-1.5 font-semibold">Envoyé</th>
+                <th class="py-1.5 pr-4 font-semibold">Envoyé</th>
+                <th class="py-1.5 font-semibold">Profil au portail</th>
               </tr>
             </thead>
             <tbody>
@@ -152,7 +167,8 @@
                   <td class="py-1.5 pr-4 font-mono">{p.classe}</td>
                   <td class="py-1.5 pr-4 font-mono tabular-nums">{p.badge}</td>
                   <td class="py-1.5 pr-4 font-mono text-stone-500">{p.regime}</td>
-                  <td class="py-1.5 font-mono font-semibold text-vert-700 dark:text-vert-300">{p.code}</td>
+                  <td class="py-1.5 pr-4 font-mono font-semibold text-vert-700 dark:text-vert-300">{p.code}</td>
+                  <td class="py-1.5 text-stone-700 dark:text-stone-300">{libelleProfil(p.code)}</td>
                 </tr>
               {/each}
             </tbody>
@@ -163,7 +179,9 @@
 
     {#if rapport.absents.length}
       <details class="text-sm text-stone-600 dark:text-stone-300">
-        <summary class="cursor-pointer font-semibold text-stone-800 dark:text-stone-200">Inscrits absents de l'édition ({rapport.absents.length})</summary>
+        <summary class="cursor-pointer font-semibold text-stone-800 dark:text-stone-200">
+          Au référentiel{rapport.referentiel_du ? ` (export Charlemagne du ${jourMois(rapport.referentiel_du)})` : ""}, absents de l'édition ({rapport.absents.length})
+        </summary>
         <p class="mt-1.5 leading-relaxed">{rapport.absents.join(", ")}</p>
       </details>
     {/if}

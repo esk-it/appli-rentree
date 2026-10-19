@@ -647,14 +647,18 @@
     </div>
 
     {#if procedure.memo.regimes}
-      <p class="libelle-champ mt-4">Valeurs du Code régime</p>
-      <div class="mt-1.5 flex flex-wrap items-center gap-1.5">
-        {#each procedure.memo.regimes.defaut as regime (regime)}
-          <span class="badge-nouveau font-mono">{regime}</span>
+      <p class="libelle-champ mt-4">Valeurs du Code régime, et le profil qu'elles donnent au portail</p>
+      <div class="mt-1.5 grid max-w-xl grid-cols-[auto_1fr] items-baseline gap-x-3 gap-y-1 text-sm">
+        {#each procedure.memo.regimes.defaut as profil (profil.code)}
+          <span class="badge-nouveau justify-self-start font-mono">{profil.code}</span>
+          <span class="text-stone-700 dark:text-stone-300">{profil.libelle}</span>
         {/each}
-        <span class="text-xs text-stone-500 dark:text-stone-400">par défaut — sinon</span>
-        {#each procedure.memo.regimes.autres as regime (regime)}
-          <span class="badge-neutre font-mono">{regime}</span>
+        <span class="col-span-2 mt-1 text-xs text-stone-500 dark:text-stone-400">
+          le régime de Charlemagne, par défaut — sinon le code de la colonne PassageS :
+        </span>
+        {#each procedure.memo.regimes.autres as profil (profil.code)}
+          <span class="badge-neutre justify-self-start font-mono">{profil.code}</span>
+          <span class="text-stone-700 dark:text-stone-300">{profil.libelle}</span>
         {/each}
       </div>
     {/if}

@@ -68,6 +68,11 @@ def _plat(texte) -> str:
     return re.sub(r"\s+", " ", "".join(c for c in decompose if unicodedata.category(c) != "Mn"))
 
 
+def _cle_code(code: str) -> str:
+    """« Gratuité », « gratuite », « 10 POGEC » → la même clé que le profil."""
+    return re.sub(r"[^a-z0-9]", "", _plat(code))
+
+
 # L'en-tête de l'édition, aplati, vers le nom qu'on lui donne ici. « Code
 # Régime » y figure deux fois : on garde la première valeur non vide.
 COLONNES_EDITION = {
@@ -117,6 +122,8 @@ class RapportSodexo:
     avertissements: list[str] = field(default_factory=list)
     absents: list[str] = field(default_factory=list)
     """Inscrits cette année, sur un site du fichier, que l'édition ne porte pas."""
+    referentiel_du: date | None = None
+    """Le dernier export Charlemagne lu : les absents se jugent à cette date."""
     inconnus: list[str] = field(default_factory=list)
     """Badges de l'édition que le référentiel ne connaît pas."""
 
@@ -239,10 +246,21 @@ def fabriquer(
     lus, nb_lignes = lire_edition(contenu, nom_fichier)
     rapport = RapportSodexo(nb_lignes_lues=nb_lignes)
     connus = {p.strip() for p in (profils or PROFILS_ELEVES_DEFAUT) if p.strip()}
+    # Le code se tape à la main dans Charlemagne : on rend au portail son
+    # orthographe à lui, plutôt que d'arrêter le fichier sur un accent.
+    orthographe = {_cle_code(p): p for p in connus}
+    redresses: Counter = Counter()
 
     par_badge: dict[str, EleveSodexo] = {}
     doublons_identiques = 0
     for e in lus:
+        juste = orthographe.get(_cle_code(e.code))
+        if e.code and e.code not in connus and juste:
+            redresses[(e.code, juste)] += 1
+            if e.passage:
+                e.passage = juste
+            else:
+                e.regime = juste
         if not e.badge:
             rapport.erreurs.append(f"Ligne {e.ligne} sans badge — {_qui(e)} : le portail ne saurait pas quel compte créer.")
             continue
@@ -274,18 +292,35 @@ def fabriquer(
             f"{doublons_identiques} ligne(s) en double dans l'édition, à l'identique : "
             "gardées une seule fois."
         )
+    for (ecrit, juste), n in sorted(redresses.items()):
+        rapport.avertissements.append(
+            f"Charlemagne écrit « {ecrit} » ({n} élève{'s' if n > 1 else ''}) : "
+            f"envoyé « {juste} », l'orthographe du profil au portail."
+        )
     if session is not None:
         _recouper(session, rapport, annee_id)
     return rapport
 
 
-def _recouper(session: Session, rapport: RapportSodexo, annee_id: int | None) -> None:
+def _recouper(
+    session: Session, rapport: RapportSodexo, annee_id: int | None, aujourd_hui: date | None = None
+) -> None:
     """Le référentiel en regard : personne d'inscrit ne doit manquer.
 
     Les sites servis sont ceux des élèves du fichier — NDK et SU ; NDE a
     son propre service et ne figure pas dans l'édition.
+
+    Un absent n'est pas forcément un oubli : le référentiel date du dernier
+    export Charlemagne lu, l'édition du jour où on la tire. Un départ saisi
+    entre les deux, ou une entrée à venir (Charlemagne ne sort un élève
+    qu'à partir de sa date d'entrée), suffit — d'où la date de l'un, et
+    celle de l'autre.
     """
+    from sqlalchemy import func
+
     from backend.models import AnneeScolaire, Personne, Site, Snapshot
+
+    aujourd_hui = aujourd_hui or date.today()
 
     annee = (session.get(AnneeScolaire, annee_id) if annee_id else
              session.query(AnneeScolaire).order_by(AnneeScolaire.libelle.desc()).first())
@@ -306,15 +341,30 @@ def _recouper(session: Session, rapport: RapportSodexo, annee_id: int | None) ->
         .distinct()
         .all()
     )
-    rapport.absents = sorted(
-        f"{p.prenom} {p.nom} ({noms_sites.get(p.site_id, '?')}, {p.classe or '?'})"
-        for p in inscrits if p.badge not in badges
+    dernier = (
+        session.query(func.max(Snapshot.date_ingestion))
+        .join(Personne, Personne.id == Snapshot.personne_id)
+        .filter(Snapshot.annee_scolaire_id == annee.id, Personne.type == "eleve",
+                Personne.site_id.in_(sites))
+        .scalar()
     )
+    rapport.referentiel_du = dernier.date() if dernier else None
+
+    def absent(p) -> str:
+        precision = [noms_sites.get(p.site_id, "?"), p.classe or "?"]
+        if p.date_entree and p.date_entree > aujourd_hui:
+            precision.append(f"entrée le {p.date_entree:%d/%m/%Y}")
+        return f"{p.prenom} {p.nom} ({', '.join(precision)})"
+
+    rapport.absents = sorted(absent(p) for p in inscrits if p.badge not in badges)
     if rapport.absents:
+        lu_le = f" (dernier export lu le {rapport.referentiel_du:%d/%m})" if rapport.referentiel_du else ""
         rapport.avertissements.append(
             f"{len(rapport.absents)} élève(s) inscrit(s) en {annee.libelle} à "
-            f"{', '.join(sorted(noms_sites[s] for s in sites))} ne sont pas dans l'édition : "
-            "ils n'auront pas de compte au self."
+            f"{', '.join(sorted(noms_sites[s] for s in sites))} au référentiel{lu_le} "
+            "ne sont pas dans l'édition : un départ saisi depuis, ou une entrée encore "
+            "à venir. Qui a déjà un compte au self le garde, sans mise à jour ; un "
+            "nouveau n'en aurait pas."
         )
     if rapport.inconnus:
         rapport.avertissements.append(

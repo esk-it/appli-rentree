@@ -6,6 +6,7 @@ en base ; l'envoi se déclare ensuite, comme avant, par « J'ai transmis ».
 from __future__ import annotations
 
 import base64
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -39,6 +40,8 @@ class FichierOut(BaseModel):
     erreurs: list[str]
     avertissements: list[str]
     absents: list[str]
+    referentiel_du: date | None = None
+    """Le dernier export Charlemagne lu, auquel les absents se mesurent."""
     inconnus: list[str]
     pret: bool
     nom_fichier: str
@@ -84,6 +87,7 @@ def fabriquer_fichier(payload: FichierPayload, session: Session = Depends(db_ses
         erreurs=r.erreurs,
         avertissements=r.avertissements,
         absents=r.absents,
+        referentiel_du=r.referentiel_du,
         inconnus=r.inconnus,
         pret=r.pret,
         nom_fichier=nom_du_fichier(),

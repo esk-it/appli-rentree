@@ -47,6 +47,30 @@ export const IDENTIFIANT_SODEXO = "ggallic";
 export const REGLAGE_CLASSEUR_ELEVES = "url_classeur_sodexo_eleves";
 
 /**
+ * Les profils de gestion élèves du portail, avec leur libellé tel qu'il
+ * s'affiche chez Sodexo (Administration › Configurations › Profils de
+ * gestion, relevés le 19/10/2026). Le Code Régime du fichier désigne le
+ * profil ; c'est le profil qui porte la subvention.
+ *
+ * Les codes acceptés par le programme se règlent dans les Paramètres
+ * (`sodexo.profils_eleves`) ; un code sans libellé ici s'affiche seul.
+ */
+export const PROFILS_ELEVES = [
+  { code: "D", libelle: "DEMI PENSIONNAIRE" },
+  { code: "E", libelle: "EXTERNE" },
+  { code: "P", libelle: "PENSIONNAIRE" },
+  { code: "10P", libelle: "Subvention 10% sur formule" },
+  { code: "10POGEC", libelle: "Subvention 10% sur formule ogec" },
+  { code: "33P", libelle: "Subvention 33.33% sur formule" },
+  { code: "50P", libelle: "Subvention 50% sur formule" },
+  { code: "GRATUITE", libelle: "GRATUITE Subvention 100% sur formule" },
+];
+
+/** @param {string} code */
+export const libelleProfil = (code) =>
+  PROFILS_ELEVES.find((p) => p.code === code)?.libelle ?? "";
+
+/**
  * Les trois endroits où se passe la procédure.
  *
  * Leurs logos sont toujours posés sur une plaque blanche, en thème sombre
@@ -103,13 +127,15 @@ export const ICONES = {
  * @property {{libelle: string, url?: string, reglage?: string}[]} [liens]
  */
 
+/** @typedef {{code: string, libelle: string}} ProfilSodexo */
+
 /**
  * @typedef {Object} ProcedureSodexo
  * @property {string} id
  * @property {string} titre
  * @property {string} resume
  * @property {EtapeSodexo[]} etapes
- * @property {{format: string, attributs: string[], regimes?: {defaut: string[], autres: string[]}}} memo
+ * @property {{format: string, attributs: string[], regimes?: {defaut: ProfilSodexo[], autres: ProfilSodexo[]}}} memo
  */
 
 /** @type {ProcedureSodexo[]} */
@@ -190,12 +216,11 @@ export const PROCEDURES = [
         "Prénom",
         "Code Régime — devient le profil de gestion, donc le tarif",
       ],
-      // Les profils de gestion élèves du portail, relevés le 19/10/2026
-      // (Administration › Configurations). 75P, PREFERENTIEL et passageS,
-      // cités par la procédure d'origine, n'y existent pas.
+      // 75P, PREFERENTIEL et passageS, cités par la procédure d'origine,
+      // n'existent pas comme profils au portail.
       regimes: {
-        defaut: ["D", "E", "P"],
-        autres: ["10P", "10POGEC", "33P", "50P", "GRATUITE"],
+        defaut: PROFILS_ELEVES.slice(0, 3),
+        autres: PROFILS_ELEVES.slice(3),
       },
     },
   },
