@@ -176,6 +176,20 @@ CATALOGUE: list[DefinitionParametre] = [
         defaut="",
         categorie="Sodexo",
     ),
+    DefinitionParametre(
+        cle="sodexo.profils_eleves",
+        libelle="Profils de gestion élèves du portail",
+        description=(
+            "Les codes des profils de gestion élèves du portail Sodexo "
+            "(Administration › Configurations › Profils de gestion). Un Code "
+            "Régime absent de cette liste arrête la fabrication du fichier : "
+            "le portail ne lui trouverait aucun profil, donc aucun tarif. "
+            "Relevés le 19/10/2026."
+        ),
+        type="str_list",
+        defaut=["D", "E", "P", "10P", "10POGEC", "33P", "50P", "GRATUITE"],
+        categorie="Sodexo",
+    ),
 ]
 
 # Index par clé pour lookup rapide

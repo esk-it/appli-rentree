@@ -1267,6 +1267,27 @@ export const rentreeApi = {
 };
 
 /**
+ * Le fichier élèves du portail Sodexo, fabriqué depuis l'édition
+ * Charlemagne « Liste des élèves - Export vers SoHappy ». Lecture seule :
+ * rien n'est écrit en base, le CSV revient en base64 s'il est prêt.
+ */
+export const sodexoApi = {
+  async fichier({ fichier, anneeId = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/sodexo/fichier`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          fichier_base64: arrayBufferEnBase64(await fichier.arrayBuffer()),
+          nom_fichier: fichier.name,
+          annee_id: anneeId,
+        }),
+      }),
+    );
+  },
+};
+
+/**
  * La répétition : tout le programme sur une copie de la base, Google en
  * lecture seule. Quitter — ou relancer le programme — ramène à la vraie.
  */

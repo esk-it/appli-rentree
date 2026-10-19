@@ -49,6 +49,7 @@ from backend.routers import (
     parcours as parcours_router,
     rentree as rentree_router,
     repetition as repetition_router,
+    sodexo as sodexo_router,
     parc as parc_router,
     ts1000 as ts1000_router,
     cartes as cartes_router,
@@ -271,3 +272,4 @@ app.include_router(cartes_router.router)
 app.include_router(envois_router.router)
 app.include_router(rentree_router.router)
 app.include_router(repetition_router.router)
+app.include_router(sodexo_router.router)

@@ -42,6 +42,7 @@
     statistiques,
   } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
+  import { ecrire } from "$lib/memoire.svelte.js";
   import { TEINTES } from "$lib/familles.js";
 
   let { onNaviguer } = $props();
@@ -107,10 +108,9 @@
       contenu: "Élèves et classes transmis à la restauration.",
       demande: null,
       vers: "sodexo",
-      // Le programme ne fabrique pas ce fichier : il naît d'un classeur
-      // Google. Le dire ici évite de chercher un bouton qui n'existe pas.
-      sansBouton:
-        "Le fichier naît du classeur Google, pas du programme. L'écran Sodexo porte la procédure et dit ce qui a changé depuis le dernier envoi.",
+      // L'écran Sodexo fabrique le fichier depuis l'édition Charlemagne
+      // (19/10/2026) : on y arrive sur l'onglet qui le fait.
+      volet: { cle: "sodexo.volet", valeur: "fichier" },
     },
     {
       // Vers « Badges et accès », pas vers l'onglet JPM des exports.
@@ -195,6 +195,7 @@
   }
 
   function ouvrir(s) {
+    if (s.volet) ecrire(s.volet.cle, s.volet.valeur);
     onNaviguer?.(s.vers, s.cible ? { cibleInitiale: s.cible } : undefined);
   }
 </script>
@@ -298,9 +299,9 @@
 
     <p class="text-[13px] leading-relaxed text-stone-600 dark:text-stone-400">
       <strong>« Dernier envoi »</strong> ne se devine pas : il est noté quand le
-      programme produit le fichier, et déclaré à la main pour Sodexo, dont le
-      fichier naît ailleurs. Un envoi déclaré vaut ce que vaut la parole de
-      celui qui l'a déclaré — c'est pourquoi l'écran le distingue.
+      programme produit le fichier, et déclaré à la main pour Sodexo, dont
+      l'import se fait dans le portail. Un envoi déclaré vaut ce que vaut la
+      parole de celui qui l'a déclaré — c'est pourquoi l'écran le distingue.
     </p>
   {/if}
 </section>

@@ -555,7 +555,11 @@ export const CONTENU = {
         id: "sodexo",
         titre: "Sodexo",
         type: "programme",
-        consignes: ["Le fichier naît du classeur Google ; l'écran dit ce qui a changé."],
+        consignes: [
+          "Charlemagne : l'édition « Liste des élèves - Export vers SoHappy ».",
+          "Onglet « Fabriquer le fichier » : dépose-la, lis le rapport, enregistre le CSV.",
+          "Portail : Administration › Imports › Comptes/Convives › « Import comptes par badge – CLASSIFICATION 1 – Elèves ». Puis « J'ai transmis ».",
+        ],
         outil: { page: "sodexo" },
         fait: "Sodexo est à jour",
       },

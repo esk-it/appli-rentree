@@ -20,6 +20,7 @@
   import Search from "@lucide/svelte/icons/search";
   import Send from "@lucide/svelte/icons/send";
   import Touche from "$lib/components/Touche.svelte";
+  import FabriquerFichier from "$lib/components/sodexo/FabriquerFichier.svelte";
   import { annees as anneesApi, envois as envoisApi, parametres } from "$lib/api.js";
   import { TEINTES } from "$lib/familles.js";
   import { ouvrirLien } from "$lib/liens.js";
@@ -127,11 +128,10 @@
   }
 
   /**
-   * Prendre acte d'un envoi que le programme n'a pas fabriqué.
+   * Prendre acte d'un envoi.
    *
-   * Le CSV naît du classeur Google : le programme ne peut pas savoir
-   * qu'il est parti. Il le tient d'ici, et le dit — « déclaré » et
-   * « produit » ne valent pas la même chose.
+   * Le programme fabrique le fichier, mais ne voit pas l'import dans le
+   * portail : il le tient d'ici, une fois l'import réellement passé.
    */
   async function declarer() {
     if (!anneeId) return;
@@ -219,7 +219,7 @@
   <EnTetePage
     icon={UtensilsCrossed}
     titre="Sodexo"
-    description="La procédure d'import, dans l'ordre, avec ses pièges. Le fichier se fabrique dans le classeur Google — le programme ne le refait pas, il t'y mène."
+    description="Le fichier du portail, fabriqué depuis l'édition Charlemagne et vérifié ; ce qui a changé depuis le dernier envoi ; la procédure d'import."
   />
 
   <Onglets
@@ -230,6 +230,7 @@
         label: "Ce qui a changé",
         compte: etatEnvoi?.nb_changements ?? 0,
       },
+      { id: "fichier", label: "Fabriquer le fichier" },
       { id: "procedure", label: "La procédure" },
     ]}
   />
@@ -306,9 +307,9 @@
           Dernier envoi <strong>{age(etatEnvoi.envoye_le)}</strong>{#if etatEnvoi.declare}, déclaré à la main{/if}, sur
           <strong class="tabular-nums">{etatEnvoi.nb_envoyes}</strong> élèves.
         {/if}
-        Le fichier ne se fabrique pas ici : il naît du classeur Google, et
-        l'onglet « La procédure » mène au geste. « J'ai transmis » ne fait que
-        prendre acte, une fois l'import réellement passé.
+        Le fichier se fabrique dans l'onglet « Fabriquer le fichier ».
+        « J'ai transmis » ne fait que prendre acte, une fois l'import
+        réellement passé dans le portail.
       </p>
 
       <div class="flex flex-wrap items-end gap-4">
@@ -389,6 +390,8 @@
         </div>
       {/if}
     {/if}
+  {:else if volet === "fichier"}
+    <FabriquerFichier {anneeId} onTransmettre={() => (volet = "changements")} />
   {:else}
 
   <Segments

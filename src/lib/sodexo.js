@@ -6,16 +6,15 @@
  * ce sont ceux qu'on voit à l'écran au moment du geste, et une icône
  * reconnue vaut mieux qu'une phrase qui la décrit.
  *
- * ## Pourquoi le programme ne fabrique pas ce fichier
+ * ## Pourquoi le programme fabrique désormais le fichier
  *
- * Le CSV d'import naît d'un classeur Google qui reçoit l'export Charlemagne
- * et le transforme. Reproduire cette transformation sans l'avoir lue
- * produirait un fichier qui **ressemble** au bon sans en être un — et sur
- * de la restauration scolaire, l'erreur se découvre au self, un midi.
- *
- * Le programme fait donc ce qu'il sait faire de mieux ici : porter la
- * procédure, dans l'ordre, avec ses pièges et ses liens, pour qu'elle ne
- * vive plus dans un PDF qu'on ne retrouve pas.
+ * Le CSV naissait d'un classeur Google. Lu de près le 19 octobre 2026, il
+ * n'avait jamais transmis les réductions : son script exportait l'onglet
+ * Import au lieu de l'onglet Export, et les codes particuliers (10P,
+ * 10POGEC) restaient dans une colonne que le portail ne lit pas. Le
+ * programme reprend la seule règle du classeur — le code particulier
+ * d'abord, sinon le régime — et la vérifie
+ * (`backend/services/sodexo_fichier.py`).
  *
  * ## Pourquoi le mot de passe n'y est pas
  *
@@ -34,6 +33,7 @@
  */
 
 import imageCharlemagne from "./assets/sodexo/charlemagne.png";
+import imageProgramme from "./assets/marque/losanges.png";
 import imageClasseur from "./assets/sodexo/classeur-google.png";
 import imageSodexo from "./assets/sodexo/sodexo.png";
 import imageAdministration from "./assets/sodexo/administration.png";
@@ -56,6 +56,7 @@ export const REGLAGE_CLASSEUR_ELEVES = "url_classeur_sodexo_eleves";
 export const LIEUX = {
   charlemagne: { nom: "Charlemagne", image: imageCharlemagne },
   classeur: { nom: "Le classeur Google", image: imageClasseur },
+  programme: { nom: "Ce programme", image: imageProgramme },
   portail: { nom: "Le portail Sodexo", image: imageSodexo },
 };
 
@@ -117,7 +118,7 @@ export const PROCEDURES = [
     id: "eleves",
     titre: "Les élèves",
     resume:
-      "Charlemagne sort la liste, le classeur Google la transforme, le portail l'avale.",
+      "Charlemagne sort la liste, le programme en fait le fichier et le vérifie, le portail l'avale.",
     etapes: [
       {
         titre: "Sortir la liste de Charlemagne",
@@ -147,39 +148,18 @@ export const PROCEDURES = [
         ],
       },
       {
-        titre: "Transformer dans le classeur",
-        lieu: "classeur",
+        titre: "Fabriquer le fichier",
+        lieu: "programme",
         gestes: [
-          { texte: "Ouvrir le classeur", cible: "SoHappy - Import des élèves" },
-          {
-            texte: "Onglet Import : tout sélectionner, puis supprimer",
-            touches: [
-              ["Ctrl", "A"],
-              ["Suppr"],
-            ],
-          },
-          {
-            texte: "Copier le contenu du fichier de l'étape 1",
-            touches: [["Ctrl", "C"]],
-          },
-          {
-            texte: "Le coller dans l'onglet Import",
-            touches: [["Ctrl", "V"]],
-          },
-          { texte: "Passer sur l'onglet Export" },
-          { depuis: "Menu", chemin: ["Exporter le fichier CSV", "Cooperl"] },
-          { texte: "Télécharger le fichier produit" },
+          { texte: "Dans cet écran, l'onglet", cible: "Fabriquer le fichier" },
+          { texte: "Déposer l'édition de l'étape 1, telle qu'elle sort" },
+          { texte: "Lire le rapport : codes particuliers, inscrits absents, erreurs" },
+          { texte: "Enregistrer le CSV" },
         ],
         produit: "le CSV à importer",
         pieges: [
-          "Vider l'onglet Import AVANT de coller : un reliquat de l'export précédent ferait entrer des élèves partis, et le portail les recréerait.",
-          "L'export se prend sur l'onglet Export, pas sur l'onglet Import — ce sont les colonnes transformées qui partent chez Sodexo.",
-        ],
-        liens: [
-          {
-            libelle: "SoHappy - Import des élèves",
-            reglage: REGLAGE_CLASSEUR_ELEVES,
-          },
+          "Le code particulier de Charlemagne (colonne PassageS : 10P, 10POGEC…) passe avant le régime : c'est lui qui donne la réduction. L'ancien classeur Google ne l'envoyait pas.",
+          "Un code refusé par le programme n'existe pas comme profil dans le portail : l'élève n'y aurait aucun tarif. Corriger Charlemagne, ou ajouter le profil aux Paramètres s'il vient d'être créé chez Sodexo.",
         ],
       },
       {
@@ -203,28 +183,19 @@ export const PROCEDURES = [
       },
     ],
     memo: {
-      format: "CSV, séparateur point-virgule",
+      format: "CSV UTF-8, séparateur point-virgule — le portail repère les colonnes par leur en-tête",
       attributs: [
-        "Code établissement",
-        "Code niveau",
-        "Code classe",
-        "Code régime",
-        "Nom et prénom",
+        "Num Badge — la clé du compte",
         "Nom",
         "Prénom",
-        "Photo",
+        "Code Régime — devient le profil de gestion, donc le tarif",
       ],
+      // Les profils de gestion élèves du portail, relevés le 19/10/2026
+      // (Administration › Configurations). 75P, PREFERENTIEL et passageS,
+      // cités par la procédure d'origine, n'y existent pas.
       regimes: {
-        defaut: ["P", "D", "E"],
-        autres: [
-          "10P",
-          "10POGEC",
-          "50P",
-          "75P",
-          "PREFERENTIEL",
-          "GRATUITE",
-          "passageS",
-        ],
+        defaut: ["D", "E", "P"],
+        autres: ["10P", "10POGEC", "33P", "50P", "GRATUITE"],
       },
     },
   },
