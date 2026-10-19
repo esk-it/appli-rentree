@@ -1152,6 +1152,19 @@ export const coffreApi = {
   async verrouiller() {
     return jsonOrThrow(await fetch(`${BASE}/coffre/verrouiller`, { method: "POST" }));
   },
+  /** Le mot de passe d'un service (« sodexo_portail ») : en clair coffre ouvert seulement. */
+  async service(nom) {
+    return jsonOrThrow(await fetch(`${BASE}/coffre/services/${encodeURIComponent(nom)}`));
+  },
+  async rangerService(nom, motDePasse) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/coffre/services/${encodeURIComponent(nom)}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mot_de_passe: motDePasse }),
+      }),
+    );
+  },
   async chercher(q) {
     return jsonOrThrow(
       await fetch(`${BASE}/coffre/chercher?q=${encodeURIComponent(q)}`),

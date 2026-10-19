@@ -345,3 +345,72 @@ def lister_ecarts(session: Session = Depends(db_session)) -> EcartsOut:
         ecarts=[EcartOut(**asdict(e)) for e in trouves],
         releves_koxo=dict(sorted(releves.items())),
     )
+
+
+# ---------------------------------------------------------------------------
+# Les mots de passe de service — le portail Sodexo
+# ---------------------------------------------------------------------------
+
+
+class ServiceOut(BaseModel):
+    nom: str
+    libelle: str
+    range: bool
+    """Un mot de passe a été rangé — se sait coffre fermé."""
+    mis_a_jour_le: str | None = None
+    ouvert: bool
+    mot_de_passe: str | None = None
+    """Seulement coffre ouvert."""
+
+
+class ServicePayload(BaseModel):
+    mot_de_passe: str
+
+
+def _service_out(session: Session, nom: str) -> ServiceOut:
+    from backend.services.coffre import SERVICES, lire_service, service_range
+
+    if nom not in SERVICES:
+        raise HTTPException(404, f"Service inconnu du coffre : {nom}")
+    cle = cle_si_ouverte()
+    quand = service_range(session, nom)
+    try:
+        valeur = lire_service(session, cle, nom) if cle is not None else None
+    except CoffreVerrouille as e:
+        raise HTTPException(409, str(e)) from None
+    return ServiceOut(nom=nom, libelle=SERVICES[nom], range=quand is not None,
+                      mis_a_jour_le=quand, ouvert=cle is not None, mot_de_passe=valeur)
+
+
+@router.get("/services/{nom}", response_model=ServiceOut)
+def lire_mot_de_passe_service(nom: str, session: Session = Depends(db_session)) -> ServiceOut:
+    """Le mot de passe d'un service : en clair coffre ouvert, sinon seulement s'il existe."""
+    return _service_out(session, nom)
+
+
+@router.put("/services/{nom}", response_model=ServiceOut)
+def ranger_mot_de_passe_service(
+    nom: str, payload: ServicePayload, session: Session = Depends(db_session)
+) -> ServiceOut:
+    """Range (ou remplace) le mot de passe d'un service. Coffre ouvert."""
+    from backend.services.coffre import SERVICES, deposer_service
+
+    if nom not in SERVICES:
+        raise HTTPException(404, f"Service inconnu du coffre : {nom}")
+    if not payload.mot_de_passe:
+        raise HTTPException(400, "Le mot de passe est vide.")
+    deposer_service(session, _cle_courante(), nom, payload.mot_de_passe)
+    session.commit()
+    return _service_out(session, nom)
+
+
+@router.delete("/services/{nom}", response_model=ServiceOut)
+def retirer_mot_de_passe_service(nom: str, session: Session = Depends(db_session)) -> ServiceOut:
+    from backend.services.coffre import SERVICES, retirer_service
+
+    if nom not in SERVICES:
+        raise HTTPException(404, f"Service inconnu du coffre : {nom}")
+    _cle_courante()
+    retirer_service(session, nom)
+    session.commit()
+    return _service_out(session, nom)

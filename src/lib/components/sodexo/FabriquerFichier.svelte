@@ -5,6 +5,7 @@
   import CircleX from "@lucide/svelte/icons/circle-x";
   import Send from "@lucide/svelte/icons/send";
   import Bouton from "$lib/components/Bouton.svelte";
+  import AccesSodexo from "./AccesSodexo.svelte";
   import { sodexoApi, enregistrerFichierBase64 } from "$lib/api.js";
   import { lire, ecrire } from "$lib/memoire.svelte.js";
   import { notify } from "$lib/toasts.js";
@@ -186,6 +187,7 @@
             <strong>« Import comptes par badge – CLASSIFICATION 1 – Elèves »</strong>,
             puis ce fichier. Pas une autre ligne : celle des adultes attend d'autres colonnes.
           </p>
+          <div class="mt-3"><AccesSodexo /></div>
         </div>
         <div>
           <p class="libelle-champ">4 · Une fois l'import passé</p>

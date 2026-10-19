@@ -684,3 +684,65 @@ def fabriquer_mot_de_passe() -> str:
     )
     chiffres = "".join(secrets.choice(string.digits) for _ in range(2))
     return lettres.capitalize() + chiffres
+
+
+# ---------------------------------------------------------------------------
+# Les mots de passe de service : un portail, pas une personne
+# ---------------------------------------------------------------------------
+#
+# Johann, 19 octobre 2026 : « je trouve chiant de devoir aller récupérer le
+# mot de passe [du portail Sodexo] sur l'ancienne procédure à chaque fois ».
+# Il n'a rien à faire dans le code — il partirait dans le dépôt, et
+# deviendrait faux au premier changement. Il se range donc ici, chiffré
+# sous la clé du coffre, et ne se lit que coffre ouvert. Le nom du service
+# est lié au chiffré (données associées) : un dépôt ne peut pas être lu
+# sous le nom d'un autre.
+
+SERVICES = {"sodexo_portail": "Portail Sodexo"}
+"""Les mots de passe de service que le coffre accepte, et leur libellé."""
+
+
+def _cle_service(nom: str) -> str:
+    if nom not in SERVICES:
+        raise KeyError(nom)
+    return f"coffre.service.{nom}"
+
+
+def deposer_service(session: Session, cle: bytes, nom: str, mot_de_passe: str) -> None:
+    """Range le mot de passe d'un service. Remplace celui qui s'y trouvait."""
+    if not mot_de_passe:
+        raise ValueError("Aucun mot de passe à ranger.")
+    nonce = os.urandom(12)
+    chiffre = AESGCM(cle).encrypt(nonce, mot_de_passe.encode("utf-8"), nom.encode("utf-8"))
+    _ecrire_parametre(session, _cle_service(nom), {
+        "nonce": nonce.hex(), "chiffre": chiffre.hex(),
+        "mis_a_jour_le": datetime.now().isoformat(timespec="minutes"),
+    })
+
+
+def service_range(session: Session, nom: str) -> str | None:
+    """Quand le mot de passe a été rangé, ou `None` s'il ne l'a jamais été."""
+    v = _parametre(session, _cle_service(nom))
+    return (v or {}).get("mis_a_jour_le") if v else None
+
+
+def lire_service(session: Session, cle: bytes, nom: str) -> str | None:
+    """Le mot de passe du service, en clair — coffre ouvert seulement."""
+    v = _parametre(session, _cle_service(nom))
+    if not v:
+        return None
+    try:
+        return AESGCM(cle).decrypt(
+            bytes.fromhex(v["nonce"]), bytes.fromhex(v["chiffre"]), nom.encode("utf-8")
+        ).decode("utf-8")
+    except InvalidTag:
+        raise CoffreVerrouille(
+            "Ce mot de passe ne s'ouvre pas avec cette clé — il a été rangé sous "
+            "un autre mot de passe maître."
+        ) from None
+
+
+def retirer_service(session: Session, nom: str) -> None:
+    p = session.query(Parametre).filter_by(cle=_cle_service(nom)).one_or_none()
+    if p is not None:
+        session.delete(p)

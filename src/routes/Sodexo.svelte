@@ -3,7 +3,6 @@
   import UtensilsCrossed from "@lucide/svelte/icons/utensils-crossed";
   import ExternalLink from "@lucide/svelte/icons/external-link";
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
-  import KeyRound from "@lucide/svelte/icons/key-round";
   import ChevronRight from "@lucide/svelte/icons/chevron-right";
   import ArrowRight from "@lucide/svelte/icons/arrow-right";
   import FileDown from "@lucide/svelte/icons/file-down";
@@ -11,7 +10,6 @@
   import Pencil from "@lucide/svelte/icons/pencil";
   import Check from "@lucide/svelte/icons/check";
   import Bouton from "$lib/components/Bouton.svelte";
-  import CopiableTexte from "$lib/components/CopiableTexte.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import Segments from "$lib/components/Segments.svelte";
   import Onglets from "$lib/components/Onglets.svelte";
@@ -21,6 +19,7 @@
   import Send from "@lucide/svelte/icons/send";
   import Touche from "$lib/components/Touche.svelte";
   import FabriquerFichier from "$lib/components/sodexo/FabriquerFichier.svelte";
+  import AccesSodexo from "$lib/components/sodexo/AccesSodexo.svelte";
   import { annees as anneesApi, envois as envoisApi, parametres } from "$lib/api.js";
   import { TEINTES } from "$lib/familles.js";
   import { ouvrirLien } from "$lib/liens.js";
@@ -28,7 +27,6 @@
   import { notify } from "$lib/toasts.js";
   import {
     ICONES,
-    IDENTIFIANT_SODEXO,
     LIEUX,
     PORTAIL_SODEXO,
     PROCEDURES,
@@ -430,9 +428,10 @@
   </div>
 
   <!-- ------------------------------------------------------------------
-       Les accès — sans le mot de passe, et c'est délibéré.
+       Les accès. Le mot de passe vient du coffre, coffre ouvert : jamais
+       dans le code (Johann, 19/10/2026).
        ------------------------------------------------------------------ -->
-  <div class="card flex flex-wrap items-center gap-x-6 gap-y-3 p-4">
+  <div class="card flex flex-wrap items-start gap-x-8 gap-y-4 p-4">
     <div class="flex items-center gap-3">
       <span class="flex h-10 w-16 shrink-0 items-center justify-center rounded-lg bg-white p-1.5 ring-1 ring-stone-200 dark:ring-stone-600">
         <img src={LIEUX.portail.image} alt="Sodexo" class="max-h-full max-w-full object-contain" />
@@ -441,19 +440,7 @@
         Ouvrir le portail
       </Bouton>
     </div>
-    <div>
-      <p class="libelle-champ">Identifiant</p>
-      <CopiableTexte valeur={IDENTIFIANT_SODEXO} />
-    </div>
-    <div class="flex max-w-lg items-start gap-2 text-xs text-stone-500 dark:text-stone-400">
-      <KeyRound class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-      <p>
-        Le mot de passe n'est pas écrit ici, et c'est délibéré : il partirait
-        dans le dépôt et y resterait. Surtout, il deviendrait
-        <strong>faux</strong> — la note d'origine de cette procédure en portait
-        deux, dont un périmé depuis un changement.
-      </p>
-    </div>
+    <AccesSodexo />
   </div>
 
   <!-- ------------------------------------------------------------------
