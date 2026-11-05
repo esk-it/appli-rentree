@@ -331,3 +331,60 @@ def retirer_de_lannee_endpoint(
         retires=[RetireOut(**vars(x)) for x in r.retires],
         ignores=r.ignores,
     )
+
+
+# ---------------------------------------------------------------------------
+# Où en est le référentiel — l'écran « Mettre à jour le référentiel »
+# ---------------------------------------------------------------------------
+
+
+class EtatPopulationOut(BaseModel):
+    type_personne: str
+    inscrits: int
+    dernier_export: str | None
+    """Jour de la dernière ingestion qui a touché cette population (AAAA-MM-JJ)."""
+
+
+class EtatReferentielOut(BaseModel):
+    annee_id: int | None
+    annee: str | None
+    populations: list[EtatPopulationOut]
+
+
+@router.get("/etat", response_model=EtatReferentielOut)
+def etat_du_referentiel(session: Session = Depends(db_session)) -> EtatReferentielOut:
+    """De quand date ce que le référentiel sait, population par population.
+
+    La question qui précède un import : « mon dernier export date de
+    quand ? ». Un élève arrivé depuis n'existe pas encore pour le
+    programme — ni aux cartes, ni chez Sodexo, ni pour Google.
+    """
+    from sqlalchemy import func
+
+    from backend.models import AnneeScolaire, Personne, Snapshot
+
+    annee = session.query(AnneeScolaire).order_by(AnneeScolaire.libelle.desc()).first()
+    if annee is None:
+        return EtatReferentielOut(annee_id=None, annee=None, populations=[])
+    lignes = (
+        session.query(
+            Personne.type,
+            func.count(func.distinct(Snapshot.personne_id)),
+            func.max(Snapshot.date_ingestion),
+        )
+        .join(Personne, Personne.id == Snapshot.personne_id)
+        .filter(Snapshot.annee_scolaire_id == annee.id)
+        .group_by(Personne.type)
+        .all()
+    )
+    return EtatReferentielOut(
+        annee_id=annee.id,
+        annee=annee.libelle,
+        populations=[
+            EtatPopulationOut(
+                type_personne=t, inscrits=n,
+                dernier_export=d.date().isoformat() if d else None,
+            )
+            for t, n, d in sorted(lignes, key=lambda l: l[0] != "eleve")
+        ],
+    )

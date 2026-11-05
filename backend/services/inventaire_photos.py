@@ -27,6 +27,7 @@ l'attend, et on le demande.
 from __future__ import annotations
 
 import json
+import ntpath
 import os
 import re
 import threading
@@ -355,6 +356,36 @@ class Lecture:
     presents: set[str]
     disputes: set[str] = field(default_factory=set)
     pris: set[str] = field(default_factory=set)
+    dates: dict[str, float] = field(default_factory=dict)
+    """Nom replié → date de modification. Le listage la donne pour rien."""
+    _aplatis: dict[str, list[str]] | None = None
+
+    def designe(self, chemin: str | None) -> str | None:
+        """Le fichier que ce chemin Charlemagne désigne dans ce dossier.
+
+        Le nom exact d'abord ; sinon à l'espace près — un chemin ingéré
+        avant la v0.195 a perdu ses doubles espaces (`TORRES  BOSCHET`), et
+        le fichier, lui, les a. Un chemin vers un autre dossier ne désigne
+        rien ici.
+        """
+        if not chemin:
+            return None
+        dossier, nom = ntpath.split(chemin.strip())
+        if ntpath.basename(dossier).casefold() != self.racine.name.casefold():
+            return None
+        cle = unicodedata.normalize("NFC", nom).casefold()
+        if cle in self.reels:
+            return cle
+        if self._aplatis is None:
+            self._aplatis = defaultdict(list)
+            for n in self.reels:
+                self._aplatis[_espaces(n)].append(n)
+        memes = self._aplatis.get(_espaces(cle), [])
+        return memes[0] if len(memes) == 1 else None
+
+
+def _espaces(nom: str) -> str:
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", nom)).strip().casefold()
 
 
 @dataclass
@@ -381,6 +412,8 @@ class Parcours:
     """(personne, classe, fichier trouvé — replié, dossier où il l'a été)."""
     sites: dict[int, str]
     injoignables: dict[str, int] = field(default_factory=dict)
+    charlemagne: dict[int, str | None] = field(default_factory=dict)
+    """Le chemin photo que Charlemagne garde pour chacun (colonne « Photo »)."""
 
     @property
     def dossier(self) -> str:
@@ -456,15 +489,17 @@ def _parcourir(
         # déjà si elle est un fichier, quand `Path.is_file()` le redemande
         # au serveur. Deux mille allers-retours SMB, c'était huit secondes
         # sur le partage réel ; le listage seul en prend quelques millièmes.
+        # La date vient avec : sous Windows, l'entrée la porte déjà.
+        reels, dates = {}, {}
         with os.scandir(racine) as entrees:
-            reels = {
-                e.name.casefold(): e.name
-                for e in entrees
-                if os.path.splitext(e.name)[1].casefold() in EXTENSIONS
-                and e.is_file()
-            }
+            for e in entrees:
+                if os.path.splitext(e.name)[1].casefold() in EXTENSIONS and e.is_file():
+                    cle = unicodedata.normalize("NFC", e.name).casefold()
+                    reels[cle] = e.name
+                    dates[cle] = e.stat().st_mtime
         lectures[dossier] = Lecture(
-            racine=racine, dossier=dossier, reels=reels, presents=Noms(reels)
+            racine=racine, dossier=dossier, reels=reels, presents=Noms(reels),
+            dates=dates,
         )
     if not lectures:
         raise InventaireImpossible(
@@ -494,7 +529,10 @@ def _parcourir(
         )
         if not classe:
             continue
-        trouve = _trouver(
+        # Le fichier que Charlemagne désigne, d'abord : c'est celui qu'il
+        # affiche, et il départage les homonymes sans deviner. Le nom ne sert
+        # qu'à défaut — chemin absent, ou vers un fichier qui n'est plus là.
+        trouve = lecture.designe(sn.chemin_photo) or _trouver(
             lecture.presents, p, classe if type_personne == "eleve" else ""
         )
         if trouve:
@@ -514,6 +552,7 @@ def _parcourir(
         retenus=retenus,
         sites=sites,
         injoignables=injoignables,
+        charlemagne={p.id: sn.chemin_photo for p, sn in presents_annee},
     )
 
 
@@ -596,6 +635,132 @@ def relever(
     inventaire.manquantes.sort(key=lambda e: (e.classe, e.nom, e.prenom))
     inventaire.par_classe = dict(par_classe)
     return inventaire
+
+
+# ---------------------------------------------------------------------------
+# Ce que Charlemagne affichera
+# ---------------------------------------------------------------------------
+
+UN_JOUR = 86400.0
+
+
+@dataclass
+class EcartCharlemagne:
+    """Une personne dont Charlemagne ne montrera pas la bonne photo."""
+
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str
+    site: str | None
+    genre: str
+    """`introuvable` : le fichier que Charlemagne attend n'existe pas.
+    `ancienne` : il existe, mais une photo plus récente porte le nom de la
+    personne — Charlemagne ne la verra pas."""
+    attendu: str
+    """Le nom de fichier que Charlemagne garde, tel quel."""
+    fichier: str | None = None
+    """La photo à lui donner, s'il y en a une : à renommer en `attendu`."""
+    date_attendu: str | None = None
+    date_fichier: str | None = None
+
+
+@dataclass
+class ConstatCharlemagne:
+    nb_personnes: int = 0
+    nb_sans_chemin: int = 0
+    """Personnes dont l'export ne porte aucun chemin photo (NDE, au
+    20/10/2026) : rien à comparer."""
+    ecarts: list[EcartCharlemagne] = field(default_factory=list)
+
+
+def _cle_nom(texte: str) -> str:
+    """Le nom tel qu'un photographe peut l'écrire : sans apostrophe ni accent.
+
+    Le 20 octobre 2026, `L'AZOU Youenn` est revenu `L AZOU Youenn.JPG`, et
+    `ROUÉ Léa` (nom du fichier gardé par Charlemagne) `ROUE Léa.JPG`.
+    """
+    return _plier(texte.replace("'", " ").replace("’", " "))
+
+
+def _jour(t: float | None) -> str | None:
+    import datetime as dt
+
+    return dt.date.fromtimestamp(t).isoformat() if t else None
+
+
+def constater_charlemagne(
+    session: Session, *, annee_id: int, type_personne: str = "eleve"
+) -> ConstatCharlemagne:
+    """Ce que Charlemagne affichera, comparé à ce qui est sur le partage.
+
+    Charlemagne garde pour chacun **un nom de fichier** — la colonne
+    « Photo » de ses exports — et ne le change pas quand le nom de l'élève
+    est corrigé, ni quand un homonyme est renommé avec sa nouvelle classe.
+    Le 20 octobre 2026, après la séance du photographe, il manquait des
+    photos dans le trombinoscope sans que l'inventaire ne voie rien : il
+    cherchait par le nom, Charlemagne par son fichier.
+
+    Deux écarts, chacun avec le geste : renommer `fichier` en `attendu`.
+    Lecture seule.
+    """
+    parcours = _parcourir(session, annee_id=annee_id, type_personne=type_personne)
+    constat = ConstatCharlemagne()
+    index: dict[str, dict[str, list[str]]] = {}
+    for dossier, lecture in parcours.lectures.items():
+        par_nom: dict[str, list[str]] = defaultdict(list)
+        for cle in lecture.reels:
+            par_nom[_cle_nom(os.path.splitext(cle)[0])].append(cle)
+        index[dossier] = par_nom
+
+    for p, classe, trouve, lecture in parcours.retenus:
+        constat.nb_personnes += 1
+        chemin = parcours.charlemagne.get(p.id)
+        if not chemin:
+            constat.nb_sans_chemin += 1
+            continue
+        attendu = ntpath.basename(chemin.strip())
+        # Charlemagne, lui, ne tolère rien : le nom exact, ou la silhouette.
+        exact = unicodedata.normalize("NFC", attendu).casefold()
+        designe = exact if exact in lecture.reels else None
+        base = f"{p.nom or ''} {p.prenom or ''}".strip()
+        siens = {_cle_nom(base), _cle_nom(f"{base} ({classe})")}
+        ecart = EcartCharlemagne(
+            personne_id=p.id, nom=p.nom or "", prenom=p.prenom or "",
+            classe=classe, site=parcours.sites.get(p.site_id), genre="", attendu=attendu,
+        )
+        if designe is None:
+            # Le fichier à lui donner : le même à l'espace près, sinon celui
+            # que le nom désigne sans doute.
+            par_nom = lecture.designe(chemin) or _trouver(
+                lecture.presents, p, classe if type_personne == "eleve" else ""
+            )
+            if par_nom and par_nom.casefold() in lecture.disputes:
+                par_nom = None
+            ecart.genre = "introuvable"
+            if par_nom:
+                ecart.fichier = lecture.reels.get(par_nom.casefold(), par_nom)
+                ecart.date_fichier = _jour(lecture.dates.get(par_nom.casefold()))
+            constat.ecarts.append(ecart)
+            continue
+        date_designe = lecture.dates.get(designe, 0.0)
+        plus_recentes = sorted(
+            (lecture.dates.get(f, 0.0), f)
+            for k in siens
+            for f in index[lecture.dossier].get(k, [])
+            if f != designe and lecture.dates.get(f, 0.0) > date_designe + UN_JOUR
+        )
+        if plus_recentes:
+            date_f, f = plus_recentes[-1]
+            ecart.genre = "ancienne"
+            ecart.attendu = lecture.reels[designe]
+            ecart.date_attendu = _jour(date_designe)
+            ecart.fichier = lecture.reels[f]
+            ecart.date_fichier = _jour(date_f)
+            constat.ecarts.append(ecart)
+
+    constat.ecarts.sort(key=lambda e: (e.genre, e.classe, e.nom, e.prenom))
+    return constat
 
 
 def classeur(inventaire: InventairePhotos) -> bytes:

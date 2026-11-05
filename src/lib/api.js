@@ -461,6 +461,10 @@ export const ingestion = {
   async fichiersDispo() {
     return jsonOrThrow(await fetch(`${BASE}/ingestion/fichiers-dispo`));
   },
+  /** De quand date ce que le référentiel sait, population par population. */
+  async etat() {
+    return jsonOrThrow(await fetch(`${BASE}/ingestion/etat`));
+  },
   /**
    * Ingère un export (élèves ou adultes) en mode simulation ou réel.
    *
@@ -594,6 +598,14 @@ export const photos = {
     return jsonOrThrow(
       await fetch(
         `${BASE}/photos/inventaire?annee_id=${anneeId}&type_personne=${typePersonne}`,
+      ),
+    );
+  },
+  /** Le fichier que Charlemagne garde pour chacun, confronté au partage. */
+  async charlemagne(anneeId, typePersonne = "eleve") {
+    return jsonOrThrow(
+      await fetch(
+        `${BASE}/photos/charlemagne?annee_id=${anneeId}&type_personne=${typePersonne}`,
       ),
     );
   },

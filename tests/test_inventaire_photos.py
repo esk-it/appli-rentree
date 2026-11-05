@@ -25,7 +25,7 @@ def contexte(session, site_factory, annee_factory, personne_factory, tmp_path):
     )
     session.commit()
 
-    def _eleve(nom, prenom, classe="2_5", **kw):
+    def _eleve(nom, prenom, classe="2_5", photo=None, **kw):
         p = personne_factory(nom=nom, prenom=prenom, site_id=site.id, **kw)
         session.add(
             Snapshot(
@@ -34,6 +34,8 @@ def contexte(session, site_factory, annee_factory, personne_factory, tmp_path):
                 nom=nom,
                 prenom=prenom,
                 classe=classe,
+                # Le chemin que Charlemagne garde : son dossier, puis le fichier.
+                chemin_photo=str(tmp_path / photo) if photo else None,
             )
         )
         session.commit()
@@ -579,3 +581,89 @@ def test_un_nom_colle_n_est_pas_un_nom_compose(session, contexte):
     (contexte["dossier"] / "LEBRIS Jean.jpg").write_bytes(b"x")
 
     assert p.id not in _chemins(session, contexte)
+
+
+# ---------------------------------------------------------------------------
+# Le fichier que Charlemagne garde — 20 octobre 2026
+# ---------------------------------------------------------------------------
+
+
+def _date(fichier, jour):
+    import datetime as dt
+    import os
+
+    t = dt.datetime.fromisoformat(jour).timestamp()
+    os.utime(fichier, (t, t))
+
+
+def test_le_fichier_de_charlemagne_passe_avant_le_nom(session, contexte):
+    """Deux homonymes dont Charlemagne garde les fichiers de l'an dernier
+    (`(57)`, `(BTS1)`) : chacun a le sien, sans parenthèse à la classe."""
+    a = contexte["eleve"]("FICTIF", "Marie", classe="44", photo="FICTIF Marie (57).JPG",
+                          login="mfictif")
+    b = contexte["eleve"]("FICTIF", "Marie", classe="BTS_2", photo="FICTIF Marie (BTS1).JPG",
+                          login="mfictif2")
+    (contexte["dossier"] / "FICTIF Marie (57).JPG").write_bytes(b"x")
+    (contexte["dossier"] / "FICTIF Marie (BTS1).JPG").write_bytes(b"x")
+
+    chemins = _chemins(session, contexte)
+    assert chemins[a.id].endswith("FICTIF Marie (57).JPG")
+    assert chemins[b.id].endswith("FICTIF Marie (BTS1).JPG")
+
+
+def test_un_chemin_perime_laisse_la_place_au_nom(session, contexte):
+    p = contexte["eleve"]("FICTIF", "Jean", photo="FICTIF Jean SU.jpg")
+    (contexte["dossier"] / "FICTIF Jean.jpg").write_bytes(b"x")
+
+    assert _chemins(session, contexte)[p.id].endswith("FICTIF Jean.jpg")
+
+
+def test_un_chemin_ingere_sans_ses_doubles_espaces_designe_encore_le_fichier(session, contexte):
+    p = contexte["eleve"]("ESSAI--MODELE", "Abel", photo="ESSAI MODELE Abel.jpg")
+    (contexte["dossier"] / "ESSAI  MODELE Abel.jpg").write_bytes(b"x")
+
+    assert _chemins(session, contexte)[p.id].endswith("ESSAI  MODELE Abel.jpg")
+
+
+def _constat(session, contexte):
+    from backend.services.inventaire_photos import constater_charlemagne
+
+    return constater_charlemagne(session, annee_id=contexte["annee"].id)
+
+
+def test_charlemagne_ne_trouvera_pas_un_fichier_renomme(session, contexte):
+    """Le nom exact, ou la silhouette : Charlemagne ne tolère pas une espace."""
+    contexte["eleve"]("ESSAI--MODELE", "Abel", photo="ESSAI  MODELE Abel.jpg")
+    (contexte["dossier"] / "ESSAI--MODELE Abel.jpg").write_bytes(b"x")
+
+    c = _constat(session, contexte)
+    assert [(e.genre, e.attendu, e.fichier) for e in c.ecarts] == [
+        ("introuvable", "ESSAI  MODELE Abel.jpg", "ESSAI--MODELE Abel.jpg")]
+
+
+def test_charlemagne_montrera_l_ancienne_photo(session, contexte):
+    """Le photographe nomme d'après le nom du jour (`L AZOU`, `ROUE`) ;
+    Charlemagne garde le fichier d'origine (`L'AZOU`, `ROUÉ`)."""
+    contexte["eleve"]("ROUE", "Léa", photo="ROUÉ Léa.jpg")
+    contexte["eleve"]("L'AZOU", "Youenn", photo="L'AZOU Youenn.JPG", login="yazou")
+    d = contexte["dossier"]
+    for nom, jour in [("ROUÉ Léa.jpg", "2025-11-24"), ("ROUE Léa.JPG", "2026-10-20"),
+                      ("L'AZOU Youenn.JPG", "2025-11-24"), ("L AZOU Youenn.JPG", "2026-10-20")]:
+        (d / nom).write_bytes(b"x")
+        _date(d / nom, jour)
+
+    c = _constat(session, contexte)
+    assert sorted((e.genre, e.attendu, e.fichier, e.date_fichier) for e in c.ecarts) == [
+        ("ancienne", "L'AZOU Youenn.JPG", "L AZOU Youenn.JPG", "2026-10-20"),
+        ("ancienne", "ROUÉ Léa.jpg", "ROUE Léa.JPG", "2026-10-20"),
+    ]
+
+
+def test_rien_a_dire_quand_charlemagne_a_la_bonne_photo(session, contexte):
+    contexte["eleve"]("FICTIF", "Jean", photo="FICTIF Jean.jpg")
+    contexte["eleve"]("MODELE", "Chloé")
+    (contexte["dossier"] / "FICTIF Jean.jpg").write_bytes(b"x")
+    (contexte["dossier"] / "MODELE Chloé.jpg").write_bytes(b"x")
+
+    c = _constat(session, contexte)
+    assert c.ecarts == [] and c.nb_sans_chemin == 1

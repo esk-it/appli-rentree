@@ -8,6 +8,8 @@ L'encodage des HTM Charlemagne est cp1252 (Windows-1252).
 """
 from __future__ import annotations
 
+import html
+import re
 from datetime import date, datetime
 from pathlib import Path
 
@@ -172,7 +174,40 @@ def lire_htm(chemin: str | Path) -> pd.DataFrame:
     if texte := _libelles_texte(df.columns):
         # Relu en texte : voir COLONNES_TEXTE.
         df = max(pd.read_html(chemin, encoding="cp1252", converters=texte), key=len)
+    df = _remettre_les_espaces_des_photos(df, chemin.read_bytes().decode("cp1252", "replace"))
     return _normaliser_colonnes(df)
+
+
+_CHEMIN_IMAGE = re.compile(r">([^<>]*\.(?:jpe?g|png|bmp))\s*<", re.IGNORECASE)
+
+
+def _aplati(texte: str) -> str:
+    return re.sub(r"\s+", " ", texte).strip()
+
+
+def _remettre_les_espaces_des_photos(df: pd.DataFrame, source: str) -> pd.DataFrame:
+    """Le chemin photo tel que Charlemagne l'a écrit, espaces compris.
+
+    `pd.read_html` réduit toute suite d'espaces à une seule. Pour un nom
+    composé, Charlemagne remplace le `--` par **deux** espaces :
+    `TORRES--BOSCHET Abel` a pour photo `TORRES  BOSCHET Abel.jpg`. Lu
+    aplati, le chemin désignait un fichier qui n'existe pas — et le 20
+    octobre 2026, la nouvelle photo d'Abel a été renommée d'après lui :
+    Charlemagne a perdu la sienne. On relit donc le texte brut des cellules
+    qui finissent en image, et on rend à chaque chemin son écriture exacte.
+    Deux écritures brutes qui s'aplatissent pareil : on ne choisit pas.
+    """
+    colonnes = [c for c in df.columns if _normaliser_libelle(c) == "photo"]
+    if not colonnes:
+        return df
+    bruts: dict[str, set[str]] = {}
+    for m in _CHEMIN_IMAGE.finditer(source):
+        brut = html.unescape(m.group(1)).replace("\xa0", " ").strip()
+        bruts.setdefault(_aplati(brut), set()).add(brut)
+    exacts = {k: next(iter(v)) for k, v in bruts.items() if len(v) == 1}
+    for c in colonnes:
+        df[c] = df[c].map(lambda v: exacts.get(_aplati(v), v) if isinstance(v, str) else v)
+    return df
 
 
 MAX_LIGNES_AVANT_ENTETE = 10

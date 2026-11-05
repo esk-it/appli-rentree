@@ -11,7 +11,14 @@
   import { annees, coffreApi, ingestion, sites } from "$lib/api.js";
   import { notify } from "$lib/toasts.js";
 
-  let { onNaviguer = null } = $props();
+  /**
+   * @typedef {Object} Props
+   * @property {((page: string) => void) | null} [onNaviguer]
+   * @property {boolean} [sansEntete] - affiché dans un autre écran, qui a son titre
+   * @property {(rapport: any) => void} [onIngere] - après une ingestion réelle
+   */
+  /** @type {Props} */
+  let { onNaviguer = null, sansEntete = false, onIngere } = $props();
 
   // Après une ingestion réelle des élèves, le relevé des comptes Google à
   // créer se lance de lui-même : c'est la question qui suit (1er octobre 2026).
@@ -155,6 +162,7 @@
         );
         // Rafraîchit la liste
         listeAnnees = await annees.lister();
+        onIngere?.(rapport);
         if (rapport.type_personne === "eleve") comptesGoogle?.verifier();
       } else if (rapport.est_bloquee) {
         notify.avertissement(
@@ -175,7 +183,8 @@
   let siteAmorce = $derived(listeSites.length >= 1);
 
   /** Vrai quand une étape du parcours affiche cet écran chez elle. */
-  const embarque = getContext("parcours.embarque") === true;
+  const dansUneEtape = getContext("parcours.embarque") === true;
+  let embarque = $derived(dansUneEtape || sansEntete);
 </script>
 
 <section class="space-y-5">

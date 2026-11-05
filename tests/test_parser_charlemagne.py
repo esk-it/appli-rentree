@@ -145,3 +145,24 @@ def test_len_tete_nest_pas_cherchee_indefiniment(tmp_path):
 
     df = lire_xlsx(chemin)
     assert "num_badge" not in df.columns
+
+
+def test_le_chemin_photo_garde_ses_doubles_espaces(tmp_path):
+    """Charlemagne écrit `TORRES--BOSCHET` en `TORRES  BOSCHET` dans le nom de
+    la photo ; `pd.read_html` réduisait les deux espaces à une (20/10/2026)."""
+    from backend.services.parser_charlemagne import lire_htm
+
+    fic = tmp_path / "export.htm"
+    _ecrire_htm(
+        fic,
+        ["Nom", "Prénom", "Photo"],
+        [
+            ["FICTIF--ESSAI", "Abel", r"\\SRV\Photos\2026-2027\FICTIF  ESSAI Abel.jpg"],
+            ["FICTIF ESSAI", "Elise", r"\\SRV\Photos\2026-2027\FICTIF ESSAI Elise.jpg"],
+            ["MODELE", "Chloé", ""],
+        ],
+    )
+
+    df = lire_htm(fic)
+    assert df.loc[0, "photo_chemin"] == r"\\SRV\Photos\2026-2027\FICTIF  ESSAI Abel.jpg"
+    assert df.loc[1, "photo_chemin"] == r"\\SRV\Photos\2026-2027\FICTIF ESSAI Elise.jpg"

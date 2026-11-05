@@ -127,6 +127,51 @@ def inventaire(
     )
 
 
+class EcartCharlemagneOut(BaseModel):
+    personne_id: int
+    nom: str
+    prenom: str
+    classe: str
+    site: str | None
+    genre: str
+    attendu: str
+    fichier: str | None
+    date_attendu: str | None
+    date_fichier: str | None
+
+
+class ConstatCharlemagneOut(BaseModel):
+    nb_personnes: int
+    nb_sans_chemin: int
+    ecarts: list[EcartCharlemagneOut]
+
+
+@router.get("/charlemagne", response_model=ConstatCharlemagneOut)
+def ce_que_charlemagne_affichera(
+    annee_id: int,
+    type_personne: str = "eleve",
+    session: Session = Depends(db_session),
+) -> ConstatCharlemagneOut:
+    """Le fichier que Charlemagne garde pour chacun, confronté au partage.
+
+    Lecture seule — voir `inventaire_photos.constater_charlemagne`.
+    """
+    from backend.services.inventaire_photos import (
+        InventaireImpossible,
+        constater_charlemagne,
+    )
+
+    try:
+        c = constater_charlemagne(session, annee_id=annee_id, type_personne=type_personne)
+    except InventaireImpossible as e:
+        raise HTTPException(400, str(e)) from None
+    return ConstatCharlemagneOut(
+        nb_personnes=c.nb_personnes,
+        nb_sans_chemin=c.nb_sans_chemin,
+        ecarts=[EcartCharlemagneOut(**vars(e)) for e in c.ecarts],
+    )
+
+
 @router.get("/inventaire/classeur")
 def classeur_manquantes(
     annee_id: int,

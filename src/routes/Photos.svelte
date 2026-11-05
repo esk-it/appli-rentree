@@ -5,6 +5,7 @@
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Search from "@lucide/svelte/icons/search";
   import CheckCircle2 from "@lucide/svelte/icons/check-circle-2";
+  import ArrowRight from "@lucide/svelte/icons/arrow-right";
   import Bouton from "$lib/components/Bouton.svelte";
   import EnTetePage from "$lib/components/EnTetePage.svelte";
   import EtatVide from "$lib/components/EtatVide.svelte";
@@ -48,6 +49,16 @@
     lire("photos.inventaires", /** @type {Record<string, any>} */ ({})),
   );
   let inventaire = $derived(inventaires[population] ?? null);
+  /**
+   * Ce que Charlemagne affichera : lui ne cherche pas par le nom, il garde
+   * un nom de fichier par personne. Le 20 octobre 2026, le trombinoscope
+   * avait des trous que l'inventaire ne voyait pas.
+   */
+  let constats = $state(
+    lire("photos.constats", /** @type {Record<string, any>} */ ({})),
+  );
+  let constat = $derived(constats[population] ?? null);
+  $effect(() => ecrire("photos.constats", constats));
   let relevesLe = $state(
     lire("photos.relevesLe", /** @type {Record<string, number>} */ ({})),
   );
@@ -97,6 +108,11 @@
     try {
       inventaires = { ...inventaires, [population]: await photos.inventaire(anneeId, population) };
       relevesLe = { ...relevesLe, [population]: Date.now() };
+      try {
+        constats = { ...constats, [population]: await photos.charlemagne(anneeId, population) };
+      } catch {
+        constats = { ...constats, [population]: null };
+      }
       notify.succes(
         inventaires[population].nb_sans === 0
           ? "Tout le monde a sa photo."
@@ -273,6 +289,74 @@
         <p class="mt-1 text-[13px] text-stone-600 dark:text-stone-400">à trancher</p>
       </div>
     </div>
+
+    {#if constat?.ecarts?.length}
+      <!-- Charlemagne ne cherche pas par le nom : il garde un fichier par
+           personne. Un trou ici est un trou au trombinoscope, même quand
+           l'inventaire ne voit rien. -->
+      <div class="card p-5">
+        <p class="libelle-champ">Ce que Charlemagne affichera</p>
+        <p class="mt-1 max-w-3xl text-sm text-stone-600 dark:text-stone-300">
+          Charlemagne garde pour chacun un nom de fichier, au caractère près — espaces
+          compris — et ne le change pas quand le nom ou la classe changent. Pour
+          {constat.ecarts.length === 1 ? "cette personne" : `ces ${constat.ecarts.length} personnes`},
+          il ne montrera pas la bonne photo. Le geste : donner à la bonne photo le nom
+          qu'il attend — ou, si ce nom est périmé, changer la photo dans sa fiche.
+        </p>
+        <div class="mt-3 overflow-x-auto">
+          <table class="w-full min-w-[52rem] text-sm">
+            <thead>
+              <tr class="text-left text-xs text-stone-500 dark:text-stone-400">
+                <th class="py-1.5 pr-4 font-semibold">{population === "adulte" ? "Personne" : "Élève"}</th>
+                <th class="py-1.5 pr-4 font-semibold">{population === "adulte" ? "Site" : "Classe"}</th>
+                <th class="py-1.5 pr-4 font-semibold">Charlemagne</th>
+                <th class="py-1.5 font-semibold">La photo à lui donner</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each constat.ecarts as e (e.personne_id)}
+                <tr class="border-t border-stone-100 align-top dark:border-stone-800">
+                  <td class="py-2 pr-4">
+                    <strong class="font-semibold">{e.nom}</strong>
+                    <span class="text-stone-600 dark:text-stone-300">{e.prenom}</span>
+                  </td>
+                  <td class="py-2 pr-4 font-mono text-xs text-stone-600 dark:text-stone-400">{e.classe}</td>
+                  <td class="py-2 pr-4">
+                    <Pastille
+                      etat={e.genre === "introuvable" ? "ecart" : "attente"}
+                      texte={e.genre === "introuvable" ? "Fichier introuvable" : "Ancienne photo"}
+                    />
+                    <p class="mt-1 font-mono text-[11px] whitespace-pre text-stone-600 dark:text-stone-400">
+                      {e.attendu}{e.date_attendu ? `  · ${e.date_attendu}` : ""}
+                    </p>
+                  </td>
+                  <td class="py-2">
+                    {#if e.fichier}
+                      <p class="flex flex-wrap items-center gap-1.5 font-mono text-[11px] whitespace-pre">
+                        <span class="text-stone-700 dark:text-stone-200">{e.fichier}</span>
+                        {#if e.date_fichier}<span class="text-stone-500">· {e.date_fichier}</span>{/if}
+                      </p>
+                      <p class="mt-0.5 flex items-center gap-1 text-xs text-stone-500 dark:text-stone-400">
+                        <ArrowRight class="h-3 w-3" /> à renommer
+                        <span class="font-mono whitespace-pre text-stone-700 dark:text-stone-200">« {e.attendu} »</span>
+                      </p>
+                    {:else}
+                      <p class="text-xs text-stone-500 dark:text-stone-400">Aucune photo à son nom sur le partage.</p>
+                    {/if}
+                  </td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        {#if constat.nb_sans_chemin}
+          <p class="mt-3 text-xs text-stone-500 dark:text-stone-400">
+            {constat.nb_sans_chemin} personne{constat.nb_sans_chemin > 1 ? "s" : ""} sans chemin photo
+            dans l'export Charlemagne : rien à comparer pour elles.
+          </p>
+        {/if}
+      </div>
+    {/if}
 
     {#if inventaire.nb_sans === 0}
       <div class="flex items-center gap-3.5 py-6">

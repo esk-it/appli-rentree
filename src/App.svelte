@@ -59,6 +59,8 @@
   import Amorcage from "./routes/Amorcage.svelte";
   import ControleKoxo from "./routes/ControleKoxo.svelte";
   import Snapshots from "./routes/Snapshots.svelte";
+  import MettreAJour from "./routes/MettreAJour.svelte";
+  import DatabaseZap from "@lucide/svelte/icons/database-zap";
   import Bascule from "./routes/Bascule.svelte";
   import Sortants from "./routes/Sortants.svelte";
   import ConformiteGoogle from "./routes/ConformiteGoogle.svelte";
@@ -344,6 +346,10 @@
         // réclame vraiment — chercher quelqu'un, et tout recouper.
         { id: "ou_ca_coince", label: "Où ça coince", icon: Compass },
         { id: "personnes", label: "Référentiel", icon: Users2 },
+        // Un nouvel élève, un AESH, des INE à compléter : tout passe par un
+        // export Charlemagne. L'import n'avait pas de porte — on le trouvait
+        // dans les outils, sous « Snapshots d'années » (Johann, 05/11).
+        { id: "maj_referentiel", label: "Mettre à jour", icon: DatabaseZap },
         // Un mouvement en cours d'année déclenche sept ou huit gestes
         // dans autant de systèmes. L'onglet mène à l'écran qui les montre
         // *et* les applique ; la liste des conséquences reste accessible
@@ -877,6 +883,8 @@
             parties={PARTIES}
             onRechercher={() => (paletteOuverte = true)}
           />
+        {:else if page === "maj_referentiel"}
+          <MettreAJour onNaviguer={(p) => (page = p)} />
         {:else if page === "personnes"}
           <Personnes onOuvrirFiche={ouvrirFiche} onNaviguer={(p) => (page = p)} />
         {:else if page === "coffre"}
