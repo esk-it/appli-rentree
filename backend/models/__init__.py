@@ -15,6 +15,7 @@ from backend.models.generation import Generation
 from backend.models.login_reserve import LoginReserve
 from backend.models.mouvement_prof import MouvementProf
 from backend.models.parametre import Parametre
+from backend.models.parc_inventaire import AppareilGoogle, MouvementMateriel
 from backend.models.parc_materiel import (
     Accessoire,
     PanneChromebook,
@@ -41,6 +42,8 @@ __all__ = [
     "LoginReserve",
     "MouvementProf",
     "Accessoire",
+    "AppareilGoogle",
+    "MouvementMateriel",
     "PanneChromebook",
     "Parametre",
     "PretAccessoire",

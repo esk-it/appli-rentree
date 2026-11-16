@@ -715,11 +715,114 @@ export const parc = {
       }),
     );
   },
-  async preter(serie, { aQui, retourPrevuLe = null, note = null }) {
+  async preter(serie, { aQui, retourPrevuLe = null, note = null, definitif = false }) {
     return jsonOrThrow(
       await fetch(`${BASE}/parc/accessoires/${encodeURIComponent(serie)}/preter`, {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ a_qui: aQui, retour_prevu_le: retourPrevuLe, note }),
+        body: JSON.stringify({ a_qui: aQui, retour_prevu_le: retourPrevuLe, note, definitif }),
+      }),
+    );
+  },
+  /** Un carton d'accessoires sans numéro : le programme les numérote (CH-001…). */
+  async ajouterLot({ type = "chargeur", nombre, note = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/accessoires/lot`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type, nombre, note }),
+      }),
+    );
+  },
+  /** Tout le parc, d'après le dernier relevé Google et le suivi. Ne lit pas Google. */
+  async inventaire() {
+    return jsonOrThrow(await fetch(`${BASE}/parc/inventaire`));
+  },
+  /** Relit la flotte chez Google (lecture seule) et rend l'inventaire à jour. */
+  async releve() {
+    return jsonOrThrow(await fetch(`${BASE}/parc/releve`, { method: "POST" }));
+  },
+  /**
+   * Remet, reprend ou échange une machine. Écrit ensuite les étiquettes dans
+   * Google si `ecrireGoogle` — c'est le seul geste de l'écran qui touche la
+   * console, et il ne part que sur le clic.
+   */
+  async echanger({
+    ancienne = null, nouvelle = null, porteur = null, raison, precision = null,
+    devenir = "stock", organes = [], etiquetteAncienne = null, chargeur = null,
+    ecrireGoogle = true,
+  }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/echanger`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ancienne, nouvelle, porteur, raison, precision, devenir, organes,
+          etiquette_ancienne: etiquetteAncienne, chargeur, ecrire_google: ecrireGoogle,
+        }),
+      }),
+    );
+  },
+  /** Écrit dans la console les étiquettes en retard. `series` vide : toutes. */
+  async reporterGoogle(series = null) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/google/reporter`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ series }),
+      }),
+    );
+  },
+  async mettreAuStock(serie, { precision = null } = {}) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/machines/${encodeURIComponent(serie)}/stock`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ precision }),
+      }),
+    );
+  },
+  async journal({ serie = null, personne = null, limite = 300 } = {}) {
+    const q = new URLSearchParams({ limite: String(limite) });
+    if (serie) q.set("serie", serie);
+    if (personne) q.set("personne", personne);
+    return jsonOrThrow(await fetch(`${BASE}/parc/journal?${q}`));
+  },
+  async fiche(serie) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/machines/${encodeURIComponent(serie)}/fiche`),
+    );
+  },
+  /** Les inscrits de l'année qui ont une adresse, adultes d'abord. */
+  async personnes() {
+    return jsonOrThrow(await fetch(`${BASE}/parc/personnes`));
+  },
+  async detient(adresse) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/detient?adresse=${encodeURIComponent(adresse)}`),
+    );
+  },
+  /** Ouvre un inventaire physique : ce qui a été vu avant est à revoir. */
+  async commencerPointage(depuis = null) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/pointage/commencer`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ depuis }),
+      }),
+    );
+  },
+  /**
+   * Ce qu'on constate d'une machine pendant l'inventaire. Corrige le
+   * programme ; l'étiquette Google passe dans « à reporter ».
+   */
+  async pointer(serie, { constat, porteur = null, lieu = null, organes = [], note = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/machines/${encodeURIComponent(serie)}/pointer`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ constat, porteur, lieu, organes, note }),
+      }),
+    );
+  },
+  async reglerSeuils({ machines = null, chargeurs = null }) {
+    return jsonOrThrow(
+      await fetch(`${BASE}/parc/seuils`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ machines, chargeurs }),
       }),
     );
   },

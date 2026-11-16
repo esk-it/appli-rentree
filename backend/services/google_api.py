@@ -59,6 +59,14 @@ SCOPES = [
 
 SCOPE_APPAREILS = "https://www.googleapis.com/auth/admin.directory.device.chromeos.readonly"
 
+SCOPE_APPAREILS_ECRITURE = "https://www.googleapis.com/auth/admin.directory.device.chromeos"
+"""Écrire l'étiquette, l'emplacement et l'unité d'organisation d'un
+Chromebook — le geste qui suit un échange (accepté par Johann le 16/11/2026).
+
+Comme l'audit, il a son propre jeton, demandé au moment d'écrire : le
+réclamer avec le reste ferait perdre la lecture des Chromebooks à un
+domaine qui ne l'a pas encore accordé."""
+
 SCOPE_AUDIT = "https://www.googleapis.com/auth/admin.reports.audit.readonly"
 """Lire le journal d'audit : qui a changé un mot de passe, et quand.
 
@@ -550,6 +558,31 @@ def reessayer(appel, *, tentatives: int = TENTATIVES, pause=None):
             attente *= 2
 
 
+def _fin_des_mises_a_jour(appareil: dict) -> str | None:
+    """La date de fin des mises à jour Chrome OS, en `AAAA-MM-JJ`.
+
+    Google l'a d'abord donnée en millisecondes (`autoUpdateExpiration`),
+    puis en date (`autoUpdateThrough`). On prend la seconde quand elle
+    existe, la première sinon.
+    """
+    from datetime import datetime, timezone
+
+    a_travers = appareil.get("autoUpdateThrough")
+    if a_travers:
+        return str(a_travers)[:10]
+    expiration = appareil.get("autoUpdateExpiration")
+    if expiration:
+        try:
+            return (
+                datetime.fromtimestamp(int(expiration) / 1000, tz=timezone.utc)
+                .date()
+                .isoformat()
+            )
+        except (TypeError, ValueError, OverflowError, OSError):
+            return None
+    return None
+
+
 class ClientGoogle:
     """Client Admin SDK Directory.
 
@@ -851,12 +884,81 @@ class ClientGoogle:
                             if u.get("email")
                         ],
                         "derniere_synchro": a.get("lastSync"),
+                        "device_id": a.get("deviceId") or "",
+                        "fin_maj": _fin_des_mises_a_jour(a),
                     }
                 )
             jeton = rep.get("nextPageToken")
             if not jeton:
                 break
         return appareils
+
+    def _service_appareils_ecriture(self):
+        """Un client Directory muni du droit d'écrire sur les Chromebooks.
+
+        Raises:
+            DroitManquant: la délégation n'accorde pas `SCOPE_APPAREILS_ECRITURE`.
+        """
+        if getattr(self, "_ecriture_appareils", None) is not None:
+            return self._ecriture_appareils
+        from googleapiclient.discovery import build  # type: ignore[import-not-found]
+
+        try:
+            credentials = self._deleguer([SCOPE_APPAREILS_ECRITURE])
+        except Exception as e:
+            raise DroitManquant(
+                "Google refuse d'écrire l'étiquette : la délégation du compte "
+                "de service ne comprend pas ce droit. Dans la console "
+                "d'administration Google → Sécurité → Accès et contrôle des "
+                "données → Commandes des API → Délégation au niveau du "
+                "domaine, modifie le client du programme et ajoute le champ "
+                f"d'application {SCOPE_APPAREILS_ECRITURE} à ceux qui y sont "
+                f"déjà. ({type(e).__name__})"
+            ) from None
+        self._ecriture_appareils = build(
+            "admin", "directory_v1", credentials=credentials, cache_discovery=False
+        )
+        return self._ecriture_appareils
+
+    def annoter_appareil(
+        self,
+        device_id: str,
+        *,
+        etiquette: str | None = None,
+        emplacement: str | None = None,
+    ) -> None:
+        """Écrit l'étiquette et/ou l'emplacement d'un Chromebook.
+
+        `patch` et non `update` : un `update` remet à vide les champs qu'on
+        ne lui donne pas, et effacerait l'emplacement en écrivant
+        l'étiquette. `None` laisse le champ tel qu'il est.
+        """
+        corps = {}
+        if etiquette is not None:
+            corps["annotatedAssetId"] = etiquette
+        if emplacement is not None:
+            corps["annotatedLocation"] = emplacement
+        if not corps:
+            return
+        service = self._service_appareils_ecriture()
+        reessayer(
+            lambda: service.chromeosdevices()
+            .patch(customerId="my_customer", deviceId=device_id, body=corps)
+            .execute()
+        )
+
+    def deplacer_appareil(self, device_id: str, ou: str) -> None:
+        """Range un Chromebook dans une autre unité d'organisation."""
+        service = self._service_appareils_ecriture()
+        reessayer(
+            lambda: service.chromeosdevices()
+            .moveDevicesToOu(
+                customerId="my_customer",
+                orgUnitPath=ou,
+                body={"deviceIds": [device_id]},
+            )
+            .execute()
+        )
 
     def creer_groupe(self, adresse: str, nom: str, description: str = "") -> None:
         """Crée un groupe. Échoue si l'adresse est déjà prise.

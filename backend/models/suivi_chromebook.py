@@ -60,6 +60,23 @@ class SuiviChromebook(Base):
     """Depuis quand elle est dans cet état. Une machine en stock depuis
     deux ans et une rentrée hier ne posent pas la même question."""
 
+    etiquette_voulue: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    """L'étiquette que la console Google devrait porter après le dernier
+    geste — l'adresse du nouveau porteur, le code de la place d'un chariot,
+    ou l'étiquette du stock. Tant que Google dit autre chose, la machine
+    figure parmi les étiquettes à reporter."""
+
+    emplacement_voulu: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    """Même chose pour l'emplacement (`K-B5-13`, `SU-CDI`)."""
+
+    ou_voulue: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    """L'unité d'organisation où la machine doit aller : une machine du
+    stock qui rejoint un chariot élève quitte la branche du personnel."""
+
+    pointe_le: Mapped[date | None] = mapped_column(Date, nullable=True)
+    """Dernière fois qu'on l'a eue sous les yeux, lors d'un inventaire.
+    C'est ce qui distingue ce qu'on sait de ce qu'on suppose."""
+
     date_derniere_maj: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )

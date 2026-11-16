@@ -35,6 +35,7 @@ n'est qu'un plan sur le papier : c'est le tournevis qui décide.
 """
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import date
@@ -241,10 +242,14 @@ def changer_etat(
     if etat not in ETATS_MACHINE:
         raise GesteImpossible(f"État inconnu : {etat!r}. Attendu : {ETATS_MACHINE}.")
     m = _machine(session, serie, creer=True)
+    avant = m.etat
     m.etat = etat
     m.etat_depuis = date.today()
     if note is not None:
         m.note = note
+    if avant != etat:
+        geste = {"reforme": "reforme", "en_stock": "entree_stock", "hs": "panne"}.get(etat, "remise")
+        _noter(session, serie=serie, geste=geste, de=avant, vers=etat, precision=note)
     session.commit()
     return m
 
@@ -284,6 +289,9 @@ def affecter(
 
     m = _machine(session, serie, creer=True)
     porteur = (a or "").strip() or None
+    avant = m.attribue_a
+    _noter(session, serie=serie, geste="remise" if porteur else "reprise",
+           de=avant or "stock", vers=porteur or "stock", precision=note)
 
     m.attribue_a = porteur
     m.attribue_le = (depuis or date.today()) if porteur else None
@@ -339,6 +347,8 @@ def declarer_panne(
     if passer_hs and m.etat != "hs":
         m.etat = "hs"
         m.etat_depuis = date.today()
+    _noter(session, serie=serie, geste="panne", precision=organe + (f" — {note}" if note else ""),
+           vers="hs" if passer_hs else None)
     session.commit()
     return panne
 
@@ -430,6 +440,9 @@ def prelever(
         receveuse.etat = "en_stock"
         receveuse.etat_depuis = aujourdhui
 
+    _noter(session, serie=vers, geste="prelevement", autre_serie=depuis,
+           precision=f"{organe} pris sur {depuis}"
+           + (" — réparée, retour au stock" if restantes == 0 else ""))
     session.commit()
     return a_reparer, manque
 
@@ -462,6 +475,9 @@ def resoudre_panne(
     if restantes == 0 and m.etat == "hs" and resolution == "reparee":
         m.etat = "en_stock"
         m.etat_depuis = date.today()
+    _noter(session, serie=panne.serie, geste="reparation",
+           precision=f"{panne.organe} : {resolution}"
+           + (" — retour au stock" if m.etat == "en_stock" and restantes == 0 else ""))
     session.commit()
     return panne
 
@@ -492,11 +508,13 @@ class AccessoireEnMain:
     prete_le: date | None = None
     retour_prevu_le: date | None = None
     pret_id: int | None = None
+    definitif: bool = False
 
     @property
     def en_retard(self) -> bool:
         return (
-            self.retour_prevu_le is not None
+            not self.definitif
+            and self.retour_prevu_le is not None
             and self.prete_a is not None
             and self.retour_prevu_le < date.today()
         )
@@ -534,6 +552,7 @@ def etat_du_stock(session: Session) -> Stock:
                 prete_le=pret.prete_le if pret else None,
                 retour_prevu_le=pret.retour_prevu_le if pret else None,
                 pret_id=pret.id if pret else None,
+                definitif=bool(pret.definitif) if pret else False,
             )
         )
         par_type[a.type][a.etat] += 1
@@ -541,25 +560,68 @@ def etat_du_stock(session: Session) -> Stock:
     return stock
 
 
+PREFIXES_ACCESSOIRE = {
+    "chargeur": "CH",
+    "souris": "SO",
+    "adaptateur": "AD",
+    "cable": "CA",
+    "housse": "HO",
+    "autre": "AC",
+}
+"""Un chargeur de rechange ne porte pas toujours de numéro lisible : le
+programme en donne un (`CH-001`), à écrire au feutre sur l'objet."""
+
+
+def numero_libre(session: Session, type_accessoire: str) -> str:
+    """Le prochain numéro maison pour ce type : `CH-001`, `CH-002`…"""
+    prefixe = PREFIXES_ACCESSOIRE.get(type_accessoire, "AC")
+    motif = re.compile(rf"^{prefixe}-(\d+)$")
+    plus_haut = 0
+    for (serie,) in session.query(Accessoire.serie).filter(Accessoire.serie.like(f"{prefixe}-%")):
+        m = motif.match(serie)
+        if m:
+            plus_haut = max(plus_haut, int(m.group(1)))
+    return f"{prefixe}-{plus_haut + 1:03d}"
+
+
 def enregistrer_accessoire(
     session: Session,
-    serie: str,
+    serie: str | None,
     *,
     type_accessoire: str = "chargeur",
     note: str | None = None,
+    valider: bool = True,
 ) -> Accessoire:
+    """Entre un accessoire au stock. Sans numéro, le programme en donne un."""
     if type_accessoire not in TYPES_ACCESSOIRE:
         raise GesteImpossible(f"Type inconnu : {type_accessoire!r}.")
-    serie = (serie or "").strip()
-    if not serie:
-        raise GesteImpossible("Un accessoire se note par son numéro de série.")
+    serie = (serie or "").strip() or numero_libre(session, type_accessoire)
     if session.query(Accessoire).filter_by(serie=serie).first() is not None:
         raise GesteImpossible(f"{serie} est déjà enregistré.")
 
     a = Accessoire(serie=serie, type=type_accessoire, etat="en_stock", note=note)
     session.add(a)
-    session.commit()
+    session.flush()
+    _noter(session, objet="accessoire", serie=serie, geste="entree_stock", vers="stock",
+           precision=note)
+    if valider:
+        session.commit()
     return a
+
+
+def enregistrer_lot(
+    session: Session, *, type_accessoire: str = "chargeur", nombre: int, note: str | None = None
+) -> list[Accessoire]:
+    """Entre plusieurs accessoires sans numéro d'un coup : un carton de chargeurs."""
+    if not 1 <= nombre <= 200:
+        raise GesteImpossible("Entre entre 1 et 200 accessoires à la fois.")
+    lot = [
+        enregistrer_accessoire(session, None, type_accessoire=type_accessoire, note=note,
+                               valider=False)
+        for _ in range(nombre)
+    ]
+    session.commit()
+    return lot
 
 
 def preter(
@@ -569,8 +631,13 @@ def preter(
     a_qui: str,
     retour_prevu_le: date | None = None,
     note: str | None = None,
+    definitif: bool = False,
 ) -> PretAccessoire:
-    """Sort un accessoire. Refuse ce qui est déjà dehors ou hors service."""
+    """Sort un accessoire. Refuse ce qui est déjà dehors ou hors service.
+
+    `definitif` : donné et non prêté — il ne revient pas, et ne sera jamais
+    en retard.
+    """
     a = session.query(Accessoire).filter_by(serie=serie).one_or_none()
     if a is None:
         raise GesteImpossible(f"Accessoire inconnu : {serie}.")
@@ -585,27 +652,35 @@ def preter(
         )
         chez = f" — il est chez {dehors.prete_a}" if dehors else ""
         raise GesteImpossible(f"{serie} est déjà prêté{chez}.")
+    if a.etat == "donne":
+        raise GesteImpossible(f"{serie} a été donné : il n'est plus au stock.")
     if a.etat in ("hs", "reforme"):
         raise GesteImpossible(f"{serie} est {a.etat} : il n'y a pas lieu de le prêter.")
     if not (a_qui or "").strip():
         raise GesteImpossible("Un prêt se fait à quelqu'un.")
 
+    qui = a_qui.strip()
+    if "@" in qui:
+        qui = qui.lower()
     pret = PretAccessoire(
         accessoire_serie=serie,
-        prete_a=a_qui.strip(),
+        prete_a=qui,
         prete_le=date.today(),
-        retour_prevu_le=retour_prevu_le,
+        retour_prevu_le=None if definitif else retour_prevu_le,
         note=note,
+        definitif=definitif,
     )
     session.add(pret)
-    a.etat = "prete"
+    a.etat = "donne" if definitif else "prete"
+    _noter(session, objet="accessoire", serie=serie, geste="don" if definitif else "pret",
+           de="stock", vers=qui, precision=note)
     session.commit()
     return pret
 
 
 def rendre(session: Session, serie: str, *, etat: str = "en_stock") -> PretAccessoire:
     """Referme le prêt en cours. L'objet peut revenir cassé."""
-    if etat not in ETATS_ACCESSOIRE or etat == "prete":
+    if etat not in ETATS_ACCESSOIRE or etat in ("prete", "donne"):
         raise GesteImpossible(f"État de retour invalide : {etat!r}.")
     pret = (
         session.query(PretAccessoire)
@@ -622,5 +697,14 @@ def rendre(session: Session, serie: str, *, etat: str = "en_stock") -> PretAcces
     a = session.query(Accessoire).filter_by(serie=serie).one_or_none()
     if a is not None:
         a.etat = etat
+    _noter(session, objet="accessoire", serie=serie, geste="retour", de=pret.prete_a,
+           vers="stock" if etat == "en_stock" else etat)
     session.commit()
     return pret
+
+
+def _noter(session: Session, **champs) -> None:
+    """Une ligne au journal du parc. Ne valide pas la transaction."""
+    from backend.models import MouvementMateriel
+
+    session.add(MouvementMateriel(**champs))

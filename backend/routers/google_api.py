@@ -1312,6 +1312,10 @@ def noter_suivi_appareil(
         ligne = SuiviChromebook(serie=serie)
         session.add(ligne)
 
+    from backend.services.parc_inventaire import noter
+
+    # L'état suit le geste, comme dans « Le parc » : sans cela, une machine
+    # rendue ici resterait « en service » dans l'inventaire.
     if payload.recupere is not None:
         ligne.recupere_le = date.today() if payload.recupere else None
         ligne.recupere_de = payload.recupere_de if payload.recupere else None
@@ -1319,11 +1323,22 @@ def noter_suivi_appareil(
             # Une machine rendue redevient libre : elle n'est plus confiée.
             ligne.attribue_a = None
             ligne.attribue_le = None
+            if ligne.etat not in ("hs", "reforme"):
+                ligne.etat = "en_stock"
+                ligne.etat_depuis = date.today()
+            noter(session, serie=serie, geste="reprise", de=payload.recupere_de,
+                  vers="stock", precision="noté dans La flotte Google")
 
     if payload.attribue_a is not None:
         adresse = payload.attribue_a.strip().lower()
         ligne.attribue_a = adresse or None
         ligne.attribue_le = date.today() if adresse else None
+        if adresse:
+            ligne.etat = "en_service"
+            ligne.etat_depuis = date.today()
+            ligne.etiquette_voulue = adresse
+            noter(session, serie=serie, geste="remise", de="stock", vers=adresse,
+                  precision="noté dans La flotte Google")
 
     if payload.note is not None:
         ligne.note = payload.note.strip() or None

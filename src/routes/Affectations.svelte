@@ -72,11 +72,15 @@
     chargement = true;
     erreur = "";
     try {
-      const [p, a] = await Promise.all([
-        parc.machines(),
+      // L'inventaire et non le seul suivi : il connaît toutes les machines
+      // de la console, et pas seulement celles qu'on a touchées ici.
+      const [inv, a] = await Promise.all([
+        parc.inventaire(),
         personnesApi.lister({ type: "adulte" }),
       ]);
-      machines = p.machines ?? [];
+      machines = (inv.postes ?? [])
+        .filter((p) => p.categorie === "personnel" || p.porteur)
+        .map((p) => ({ serie: p.serie, attribue_a: p.porteur ?? p.tenue_par, etat: p.etat }));
       adultes = a ?? [];
     } catch (e) {
       erreur = libelleErreur(e);

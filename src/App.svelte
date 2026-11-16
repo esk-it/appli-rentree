@@ -33,8 +33,7 @@
   import AlertTriangle from "@lucide/svelte/icons/alert-triangle";
   import RefreshCw from "@lucide/svelte/icons/refresh-cw";
   import Compass from "@lucide/svelte/icons/compass";
-  import Wrench from "@lucide/svelte/icons/wrench";
-  import Cable from "@lucide/svelte/icons/cable";
+  import Warehouse from "@lucide/svelte/icons/warehouse";
   import Nfc from "@lucide/svelte/icons/nfc";
   import Camera from "@lucide/svelte/icons/camera";
   import History from "@lucide/svelte/icons/history";
@@ -75,7 +74,7 @@
   import OuCaCoince from "./routes/OuCaCoince.svelte";
   import Parcours from "./routes/Parcours.svelte";
   import Rentree from "./routes/Rentree.svelte";
-  import Atelier from "./routes/Atelier.svelte";
+  import Parc from "./routes/Parc.svelte";
   import Ts1000 from "./routes/Ts1000.svelte";
   import Photos from "./routes/Photos.svelte";
   import Journal from "./routes/Journal.svelte";
@@ -83,7 +82,6 @@
   import Sodexo from "./routes/Sodexo.svelte";
   import Cartes from "./routes/Cartes.svelte";
   import SelecteurAnnee from "$lib/components/SelecteurAnnee.svelte";
-  import Accessoires from "./routes/Accessoires.svelte";
   import Affectations from "./routes/Affectations.svelte";
   import Departager from "./routes/Departager.svelte";
   import FichePersonne from "./routes/FichePersonne.svelte";
@@ -387,15 +385,13 @@
         // « Qui a quoi » avant « où est quoi » : c'est la question qu'on
         // pose en salle des profs, et elle demande la liste des gens.
         { id: "affectations", label: "Affectations", icon: UserPlus },
-        // Le suivi local d'abord : c'est lui qui répond à la question
-        // qu'on se pose devant un carton de machines mortes, et c'est sur
-        // lui qu'on agit.
-        { id: "atelier", label: "Parc et pannes", icon: Wrench },
-        // « La flotte » et non « le parc » : cet écran lit l'inventaire
-        // Google, là où « Parc et pannes » tient le suivi local. Deux
-        // écrans nommés « parc » se confondaient.
+        // « Le parc » réunit l'inventaire, l'échange, le stock (chargeurs
+        // compris) et l'atelier : échanger la machine d'un prof touche les
+        // quatre à la fois (Johann, 16/11/2026).
+        { id: "parc", label: "Le parc", icon: Warehouse },
+        // « La flotte » reste à part : elle sert la rentrée — à réclamer
+        // aux partants, à équiper les arrivants.
         { id: "chromebooks", label: "La flotte Google", icon: Laptop },
-        { id: "accessoires", label: "Les accessoires", icon: Cable },
         // Les badges tiennent au matériel autant qu'aux comptes : la
         // carte est un objet qu'on encode, qu'on perd et qu'on refait.
         { id: "ts1000", label: "Badges et accès", icon: Nfc },
@@ -979,10 +975,8 @@
           <Photos />
         {:else if page === "ts1000"}
           <Ts1000 />
-        {:else if page === "atelier"}
-          <Atelier />
-        {:else if page === "accessoires"}
-          <Accessoires />
+        {:else if page === "parc" || page === "atelier" || page === "accessoires"}
+          <Parc onNaviguer={(p) => (page = p)} />
         {:else if page === "parametres"}
           <Parametres />
         {:else if page === "aide"}

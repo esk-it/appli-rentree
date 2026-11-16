@@ -35,7 +35,12 @@
    * peut être plus abîmée qu'annoncé, la vis peut casser. Appliquer tout
    * d'un bouton écrirait dans la base des réparations qui n'ont pas eu
    * lieu, et la réserve mentirait — ce que ce module existe pour éviter.
+   *
+   * @typedef {Object} Props
+   * @property {boolean} [sansEntete] - embarqué dans « Le parc », qui a déjà le sien
    */
+  /** @type {Props} */
+  let { sansEntete = false } = $props();
 
   let atelier = $state(lire("atelier.rapport", /** @type {any} */ (null)));
   /** L'état du parc entier : les compteurs de tête en viennent. */
@@ -169,7 +174,8 @@
   $effect(() => {
     if (basculeFaite || !parcComplet) return;
     basculeFaite = true;
-    if (vue === "hs" && hs.length === 0 && machines.length > 0) vue = "tout";
+    if (vue === "hs" && hs.length === 0 && machines.length > 0 && !sansEntete) vue = "tout";
+    if (sansEntete && vue === "tout") vue = "hs";
   });
 
   let listees = $derived(
@@ -221,6 +227,7 @@
 </script>
 
 <section class="space-y-5">
+  {#if !sansEntete}
   <EnTetePage
     icon={Wrench}
     titre="Parc et pannes"
@@ -236,6 +243,7 @@
       <Bouton icon={RefreshCw} occupe={chargement} onclick={charger}>Relire</Bouton>
     {/snippet}
   </EnTetePage>
+  {/if}
 
   {#if erreur}
     <p class="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
@@ -244,7 +252,7 @@
   {/if}
 
   <!-- Les compteurs du parc, en grands chiffres. -->
-  {#if parcComplet}
+  {#if parcComplet && !sansEntete}
     <div class="flex flex-wrap gap-14 border-b border-stone-200 pb-5 dark:border-stone-800">
       <div>
         <p class="titre-affiche text-[32px] leading-none tabular-nums">
@@ -296,7 +304,9 @@
       onglets={[
         { id: "hs", label: "HS", compte: hs.length },
         { id: "remontables", label: "Remontables", compte: atelier.nb_remontables },
-        { id: "tout", label: "Tout le parc", compte: machines.length },
+        // Dans « Le parc », tout le parc est l'onglet d'à côté : ici il ne
+        // montrerait que les machines du suivi, et contredirait l'autre.
+        ...(sansEntete ? [] : [{ id: "tout", label: "Tout le parc", compte: machines.length }]),
       ]}
     />
 

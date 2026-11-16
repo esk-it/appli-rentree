@@ -40,12 +40,12 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, String
+from sqlalchemy import Boolean, Date, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.database import Base
 
-ETATS_MACHINE = ("en_service", "en_stock", "hs", "reforme")
+ETATS_MACHINE = ("en_service", "en_stock", "hs", "reforme", "introuvable")
 """`en_service` : confiée à quelqu'un · `en_stock` : disponible ·
 `hs` : en panne, gardée comme réserve de pièces · `reforme` : jetée, mais
 la trace demeure — savoir qu'une machine a existé évite de la chercher."""
@@ -73,7 +73,8 @@ RESOLUTIONS = ("reparee", "piece_prelevee", "abandonnee")
 l'organe est parti ailleurs — la machine n'est pas réparée, elle est
 donneuse."""
 
-ETATS_ACCESSOIRE = ("en_stock", "prete", "hs", "reforme")
+ETATS_ACCESSOIRE = ("en_stock", "prete", "donne", "hs", "reforme")
+"""`donne` : remis pour de bon — un chargeur de rechange donné à un prof."""
 
 TYPES_ACCESSOIRE = ("chargeur", "souris", "adaptateur", "cable", "housse", "autre")
 
@@ -169,6 +170,11 @@ class PretAccessoire(Base):
 
     rendu_le: Mapped[date | None] = mapped_column(Date, nullable=True)
     """Vide tant que l'objet est dehors."""
+
+    definitif: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
+    """Donné, et non prêté : un chargeur de rechange remis à un prof ne
+    revient pas. Il quitte le stock sans être attendu, et n'apparaît jamais
+    en retard."""
 
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
 

@@ -8,7 +8,7 @@ c'est le tournevis qui décide si la pièce entre vraiment.
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import date
+from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -57,16 +57,21 @@ class VocabulaireOut(BaseModel):
     organes: list[str]
     etats_accessoire: list[str]
     types_accessoire: list[str]
+    raisons: dict[str, str] = {}
+    """`{code: libellé}` — pourquoi une machine change de mains."""
 
 
 @router.get("/vocabulaire", response_model=VocabulaireOut)
 def vocabulaire() -> VocabulaireOut:
     """Les listes fermées, servies au front pour qu'il n'en invente pas."""
+    from backend.models.parc_inventaire import RAISONS
+
     return VocabulaireOut(
         etats_machine=list(ETATS_MACHINE),
         organes=list(ORGANES),
         etats_accessoire=list(ETATS_ACCESSOIRE),
         types_accessoire=list(TYPES_ACCESSOIRE),
+        raisons=dict(RAISONS),
     )
 
 
@@ -288,6 +293,7 @@ class AccessoireOut(BaseModel):
     retour_prevu_le: date | None
     pret_id: int | None
     en_retard: bool
+    definitif: bool = False
 
 
 class StockOut(BaseModel):
@@ -312,7 +318,8 @@ def lister_accessoires(session: Session = Depends(db_session)) -> StockOut:
 
 
 class NouvelAccessoirePayload(BaseModel):
-    serie: str
+    serie: str | None = None
+    """Vide : le programme donne un numéro maison (`CH-001`)."""
     type: str = "chargeur"
     note: str | None = None
 
@@ -329,10 +336,31 @@ def ajouter_accessoire(
     return _stock_vers_out(etat_du_stock(session))
 
 
+class LotPayload(BaseModel):
+    type: str = "chargeur"
+    nombre: int
+    note: str | None = None
+
+
+@router.post("/accessoires/lot", response_model=StockOut)
+def ajouter_lot(payload: LotPayload, session: Session = Depends(db_session)) -> StockOut:
+    """Un carton de chargeurs sans numéro : le programme les numérote."""
+    from backend.services.parc_materiel import enregistrer_lot
+
+    _geste(
+        lambda: enregistrer_lot(
+            session, type_accessoire=payload.type, nombre=payload.nombre, note=payload.note
+        )
+    )
+    return _stock_vers_out(etat_du_stock(session))
+
+
 class PretPayload(BaseModel):
     a_qui: str
     retour_prevu_le: date | None = None
     note: str | None = None
+    definitif: bool = False
+    """Donné, et non prêté : il ne reviendra pas."""
 
 
 @router.post("/accessoires/{serie}/preter", response_model=StockOut)
@@ -346,6 +374,7 @@ def sortir_accessoire(
             a_qui=payload.a_qui,
             retour_prevu_le=payload.retour_prevu_le,
             note=payload.note,
+            definitif=payload.definitif,
         )
     )
     return _stock_vers_out(etat_du_stock(session))
@@ -362,3 +391,400 @@ def rentrer_accessoire(
 ) -> StockOut:
     _geste(lambda: rendre(session, serie, etat=payload.etat))
     return _stock_vers_out(etat_du_stock(session))
+
+
+# ---------------------------------------------------------------------------
+# L'inventaire : tout le parc, lu chez Google et superposé au suivi
+# ---------------------------------------------------------------------------
+
+
+class PosteOut(BaseModel):
+    serie: str
+    modele: str
+    ou: str
+    categorie: str
+    site: str | None
+    statut_google: str | None
+    etiquette: str
+    emplacement: str
+    etat: str
+    porteur: str | None
+    porteur_nom: str | None
+    porteur_detail: str | None
+    porteur_parti: bool | None
+    tenue_par: str | None
+    lieu: str | None
+    depuis: date | None
+    pannes: list[str]
+    derniere_synchro: str | None
+    derniers_utilisateurs: list[str]
+    dort: bool
+    fin_maj: date | None
+    note: str | None
+    source: str
+    a_reporter: list[str]
+    etiquette_voulue: str | None
+    emplacement_voulu: str | None
+    ou_voulue: str | None
+    a_verifier: str | None
+    present_google: bool
+    pointe_le: date | None = None
+    porteur_probable: str | None = None
+    porteur_probable_nom: str | None = None
+
+
+def _poste_out(p) -> PosteOut:
+    return PosteOut(**{k: getattr(p, k) for k in PosteOut.model_fields})
+
+
+class FinMajOut(BaseModel):
+    depassee: int
+    cette_annee: int
+    l_an_prochain: int
+
+
+class InventaireOut(BaseModel):
+    postes: list[PosteOut]
+    par_etat: dict[str, int]
+    par_categorie: dict[str, int]
+    chargeurs_en_stock: int
+    seuils: dict[str, int]
+    alertes: list[str]
+    fin_maj: FinMajOut
+    releve_le: datetime | None
+    nb_a_reporter: int
+    pointage_depuis: date | None = None
+    pointees: int = 0
+    a_pointer: int = 0
+
+
+def _inventaire_out(session) -> InventaireOut:
+    from backend.services.parc_inventaire import inventaire
+
+    inv = inventaire(session)
+    return InventaireOut(
+        postes=[_poste_out(p) for p in inv.postes],
+        par_etat=inv.par_etat,
+        par_categorie=inv.par_categorie,
+        chargeurs_en_stock=inv.chargeurs_en_stock,
+        seuils=inv.seuils,
+        alertes=inv.alertes,
+        fin_maj=FinMajOut(**asdict(inv.fin_maj)),
+        releve_le=inv.releve_le,
+        nb_a_reporter=inv.nb_a_reporter,
+        pointage_depuis=inv.pointage_depuis,
+        pointees=inv.pointees,
+        a_pointer=inv.a_pointer,
+    )
+
+
+@router.get("/inventaire", response_model=InventaireOut)
+def lire_inventaire(session: Session = Depends(db_session)) -> InventaireOut:
+    """Le parc tel que le programme le comprend. Ne lit pas Google : le dernier relevé."""
+    return _inventaire_out(session)
+
+
+def _client_google(session):
+    from backend.services.google_api import ClientGoogle, charger_config
+
+    try:
+        return ClientGoogle(charger_config(session))
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from None
+
+
+class ReleveOut(BaseModel):
+    nb: int
+    nouveaux: int
+    disparus: int
+    reconcilies: int
+    inventaire: InventaireOut
+
+
+@router.post("/releve", response_model=ReleveOut)
+def relever_flotte(session: Session = Depends(db_session)) -> ReleveOut:
+    """Relit la flotte chez Google et garde ce qu'elle dit. Lecture seule côté Google."""
+    from backend.services.parc_inventaire import enregistrer_releve
+
+    client = _client_google(session)
+    if not client.appareils_disponibles:
+        raise HTTPException(
+            400,
+            "Le droit de lecture des Chromebooks n'est pas accordé au compte de "
+            "service. Ajoute le champ d'application "
+            "admin.directory.device.chromeos.readonly à la délégation, dans la "
+            "console d'administration.",
+        )
+    try:
+        appareils = client.lister_appareils()
+    except Exception as e:
+        raise HTTPException(502, f"Lecture Google impossible : {type(e).__name__}: {e}")
+    r = enregistrer_releve(session, appareils)
+    return ReleveOut(**asdict(r), inventaire=_inventaire_out(session))
+
+
+class EchangePayload(BaseModel):
+    ancienne: str | None = None
+    nouvelle: str | None = None
+    porteur: str | None = None
+    raison: str
+    precision: str | None = None
+    devenir: str = "stock"
+    organes: list[str] = []
+    etiquette_ancienne: str | None = None
+    chargeur: str | None = None
+    ecrire_google: bool = True
+    """Reporter tout de suite les étiquettes dans la console."""
+
+
+class EcritureGoogleOut(BaseModel):
+    serie: str
+    ok: bool
+    message: str
+
+
+class EchangeOut(BaseModel):
+    message: str
+    google: list[EcritureGoogleOut]
+    inventaire: InventaireOut
+
+
+@router.post("/echanger", response_model=EchangeOut)
+def poser_echange(payload: EchangePayload, session: Session = Depends(db_session)) -> EchangeOut:
+    """Remet, reprend ou échange une machine, puis écrit les étiquettes dans Google.
+
+    Le geste est noté d'abord. L'écriture Google vient après, et son échec
+    n'annule rien : la machine reste parmi les étiquettes à reporter.
+    """
+    from backend.services.parc_inventaire import echanger, ecrire_dans_google
+
+    recu = _geste(
+        lambda: echanger(
+            session,
+            ancienne=payload.ancienne,
+            nouvelle=payload.nouvelle,
+            porteur=payload.porteur,
+            raison=payload.raison,
+            precision=payload.precision,
+            devenir=payload.devenir,
+            organes=payload.organes,
+            etiquette_ancienne=payload.etiquette_ancienne,
+            chargeur=payload.chargeur,
+        )
+    )
+    google: list[EcritureGoogleOut] = []
+    if payload.ecrire_google and recu.a_ecrire:
+        try:
+            client = _client_google(session)
+            google = [
+                EcritureGoogleOut(**asdict(r))
+                for r in ecrire_dans_google(session, client, recu.a_ecrire)
+            ]
+        except HTTPException as e:
+            google = [
+                EcritureGoogleOut(serie=s, ok=False, message=str(e.detail))
+                for s in recu.a_ecrire
+            ]
+    return EchangeOut(message=recu.message, google=google, inventaire=_inventaire_out(session))
+
+
+class ReporterPayload(BaseModel):
+    series: list[str] | None = None
+    """Vide : toutes les machines dont l'étiquette Google est en retard."""
+
+
+class ReporterOut(BaseModel):
+    google: list[EcritureGoogleOut]
+    inventaire: InventaireOut
+
+
+@router.post("/google/reporter", response_model=ReporterOut)
+def reporter_dans_google(
+    payload: ReporterPayload, session: Session = Depends(db_session)
+) -> ReporterOut:
+    """Écrit dans la console les étiquettes que les gestes notés ici attendent."""
+    from backend.services.parc_inventaire import ecrire_dans_google, series_a_reporter
+
+    series = payload.series or series_a_reporter(session)
+    client = _client_google(session)
+    resultats = ecrire_dans_google(session, client, series)
+    return ReporterOut(
+        google=[EcritureGoogleOut(**asdict(r)) for r in resultats],
+        inventaire=_inventaire_out(session),
+    )
+
+
+class EntreeStockPayload(BaseModel):
+    precision: str | None = None
+
+
+@router.post("/machines/{serie}/stock", response_model=InventaireOut)
+def mettre_au_stock(
+    serie: str, payload: EntreeStockPayload, session: Session = Depends(db_session)
+) -> InventaireOut:
+    """Déclare une machine disponible — neuve, ou réparée hors du programme."""
+    from backend.services.parc_inventaire import entrer_au_stock
+
+    _geste(lambda: entrer_au_stock(session, serie, precision=payload.precision))
+    return _inventaire_out(session)
+
+
+class MouvementOut(BaseModel):
+    id: int
+    quand: datetime
+    objet: str
+    serie: str
+    geste: str
+    de: str | None
+    vers: str | None
+    raison: str | None
+    precision: str | None
+    autre_serie: str | None
+    google: str | None
+
+
+@router.get("/journal", response_model=list[MouvementOut])
+def lire_journal(
+    serie: str | None = None,
+    personne: str | None = None,
+    limite: int = 300,
+    session: Session = Depends(db_session),
+) -> list[MouvementOut]:
+    from backend.services.parc_inventaire import journal
+
+    return [
+        MouvementOut(**{k: getattr(m, k) for k in MouvementOut.model_fields})
+        for m in journal(session, serie=serie, personne=personne, limite=min(limite, 2000))
+    ]
+
+
+class FicheOut(BaseModel):
+    poste: PosteOut | None
+    pannes: list[PanneOut]
+    journal: list[MouvementOut]
+
+
+@router.get("/machines/{serie}/fiche", response_model=FicheOut)
+def fiche_machine(serie: str, session: Session = Depends(db_session)) -> FicheOut:
+    """Tout ce qu'on sait d'une machine : où elle est, ses pannes, son histoire."""
+    from backend.models import PanneChromebook
+    from backend.services.parc_inventaire import inventaire, journal
+
+    poste = next((p for p in inventaire(session).postes if p.serie == serie), None)
+    pannes = (
+        session.query(PanneChromebook)
+        .filter_by(serie=serie)
+        .order_by(PanneChromebook.constatee_le.desc(), PanneChromebook.id.desc())
+        .all()
+    )
+    return FicheOut(
+        poste=_poste_out(poste) if poste else None,
+        pannes=[PanneOut(**{c: getattr(p, c) for c in PanneOut.model_fields}) for p in pannes],
+        journal=[
+            MouvementOut(**{k: getattr(m, k) for k in MouvementOut.model_fields})
+            for m in journal(session, serie=serie)
+        ],
+    )
+
+
+class PersonneChoixOut(BaseModel):
+    adresse: str
+    nom: str
+    prenom: str
+    type: str
+    detail: str | None
+    inscrit: bool
+
+
+@router.get("/personnes", response_model=list[PersonneChoixOut])
+def personnes_choisissables(session: Session = Depends(db_session)) -> list[PersonneChoixOut]:
+    """Les inscrits de l'année qui ont une adresse — à qui confier, à qui donner."""
+    from backend.services.parc_inventaire import annuaire
+
+    gens = [p for p in annuaire(session).values() if p.inscrit]
+    gens.sort(key=lambda p: (p.type == "eleve", p.nom.lower(), p.prenom.lower()))
+    return [PersonneChoixOut(**asdict(p)) for p in gens]
+
+
+class DetentionOut(BaseModel):
+    adresse: str
+    nom: str | None
+    detail: str | None
+    inscrit: bool | None
+    machines: list[PosteOut]
+    accessoires: list[dict]
+
+
+@router.get("/detient", response_model=DetentionOut)
+def ce_que_detient(adresse: str, session: Session = Depends(db_session)) -> DetentionOut:
+    from backend.services.parc_inventaire import detient
+
+    d = detient(session, adresse)
+    return DetentionOut(
+        adresse=d.adresse,
+        nom=d.nom,
+        detail=d.detail,
+        inscrit=d.inscrit,
+        machines=[_poste_out(p) for p in d.machines],
+        accessoires=d.accessoires,
+    )
+
+
+class PointagePayload(BaseModel):
+    depuis: date | None = None
+
+
+@router.post("/pointage/commencer", response_model=InventaireOut)
+def ouvrir_pointage(payload: PointagePayload, session: Session = Depends(db_session)) -> InventaireOut:
+    """Ouvre un inventaire physique : tout ce qui a été vu avant est à revoir."""
+    from backend.services.parc_inventaire import commencer_pointage
+
+    commencer_pointage(session, payload.depuis)
+    return _inventaire_out(session)
+
+
+class ConstatPayload(BaseModel):
+    constat: str
+    porteur: str | None = None
+    lieu: str | None = None
+    organes: list[str] = []
+    note: str | None = None
+
+
+class ConstatOut(BaseModel):
+    message: str
+    inventaire: InventaireOut
+
+
+@router.post("/machines/{serie}/pointer", response_model=ConstatOut)
+def pointer_machine(
+    serie: str, payload: ConstatPayload, session: Session = Depends(db_session)
+) -> ConstatOut:
+    """Note ce qu'on constate d'une machine pendant l'inventaire. N'écrit pas dans Google."""
+    from backend.services.parc_inventaire import pointer
+
+    message = _geste(
+        lambda: pointer(
+            session,
+            serie,
+            constat=payload.constat,
+            porteur=payload.porteur,
+            lieu=payload.lieu,
+            organes=payload.organes,
+            note=payload.note,
+        )
+    )
+    return ConstatOut(message=message, inventaire=_inventaire_out(session))
+
+
+class SeuilsPayload(BaseModel):
+    machines: int | None = None
+    chargeurs: int | None = None
+
+
+@router.post("/seuils", response_model=dict[str, int])
+def regler_seuils(payload: SeuilsPayload, session: Session = Depends(db_session)) -> dict:
+    """En dessous, le parc le signale : il est temps de commander."""
+    from backend.services.parc_inventaire import poser_seuils
+
+    return poser_seuils(session, payload.model_dump(exclude_none=True))
